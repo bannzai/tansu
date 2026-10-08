@@ -1,0 +1,9 @@
+node_modules/
+dist/
+tmp/
+test-results/
+.envrc
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
