@@ -3,8 +3,8 @@
 .DEFAULT_GOAL := web
 
 # ブラウザで開く URL をサーバーの待ち受けと一致させるため、serve サブコマンドの既定のポートと同じ値にする。環境変数 TANSU_PORT で上書きできる。
-# 7979 は、開発マシンで同時に動く他の dev サーバーの既定 (3000 / 5173 / 8080 / agent-timeline の 7878) と重ならず、
-# IANA のサービス名・ポート番号の登録にも無い番号として選んだ (serve サブコマンドの実装後はそちらのコメントを正にする)。
+# 7979 は、開発マシンで同時に動く他の dev サーバーの既定 (3000 / 5173 / 8080 / agent-timeline の 7878) と重ならない番号として選んだ
+# (IANA には micromuse-ncps として登録があるが、開発マシンで動くことは無い)。既定の定義は documents/PROJECT.md「CLI (汎用)」の serve の行。
 TANSU_PORT ?= 7979
 export TANSU_PORT
 
