@@ -22,9 +22,10 @@ web:
 build-web: build-cli
 
 # CLI の単一バイナリをビルドして ~/.local/bin へ配置する (castle の skill とゲートはこの tansu を実行する)。
+# cp で同じ inode を上書きすると、macOS がキャッシュした ad-hoc 署名と中身が食い違って Killed: 9 になるため、install で置き換える。
 cli: build-cli
 	mkdir -p $(HOME)/.local/bin
-	cp dist/tansu $(HOME)/.local/bin/tansu
+	install -m 755 dist/tansu $(HOME)/.local/bin/tansu
 
 build-cli:
 	bun run build
