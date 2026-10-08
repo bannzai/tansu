@@ -19,8 +19,8 @@ launched_at:
 
 | 指標 | 計測元 (skill / コマンド) | 継続のしきい値 | 打ち切り条件 | 転換の条件 |
 | --- | --- | --- | --- | --- |
-| 14 日間に tansu に記録した QA の実行結果 (run) の件数 (bannzai 自身と agent) | `tansu query run --json --where 'recorded_at>=<14 日前の日付>' --where 'source=record' \| jq length` (`qa import` で取り込んだ過去の記録 (`source=import`) は数えない。データベース `run` とプロパティ `recorded_at` / `source` は `documents/PROJECT.md`「QA 層」の表。CLI の契約は `documents/cli-contract.md` (QA 層の CLI の issue で作る)) | 20 件以上 | 2 回連続で 5 件未満 | run は増えるが Web 画面を開いた日数が 0 なら、Web 画面を外して CLI と MCP だけに絞る |
-| 14 日間で Web 画面を開いた日数 (bannzai 自身) | サーバーが画面の読み込みのたびに `~/.tansu/usage.jsonl` へ 1 行書く。`jq -r --arg since "$(date -v-14d +%F)" 'select(.event == "web_open" and .at[0:10] >= $since) \| .at[0:10]' ~/.tansu/usage.jsonl \| sort -u \| wc -l` で直近 14 日の日付の数を数える | 4 日以上 | (run の件数の打ち切り条件に従う) | 上の行と同じ |
+| 14 日間に tansu に記録した QA の実行結果 (run) の件数 (bannzai 自身と agent) | `tansu query run --json --where "recorded_at>=$(date -v-13d +%F)" --where 'source=record' \| jq length` (当日を含む 14 日) (`qa import` で取り込んだ過去の記録 (`source=import`) は数えない。データベース `run` とプロパティ `recorded_at` / `source` は `documents/PROJECT.md`「QA 層」の表。CLI の契約は `documents/cli-contract.md` (QA 層の CLI の issue で作る)) | 20 件以上 | 2 回連続で 5 件未満 | run は増えるが Web 画面を開いた日数が 0 なら、Web 画面を外して CLI と MCP だけに絞る |
+| 14 日間で Web 画面を開いた日数 (bannzai 自身) | サーバーが画面の読み込みのたびに `~/.tansu/usage.jsonl` へ 1 行書く。`jq -r --arg since "$(date -v-13d +%F)" 'select(.event == "web_open" and .at[0:10] >= $since) \| .at[0:10]' ~/.tansu/usage.jsonl \| sort -u \| wc -l` で当日を含む 14 日の日付の数を数える | 4 日以上 | (run の件数の打ち切り条件に従う) | 上の行と同じ |
 | QA.md が残っているリポジトリの数 (`~/ghq/github.com/bannzai` 配下) | `find ~/ghq/github.com/bannzai -maxdepth 4 -name QA.md -not -path '*/node_modules/*' -not -path '*/bannzai/tansu/*' \| sed -E 's#^.*/github\.com/bannzai/([^/]+)/.*$#\1#' \| sort -u \| wc -l` (リポジトリ名で数える。立ち上げ時点で 10) | `qa import` の完成 (castle #1359 の着手) から 28 日で 0 | 56 日たっても 5 以上なら、移行の障害 (取り込めない記述・castle 側の skill の未整備) を issue にして転換を判断する | 残るリポジトリの理由が「QA.md の方が便利」なら、tansu を QA.md の表示・集計ツールに戻す (castle #1349 の案 3) |
 
 ## 必要な機能

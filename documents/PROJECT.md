@@ -6,7 +6,7 @@
 
 ## 構成
 
-サーバー 1 プロセス + SQLite 1 ファイル。実行環境は Bun (TypeScript)。SQLite は Bun 組み込みの `bun:sqlite` を使い、ネイティブ拡張の依存を持たない。
+SQLite 1 ファイルを、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じモジュールを通して開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。実行環境は Bun (TypeScript)。SQLite は Bun 組み込みの `bun:sqlite` を使い、ネイティブ拡張の依存を持たない。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -88,7 +88,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 ## 制約
 
 - **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする
-- **`Host` の検査 (DNS rebinding 対策)**: HTTP API は `Host` が許可リストに無いリクエストを拒否する。許可リストは、`127.0.0.1` と `localhost` (ポート付き) に加え、`--host 0.0.0.0` の時はこのマシンのネットワークインターフェースの IP (起動時に列挙する。iPhone はこれで接続する) と、`--allow-host <ホスト名>` で明示したもの (Tailscale の MagicDNS 名など)
+- **`Host` の検査 (DNS rebinding 対策)**: HTTP API は `Host` が許可リストに無いリクエストを拒否する。許可リストは、`127.0.0.1` と `localhost` (ポート付き)、`--host` に指定した値、`--host 0.0.0.0` の時はこのマシンのネットワークインターフェースの IP (起動時に列挙する。iPhone はこれで接続する) に加え、`--allow-host <ホスト名>` で明示したもの (Tailscale の MagicDNS 名など)
 - **書き込みの API は CSRF も防ぐ**: 書き込み (upsert / delete / `qa record` 等) は `Host` が正当でも別のサイトからの form POST や no-cors のリクエストで届くため、`Origin` が無いか `Host` と同じオリジンの時だけ受け付け、`Sec-Fetch-Site` が `cross-site` なら拒否し、本文は `Content-Type: application/json` だけを受け付ける (別のサイトがプリフライトなしで送れる形式を受け付けない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため影響しない
 - **マシンの外へ出さない**: 外部への計測・テレメトリ・実行時の外部へのリクエストを持たない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む) と利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)

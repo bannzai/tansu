@@ -29,3 +29,5 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - run: bun run build
+      # --compile した単一バイナリで import.meta.main・Bun.argv・package.json の JSON import が動くことを確かめる
+      - run: ./dist/tansu --version
