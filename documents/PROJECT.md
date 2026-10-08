@@ -55,7 +55,7 @@
 | コマンド | 役割 |
 | --- | --- |
 | `tansu qa import <QA.md のパスまたはリポジトリのルート>...` | QA.md 群を DB に取り込む。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む。同じファイルを 2 回取り込んでも行が増えない (冪等) |
-| `tansu qa record --item <ID> --result OK\|NG\|later\|skip [--note ...] [--image-url ...] [--commit <sha>] [--env ...]` | agent が実行結果を書く |
+| `tansu qa record --item <ID> --result OK\|NG\|later\|skip --commit <sha> [--note ...] [--image-url ...] [--env ...] [--run-id <ID>]` | agent が実行結果を書く。実行のたびに run を 1 行足す (冪等性の扱いは「制約」) |
 | `tansu qa verified --repo <owner/repo> --commit <sha> --json` | その commit 以降に変更された feature と未検証の項目を返す。run の commit と `git diff` を突き合わせる。castle の release-app / auto-merge-pr のゲートがこれを呼ぶ |
 | `tansu qa export --repo <owner/repo> --format pr-summary` | PR body に貼る「何をどう確認したか」の要約 |
 
@@ -90,7 +90,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 - **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする。HTTP API は `Host` がこのサーバー自身 (待ち受けのホストとポート) でないリクエストを拒否し、ブラウザで開いた別のサイトからの DNS rebinding を防ぐ
 - **マシンの外へ出さない**: 計測・テレメトリ・実行時の外部へのリクエストを持たない。アプリが書くファイルは DB と利用記録 `~/.tansu/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる。記録先は環境変数 `TANSU_HOME` で差し替えられるようにする
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)
-- **冪等**: `qa import` を含むすべての書き込みは、同じ入力で 2 回実行しても結果が変わらない
+- **冪等**: `qa import` と `upsert` は自然キー (取り込み元のファイルと項目名、行 ID) で upsert し、同じ入力で 2 回実行しても行が増えない。`qa record` は QA を実行した事実の記録なので、実行のたびに run を 1 行足す (同じ項目を 2 回確認すれば run は 2 行)。再試行で同じ実行が二重に入るのを防ぐ時は、呼び出し側が `--run-id <一意な ID>` を渡し、同じ `run-id` の run は 1 行にする
 
 ## インフラの決定
 

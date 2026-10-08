@@ -10,10 +10,13 @@ export TANSU_PORT
 
 .PHONY: web build-web cli build-cli
 
-# サーバーが前面で動くため、ブラウザは背面で少し待ってから開く。
+# serve サブコマンドは Web 画面の issue で実装する。それまでは、無いコマンドを呼んで黙って失敗する代わりに理由を出して止める。
+# 実装後はこの target を次の 2 行に置き換える (サーバーが前面で動くため、ブラウザは背面で少し待ってから開く):
+#   (sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
+#   bun run ./src/cli.ts serve --port $(TANSU_PORT)
 web:
-	(sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
-	bun run ./src/cli.ts serve --port $(TANSU_PORT)
+	@echo "tansu serve は未実装です (Web 画面の issue で実装する。進捗は documents/DIRECTION.md「必要な機能」)" >&2
+	@exit 1
 
 # Web 画面は Bun がソースから直接配信するため、サーバー向けの個別のビルドは無い。
 build-web: build-cli
