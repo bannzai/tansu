@@ -22,7 +22,7 @@
 - データベースは複数作れ、relation で表同士を結べる
 - 各行は詳細ページを持つ: markdown の本文 + プロパティの値
 - スキーマ (データベースとプロパティの定義) は SQLite の中に持ち、CLI の `db create` / `db schema` で変える。ファイルの手編集やマイグレーションのスクリプトを利用者に求めない。SQLite のスキーマの規約は `.claude/rules/sqlite-database.md`
-- DB ファイルの既定は `~/.tansu/tansu.sqlite`。環境変数 `TANSU_DB` で差し替える (テストは一時ディレクトリの DB を使い、実際のホームディレクトリに書かない)
+- tansu がこのマシンに書くファイルはすべて `TANSU_HOME` (既定 `~/.tansu`。`~/.claude` / `~/.codex` と同じく、ホーム直下のツール名のドット付きディレクトリに置く方が、利用者がバックアップ・削除の対象を見つけやすいため) の下に置く。DB ファイルの既定は `$TANSU_HOME/tansu.sqlite` で、環境変数 `TANSU_DB` があればそのパスを優先する (テストは `TANSU_HOME` を一時ディレクトリにし、実際のホームディレクトリに書かない)
 
 ## CLI (汎用)
 
@@ -48,7 +48,7 @@
 | project | リポジトリ (`owner/repo`)、ローカルの checkout のパス |
 | feature | project への relation、feature 名、QA.md の `verification` (動作確認手段) |
 | item | feature への relation、項目名、期待動作、自動化ステータス (`auto(<flow のパス>)` / `manual(<理由>)` / `todo`)、仕様 ID (S1, S2, ...) の紐付け、label (multi-select) |
-| run | item への relation、結果 (OK / NG / あとで / スキップ)、メモ、確認日、画像 URL、検証環境、検証した commit SHA (full) |
+| run | item への relation、結果 (OK / NG / あとで / スキップ)、メモ、記録日時 `recorded_at` (時差付きの ISO 8601。QA.md から取り込んだ記録は `**確認日:**` の日付)、画像 URL、検証環境、検証した commit SHA (full) |
 
 ### CLI
 
@@ -83,12 +83,14 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 
 ## 複数の Mac の同期
 
-同期の手段は関門 1 で決める。候補は、iCloud Drive 上の SQLite / 専用の private git repo に JSON で持つ / 常時稼働の 1 台にサーバーを置き他はクライアント。MVP の第 1〜5 弾は 1 台の Mac で完結し、同期は最後の弾で足す。
+同期の手段は関門 1 で決める。候補は、iCloud Drive 上の SQLite / 専用の private git repo に JSON で持つ / 常時稼働の 1 台にサーバーを置き他はクライアント。DIRECTION.md「必要な機能」の同期以外の項目は 1 台の Mac で完結させ、同期は最後に足す (着手順はロードマップの親 issue)。
 
 ## 制約
 
-- **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする。HTTP API は `Host` がこのサーバー自身 (待ち受けのホストとポート) でないリクエストを拒否し、ブラウザで開いた別のサイトからの DNS rebinding を防ぐ
-- **マシンの外へ出さない**: 計測・テレメトリ・実行時の外部へのリクエストを持たない。アプリが書くファイルは DB と利用記録 `~/.tansu/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる。記録先は環境変数 `TANSU_HOME` で差し替えられるようにする
+- **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする
+- **`Host` の検査 (DNS rebinding 対策)**: HTTP API は `Host` が許可リストに無いリクエストを拒否する。許可リストは、`127.0.0.1` と `localhost` (ポート付き) に加え、`--host 0.0.0.0` の時はこのマシンのネットワークインターフェースの IP (起動時に列挙する。iPhone はこれで接続する) と、`--allow-host <ホスト名>` で明示したもの (Tailscale の MagicDNS 名など)
+- **書き込みの API は CSRF も防ぐ**: 書き込み (upsert / delete / `qa record` 等) は `Host` が正当でも別のサイトからの form POST や no-cors のリクエストで届くため、`Origin` が無いか `Host` と同じオリジンの時だけ受け付け、`Sec-Fetch-Site` が `cross-site` なら拒否し、本文は `Content-Type: application/json` だけを受け付ける (別のサイトがプリフライトなしで送れる形式を受け付けない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため影響しない
+- **マシンの外へ出さない**: 計測・テレメトリ・実行時の外部へのリクエストを持たない。アプリが書くファイルは DB と利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)
 - **冪等**: `qa import` と `upsert` は自然キー (取り込み元のファイルと項目名、行 ID) で upsert し、同じ入力で 2 回実行しても行が増えない。`qa record` は QA を実行した事実の記録なので、実行のたびに run を 1 行足す (同じ項目を 2 回確認すれば run は 2 行)。再試行で同じ実行が二重に入るのを防ぐ時は、呼び出し側が `--run-id <一意な ID>` を渡し、同じ `run-id` の run は 1 行にする
 
@@ -98,7 +100,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 | --- | --- | --- |
 | DB・ストレージ | 利用者のマシンの SQLite 1 ファイル (`bun:sqlite`) | ローカルで動かす前提。ネイティブ拡張の依存を持たない |
 | ホスティング | 持たない。利用者のマシンで clone から動かす | データが手元にあり、非公開のもの |
-| 認証 | 持たない。既定の `127.0.0.1` での待ち受けと `Host` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
+| 認証 | 持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
 | 計測 | 手元の利用記録と DB の行数 | 外部へ送信しない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
 | アラート (GCP・Crashlytics)・課金・ストア配布・法務ドキュメント・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払い・外部へのデータ送信が無い |
