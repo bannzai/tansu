@@ -25,7 +25,7 @@ launched_at:
 
 ## 必要な機能
 
-- [ ] 汎用のデータベース: 自由に定義したプロパティ (text / number / select / multi-select / checkbox / url / date / relation) を持つ表を複数作れ、relation で表同士を結べる。各行は詳細ページ (markdown 本文 + プロパティ) を持つ。保存先は SQLite 1 ファイル
+- [ ] 汎用のデータベース: 自由に定義したプロパティ (text / number / select / multi-select / checkbox / url / date / relation) を持つ表を複数作れ、relation で表同士を結べる。各行は詳細ページ (markdown 本文 + プロパティ) を持つ。保存先は libSQL の DB 1 つ (ローカルを選んだ時は SQLite 1 ファイル、クラウドを選んだ時は Turso Cloud の DB 1 つ)
 - [ ] CLI (汎用): `db create` / `db schema` (表とプロパティの定義)、`query --json` (絞り込み)、`upsert` / `delete` (行の読み書き)、`export` (markdown / JSON)
 - [ ] QA 層のスキーマと `qa import`: project (= リポジトリ) → feature → item (項目名・期待動作・自動化ステータス `auto(flow パス) | manual(理由) | todo`・仕様 ID の紐付け) → run (結果 OK / NG / あとで / スキップ・メモ・確認日・画像 URL・検証環境・検証した commit SHA)。label は multi-select プロパティ。`qa import` は QA.md 群 (castle の `setup-qa/references/qa-md-format.md` の形式) をエビデンス・`last_verified_commit`・⏭️ / ❌ の記録ごと取り込む
 - [ ] QA 層の CLI: `qa record` (agent が結果・画像 URL・commit を書く)、`qa verified --repo <owner/repo> --commit <sha>` (その commit 以降に変更された feature と未検証項目を返す。castle の release-app / auto-merge-pr のゲートが呼ぶ)、`qa export --repo <owner/repo> --format pr-summary` (PR body に貼る要約)。castle 側 (#1357 / #1358 / #1359) が依存する契約はここまで
