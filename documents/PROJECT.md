@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) が決まり次第この構成に作り直す。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Rust の crate: コア・CLI・MCP、`web/` の Vite + React) に作り直す。サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) に依存するのはサーバーの crate とホスティング・ログインの範囲だけで、作り直しの PR はその決定を待って出す。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -34,7 +34,8 @@
 | `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する | 各 Mac が同じ DB を開くので同期の処理を持たない |
 
 - Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)
-- Rust で書き直された Turso Database (旧 Limbo) は 1.0 前で複数プロセスの WAL が experimental のため ( https://github.com/tursodatabase/turso README、2026-10-11 時点)、本番の経路である libSQL を使う
+- 同ページが新規の同期に勧める Turso Sync (ローカルで読み書きし `push()` / `pull()` で同期する) も第 1 弾では使わず、クラウド直結にする。必要になったら embedded replica と同じ観点 (複数プロセスの同時アクセス) で検討する
+- Rust で書き直された Turso Database (旧 Limbo。改名の一次情報は未確認で、README には出てこない) は 1.0 前で複数プロセスの WAL が experimental のため ( https://github.com/tursodatabase/turso README、2026-10-11 時点)、現時点の本番の経路である libSQL を使う (同 README は将来 libSQL を置き換える方向と書いている)
 - Turso のアカウント・DB・トークンの作成は利用者が行う (agent は外部サービスとの新規連携を行わない)
 
 ## CLI (汎用)
@@ -114,7 +115,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 | DB・ストレージ | libSQL。利用者のマシンの SQLite 1 ファイル、または Turso Cloud の DB (起動時に選ぶ) | ローカルで完結する使い方と、複数の Mac で同じ DB を使う使い方の両方を、接続先の違いだけで実現できる |
 | ホスティング | (関門 1 の未回答の項目。各 Mac の localhost か、クラウドか) | クラウドに置く時はログイン・CD・法務ドキュメントが要る |
 | 認証 | サーバーを各 Mac の localhost で動かす間は持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
-| 計測 | 手元の利用記録と DB の行数 | 外部へ送信しない制約に合う外部サービスが無い |
+| 計測 | 手元の利用記録と DB の行数 | 外部への計測・テレメトリを持たない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
 | アラート (GCP・Crashlytics)・課金・ストア配布・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払いが無い |
 | 法務ドキュメント (利用規約・プライバシーポリシー) | サーバーを各 Mac の localhost で動かす間は対象外 (README の「データの扱い」で代える) | 利用者は bannzai 1 人で、外部への送信は利用者自身が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い)。サーバーをクラウドに置いて他人も使うなら要る (「複数の Mac の同期」) |
