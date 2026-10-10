@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Rust の crate: コア・CLI・MCP、`web/` の Vite + React) に作り直す。サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) に依存するのはサーバーの crate とホスティング・ログインの範囲だけで、作り直しの PR はその決定を待って出す。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Rust の crate: コア・CLI・MCP・サーバー (サーバーの言語はサーバーの置き場所の決定に従う。localhost なら Rust)、`web/` の Vite + React) に作り直す。サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) に依存するのはサーバーの crate とホスティング・ログインの範囲だけで、作り直しの PR はその決定を待って出す。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -22,7 +22,7 @@
 - データベースは複数作れ、relation で表同士を結べる
 - 各行は詳細ページを持つ: markdown の本文 + プロパティの値
 - スキーマ (データベースとプロパティの定義) は SQLite の中に持ち、CLI の `db create` / `db schema` で変える。ファイルの手編集やマイグレーションのスクリプトを利用者に求めない。SQLite のスキーマの規約は `.claude/rules/sqlite-database.md`
-- tansu がこのマシンに書くファイルはすべて `TANSU_HOME` (既定 `~/.tansu`。`~/.claude` / `~/.codex` と同じく、ホーム直下のツール名のドット付きディレクトリに置く方が、利用者がバックアップ・削除の対象を見つけやすいため) の下に置く (テストは `TANSU_HOME` を一時ディレクトリにし、実際のホームディレクトリに書かない)
+- tansu がこのマシンに書くファイルはすべて `TANSU_HOME` (既定 `~/.tansu`。`~/.claude` / `~/.codex` と同じく、ホーム直下のツール名のドット付きディレクトリに置く方が、利用者がバックアップ・削除の対象を見つけやすいため) の下に置く。ただし DB だけは `TANSU_DB_URL` の `file:<パス>` で別の場所にもできる (テストは `TANSU_HOME` を一時ディレクトリにし、実際のホームディレクトリに書かない)
 
 ### DB の置き場所
 
