@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。立ち上げ PR #1 の Bun + TypeScript の雛形は、サーバーの置き場所 (関門 1 の未回答の項目) が決まり次第この構成に作り直す。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) が決まり次第この構成に作り直す。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -33,7 +33,7 @@
 | 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
 | `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する | 各 Mac が同じ DB を開くので同期の処理を持たない |
 
-- Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は、同期中にローカルの DB を別のプロセスから開けない制約があり ( https://docs.turso.tech/features/embedded-replicas/introduction 「Do not open the local database while the embedded replica is syncing」)、CLI・MCP・serve が同じ DB を開く tansu の構成と合わないため使わない
+- Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)
 - Rust で書き直された Turso Database (旧 Limbo) は 1.0 前で複数プロセスの WAL が experimental のため ( https://github.com/tursodatabase/turso README、2026-10-11 時点)、本番の経路である libSQL を使う
 - Turso のアカウント・DB・トークンの作成は利用者が行う (agent は外部サービスとの新規連携を行わない)
 
