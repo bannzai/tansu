@@ -55,11 +55,12 @@ MVP に入れないもの: Notion との同期、他人への配布 (npm への�
 | 2026-10-11 | 関門 1 (チャット) | 長期の構想は「Rust × Wasm でガリガリに最適化した Notion 風のサービス」で、tansu はその最初の実装。最初のユースケースは bannzai 自身の QA DB。bannzai の既存リポジトリ・IdeaMemo にこの構想の記録は無く (agent が 2026-10-11 に検索)、ここが初出 | bannzai |
 | 2026-10-11 | 関門 1 (チャット) | CLI は Rust。Web 画面は今は TypeScript × React で書き、将来 Wasm (Rust のコア) を組み込んで最適化する。コア (スキーマ・問い合わせ・QA.md のパーサ) は最初から Rust の crate にし、Wasm はその build target として後から足す (書き直しにしない)。立ち上げ PR #1 の Bun + TypeScript の雛形は作り直す | bannzai (構成の細部は agent) |
 | 2026-10-11 | 関門 1 (チャット) | DB の置き場所は、ローカルの SQLite ファイルと Turso Cloud (libSQL) の両方に対応し、利用者が起動時に選ぶ。クラウドを選んだ時はデータが Turso に載るので、2026-10-08 の「マシンの外へ出さない」の制約はローカルを選んだ時だけに縮める | bannzai |
+| 2026-10-11 | 関門 1 (チャット) の後 | 置き場所の指定は `TANSU_DB_URL` (未設定ならローカルのファイル。2026-10-08 の `TANSU_DB` はこれに置き換える)。Turso の embedded replica は CLI・MCP・serve が同じ DB を開く構成と合わないため使わず、ローカルのファイルかクラウド直結の 2 択にする (`documents/PROJECT.md`「DB の置き場所」) | agent |
 | 2026-10-11 | 関門 1 (チャット) | リポジトリ名は当面 tansu のまま。よりよい名前にいずれ変える (時期は未定) | bannzai |
 
 ## agent に任せること
 
-- Web 画面のライブラリの選定 (単一ページの HTML という制約の中で)、画面の細部、API の形
+- Web 画面のライブラリの選定 (TypeScript × React の中で)、画面の細部、API の形
 - SQLite のスキーマの細部 (メタスキーマの持ち方・マイグレーションの方式。規約は `.claude/rules/sqlite-database.md`)
 - CLI のサブコマンドの引数の形と JSON の形 (castle 側が依存する契約は `documents/cli-contract.md` に書いて固定する)
 - CI の構成、テストの書き方

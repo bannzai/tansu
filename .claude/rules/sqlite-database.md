@@ -6,7 +6,7 @@ paths:
 
 # SQLite のデータの持ち方
 
-tansu のデータは SQLite 1 ファイル (既定 `$TANSU_HOME/tansu.sqlite`、`TANSU_HOME` の既定は `~/.tansu`。環境変数 `TANSU_DB` があればそのパスを優先する) にある。利用者のデータベースとプロパティの定義 (メタスキーマ) も同じファイルの中に持つ。
+tansu のデータは libSQL の DB 1 つ (既定はローカルの SQLite ファイル `$TANSU_HOME/tansu.sqlite`、`TANSU_HOME` の既定は `~/.tansu`。環境変数 `TANSU_DB_URL` で Turso Cloud の DB にも向けられる。選び方は `documents/PROJECT.md`「DB の置き場所」) にある。利用者のデータベースとプロパティの定義 (メタスキーマ) も同じ DB の中に持つ。以下の「ファイル」はローカルを選んだ時の SQLite ファイルを指し、Turso Cloud を選んだ時も同じ規約を DB に当てる。
 
 - **物理スキーマの定義は 1 箇所**: SQLite のテーブル定義 (CREATE TABLE) は `src/db/` のモジュールにだけ書く。コアの関数以外 (CLI・MCP・HTTP API・画面) は SQL を書かず、コアの関数を呼ぶ
 - **マイグレーションは起動時に自動で当てる**: 物理スキーマの変更は、番号付きのマイグレーション (`src/db/migrations/`) として足し、`user_version` で適用済みを判定して起動時に順に当てる。利用者にスクリプトの実行を求めない。当てたマイグレーションは書き換えず、変更は新しい番号で足す
