@@ -41,37 +41,11 @@
 
 ## QA 層
 
-`qa import` が最初に作る 4 つのデータベース (Rust の型はまだ無い。QA 層の CLI の issue で、必要になった時に `crates/core` に足す)。汎用層の `Row` を次の形に読み替える (union のプロパティは汎用層に無いので、`automation` は select + text の 2 列に平たくする)。
+`qa import` が最初に作る 4 つのデータベース (project / feature / item / run)。名前・プロパティ・unique の定義は `crates/core/src/qa/mod.rs` の `DATABASES` (汎用層の `db schema --add` と同じ指定) にあり、ここには写しを置かない。QA 層専用の Rust の型は持たず、汎用層の `Row` をそのまま使う (QA 層の CLI の issue で必要になった時に足す)。union のプロパティは汎用層に無いので、item の自動化ステータスは select `automation` (auto / manual / todo) + text `automation_detail` (auto の flow のパス、manual の理由) の 2 列に平たくする。run の `result` は select (ok / ng / later / skip)、`source` は select (record = `qa record` と Web 画面、import = `qa import`)、`recorded_at` は date (時差付き ISO 8601 か日付)、`commit` は text (full SHA)、`run_id` は text (unique。呼び出し側が渡す冪等キー)。
 
-```rust
-pub struct QaProject { pub repo: String /* unique */, pub path: Option<String> }
+`qa import` (`crates/core/src/qa/import.rs`) の読み替え:
 
-pub struct QaFeature { pub project: Id, pub name: String, pub verification: String }
-
-pub struct QaItem {
-    pub feature: Id,
-    pub name: String,
-    pub expected: String,
-    pub automation: QaAutomation,        // select: auto / manual / todo
-    pub automation_detail: Option<String>, // auto の flow のパス、manual の理由
-    pub spec_ids: Vec<String>,           // multi_select。S1, S2, ...
-    pub labels: Vec<String>,             // multi_select
-}
-
-pub enum QaAutomation { Auto, Manual, Todo }
-
-pub struct QaRun {
-    pub item: Id,
-    pub result: QaResult,                // select: ok / ng / later / skip
-    pub note: Option<String>,
-    pub recorded_at: String,             // 時差付き ISO 8601。import は **確認日:** の日付
-    pub source: QaSource,                // select: record / import
-    pub image_url: Option<String>,
-    pub env: Option<String>,
-    pub commit: Option<String>,          // full SHA
-    pub run_id: Option<String>,          // unique。呼び出し側が渡す冪等キー
-}
-
-pub enum QaResult { Ok, Ng, Later, Skip }
-pub enum QaSource { Record, Import }
-```
+- project: `repo` (unique) は、取り込むルートが git リポジトリのルートそのものなら origin の URL の `owner/repo`、そうでなければディレクトリ名 (リポジトリの中の fixture のディレクトリを、囲むリポジトリの名前にしないため)。`path` はルートの絶対パス。QA.md のファイルを指定した時のルートは、それを含む git リポジトリのルート (git の外なら親ディレクトリ)
+- feature: frontmatter の `feature` (無ければルート直下の QA.md は `_root`、それ以外は親ディレクトリ名) と `verification`。project + 名前で行を決める
+- item: 項目名・期待動作・自動化 (`自動化:` の行が無い項目は値なし)・仕様チェックリストの対応 (`spec_ids`。multi_select の選択肢は取り込み時に足す)。feature + 名前で行を決め、同じファイルの同じ名前の 2 つ目以降は読み飛ばす。`labels` (multi_select) は QA.md に無いので触らない
+- run: チェック済み (`ok`)・⏭️ スキップ (`skip`)・❌ 失敗 (`ng`) の項目に 1 行。`source` は `import`、`run_id` は `import:<item の行 ID>` (同じ項目の取り込みは 1 行にする)、`note` は ⏭️ / ❌ の本文とその下の併記事項、`recorded_at` はエビデンスの `**確認日: YYYY-MM-DD**` (無ければ frontmatter の `last_verified_at`、それも無ければ値なし。取り込んだ時刻は書かない: 2 回目の取り込みで行が変わらないように)、`image_url` はエビデンスの最初の `<img src>`、`commit` は frontmatter の `last_verified_commit`。`env` は触らない

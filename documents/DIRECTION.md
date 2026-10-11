@@ -63,6 +63,8 @@ MVP に入れないもの: Notion との同期、他人への配布 (crates.io�
 | 2026-10-11 | 関門 1 (チャット) の後 | 置き場所の指定は `TANSU_DB_URL` (未設定ならローカルのファイル。2026-10-08 の `TANSU_DB` はこれに置き換える)。Turso の embedded replica は CLI・MCP・serve が同じ DB を開く構成と合わないため使わず、ローカルのファイルかクラウド直結の 2 択にする (`documents/PROJECT.md`「DB の置き場所」) | agent |
 | 2026-10-11 | 関門 1 (チャット) | リポジトリ名は当面 tansu のまま。よりよい名前にいずれ変える (時期は未定) | bannzai |
 | 2026-10-11 | 汎用の DB と CLI の実装 (#6) | CLI の行の JSON は `values` をプロパティ名・選択肢の name で表す (`documents/data-model.md`「CLI の入出力」)。`upsert` は `id` か unique のプロパティの値で書く行を決め、どちらも無い入力はエラーにする (「すべての書き込みを冪等にする」に合わせた。後からキー無しの追加を許すのは呼び出し側を壊さないが、逆は壊すため厳しい方にした)。`delete` は行が無くても成功にする。生成する ID は `-` を含まない 21 文字 (CLI の引数でオプションと解釈されないように) | agent |
+| 2026-10-12 | QA 層のスキーマと `qa import` (#9) | QA 層専用の Rust の型は持たず、汎用層の `Row` をそのまま使う。取り込んだ run は `run_id = import:<item の行 ID>` で 1 項目 1 行にし、`recorded_at` はエビデンスの確認日 → frontmatter の `last_verified_at` → 値なし の順 (取り込んだ時刻は書かない。2 回目の取り込みで行が変わらないように)。`自動化:` の行が無い項目 (root QA.md の横断確認項目) の `automation` は値なし。project の `repo` は、取り込むルートが git のルートそのものの時だけ remote から取り、それ以外はディレクトリ名。root QA.md の既知の散文セクション (対象環境・起動方法・実行ナレッジ等) は読み飛ばした行として報告せず、`## N.` のセクションと仕様チェックリストと frontmatter の中の解釈できない行だけを報告する (規則は `documents/data-model.md`「QA 層」) | agent |
+| 2026-10-12 | 同上 | `TANSU_DB_URL=file::memory:` (インメモリ) は非対応のエラーにする (ファイルのパスではなく、WAL にも切り替えられない。#14 のレビューの指摘) | agent |
 
 ## agent に任せること
 

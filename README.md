@@ -49,8 +49,21 @@ tansu export tasks --format markdown
 
 select / multi_select の値は選択肢の name で読み書きする (DB には選択肢の ID で保存する)。同じ `upsert` を 2 回実行しても行は増えない。`id` も unique のプロパティの値も無い `upsert` はエラーになる。行の JSON の形は [documents/data-model.md](documents/data-model.md)「CLI の入出力」にある。
 
+### QA 層 (QA.md の取り込み)
+
+castle の setup-qa / run-qa skill の形式の QA.md を、4 つの表 (project / feature / item / run) に取り込む。表が無ければ作る。
+
+```sh
+tansu qa import ~/ghq/github.com/owner/repo                   # リポジトリのルート (配下の QA.md をすべて探す)
+tansu qa import lib/features/notes/QA.md --json               # QA.md のファイル。--json で件数と読み飛ばした行を JSON で出す
+tansu qa import ~/ghq/github.com/owner/repo --dry-run --json  # 書かずに同じ出力を出す
+tansu query run --json --where source=import                  # 取り込んだ記録
+```
+
+同じ QA.md を 2 回取り込んでも行は増えない。`--json` の `counts` は入力に含まれる project / feature / item / run の数で、2 回目や `--dry-run` でも同じ値になる (新しく足した行の数ではない)。`skipped` は解釈できずに読み飛ばした行 (`file` / `line` / `content` / `reason`)。取り込みの規則 (project の名前の決め方、run の結果と記録日時) は [documents/data-model.md](documents/data-model.md)「QA 層」にある。
+
 `tansu serve` と `tansu mcp` は未実装 (進捗は [documents/DIRECTION.md](documents/DIRECTION.md))。実装が進んだら、サーバーの起動手順と MCP サーバーの登録手順をここに書く。
 
 ## データの扱い
 
-tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書きだけで、Web 画面・MCP・利用記録は実装の方針)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
+tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書きと QA.md の取り込みだけで、Web 画面・MCP・利用記録は実装の方針)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
