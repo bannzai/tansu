@@ -67,5 +67,18 @@ fn cell_text(kind: &PropertyKind, value: &Value) -> String {
 
 /// 表の区切り `|` と改行をセルの中で使えるように置き換える。
 fn escape_cell(text: &str) -> String {
-    text.replace('|', "\\|").replace('\n', "<br>")
+    // markdown は CR も改行として読むため、CRLF・CR・LF のどれも <br> にする
+    text.replace('|', "\\|")
+        .replace("\r\n", "<br>")
+        .replace(['\r', '\n'], "<br>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cell_keeps_the_row_on_one_line() {
+        assert_eq!(escape_cell("a|b\r\nc\rd\ne"), "a\\|b<br>c<br>d<br>e");
+    }
 }
