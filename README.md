@@ -17,8 +17,37 @@ make cli   # CLI を ~/.local/bin/tansu に置く
 tansu --version
 ```
 
+### CLI
+
+データは `TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite` に入る。出力は JSON で、失敗すると stderr に 1 行を出して exit 1 で終わる。
+
+```sh
+# 表を作り、プロパティを足す。型は text / number / checkbox / url / date / select / multi_select / relation
+tansu db create projects
+tansu db create tasks
+tansu db schema tasks \
+  --add title:text --add points:number --add done:checkbox --add link:url --add due:date \
+  --add status:select:todo,done --add labels:multi_select:bug,ui --add project:relation:projects
+tansu db schema projects --add repo:text --unique repo   # unique: 同じ値の行を 2 つ持てない
+tansu db schema tasks --remove link                      # 行の値からも消える
+tansu db list
+
+# 行を書く。id があればその行、無ければ unique のプロパティの値が一致する行を更新し、無ければ足す
+tansu upsert projects --json '{"values": {"repo": "owner/repo"}}'
+tansu upsert tasks --json '{"id": "task-1", "body": "本文 (markdown)", "values": {"title": "Write docs", "status": "todo", "labels": ["ui"], "project": ["<projects の行 ID>"]}}'
+echo '{"id": "task-1", "values": {"status": "done"}}' | tansu upsert tasks   # stdin からも読む。書いたプロパティだけが変わる
+
+# 絞り込み。--where は複数指定でき、すべてに一致する行を返す (multi_select / relation は「含む」)。--sort が無ければ追加した順
+tansu query tasks --json --where status=done --where 'title^=Write' --sort points:desc --limit 10
+
+tansu delete tasks task-1   # relation でこの行を参照している値からも外す
+tansu export tasks --format markdown
+```
+
+select / multi_select の値は選択肢の name で読み書きする (DB には選択肢の ID で保存する)。同じ `upsert` を 2 回実行しても行は増えない。`id` も unique のプロパティの値も無い `upsert` はエラーになる。行の JSON の形は [documents/data-model.md](documents/data-model.md)「CLI の入出力」にある。
+
 `tansu serve` と `tansu mcp` は未実装 (進捗は [documents/DIRECTION.md](documents/DIRECTION.md))。実装が進んだら、サーバーの起動手順と MCP サーバーの登録手順をここに書く。
 
 ## データの扱い
 
-tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点では CLI の雛形だけで、以下は実装の方針)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB を指定した時は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
+tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書きだけで、Web 画面・MCP・利用記録は実装の方針)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
