@@ -1,3 +1,5 @@
 [toolchain]
 channel = "1.98.0"
+# CI と開発で使うのは fmt / clippy / build / test だけなので、rust-docs 等を含む default ではなく minimal にして入れる量を減らす
+profile = "minimal"
 components = ["rustfmt", "clippy"]

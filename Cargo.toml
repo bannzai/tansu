@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 edition = "2024"
@@ -27,4 +27,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+# features は crate ごとに要るものだけを足す (core は `time`、テストは `macros` と `rt-multi-thread`)。
+# Wasm 化の時に core からランタイムを外しやすくするため、ここでは `full` にしない
+tokio = { version = "1", default-features = false }

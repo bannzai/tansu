@@ -16,7 +16,7 @@ libsql の crate (`Cargo.lock` の `libsql-ffi`) は、同梱の SQLite の C �
 git clone https://github.com/bannzai/tansu.git
 cd tansu
 rustup toolchain install   # rust-toolchain.toml の版を入れる
-make cli   # CLI を ~/.local/bin/tansu に置く
+make cli   # CLI を ~/.local/bin/tansu に置く (~/.local/bin が PATH に無ければ足す)
 tansu --version
 ```
 

@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。雛形は Cargo workspace の crate (core / cli / mcp / server) と web/ の Vite + React で、立ち上げ PR #1 の TypeScript の雛形から作り直した。サーバーは各 Mac の localhost で動かす (DIRECTION.md「決めたこと」2026-10-11) ので、サーバーの crate は Rust (axum) で、ログイン・ホスティングは持たない。論理的な型と SQLite への持ち方は `documents/data-model.md`。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。`tansu-core` は今は libsql (C の FFI) と tokio に常に依存していて wasm32 ではビルドできないので、Wasm 化の時に `db` モジュールを feature で切るか crate を分ける (その issue で決める)。雛形は Cargo workspace の crate (core / cli / mcp / server) と web/ の Vite + React で、立ち上げ PR #1 の TypeScript の雛形から作り直した。サーバーは各 Mac の localhost で動かす (DIRECTION.md「決めたこと」2026-10-11) ので、サーバーの crate は Rust (axum) で、ログイン・ホスティングは持たない。論理的な型と SQLite への持ち方は `documents/data-model.md`。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -30,7 +30,7 @@
 
 | 値 | 開き方 | 複数の Mac |
 | --- | --- | --- |
-| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
+| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`。`file:` の後ろは URI ではなくファイルのパスそのもので、`//` やクエリは解釈しない) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
 | `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する (接続・マイグレーション (`PRAGMA user_version`・`BEGIN IMMEDIATE`) は #13 で検証するまで未検証) | 各 Mac が同じ DB を開くので同期の処理を持たない |
 
 - Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)

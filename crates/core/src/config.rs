@@ -102,13 +102,18 @@ impl Settings {
             Some(url) => match url.strip_prefix("file:") {
                 Some("") => return Err(Error::UnsupportedDbUrl(url_scheme(&url))),
                 Some(path) => DbLocation::Local(PathBuf::from(path)),
-                None if url.starts_with("libsql://") => DbLocation::Remote {
-                    url,
-                    auth_token: env
-                        .db_auth_token
-                        .filter(|token| !token.expose().is_empty())
-                        .ok_or(Error::MissingAuthToken)?,
-                },
+                None if url
+                    .strip_prefix("libsql://")
+                    .is_some_and(|host| !host.is_empty()) =>
+                {
+                    DbLocation::Remote {
+                        url,
+                        auth_token: env
+                            .db_auth_token
+                            .filter(|token| !token.expose().is_empty())
+                            .ok_or(Error::MissingAuthToken)?,
+                    }
+                }
                 None => return Err(Error::UnsupportedDbUrl(url_scheme(&url))),
             },
         };
@@ -207,9 +212,21 @@ mod tests {
     }
 
     #[test]
+    fn libsql_url_without_a_host_is_rejected() {
+        assert!(matches!(
+            Settings::resolve(env_with_db_url(Some("libsql://"), Some("token"))),
+            Err(Error::UnsupportedDbUrl(_))
+        ));
+    }
+
+    #[test]
     fn libsql_url_needs_an_auth_token() {
         assert!(matches!(
             Settings::resolve(env_with_db_url(Some("libsql://example.turso.io"), None)),
+            Err(Error::MissingAuthToken)
+        ));
+        assert!(matches!(
+            Settings::resolve(env_with_db_url(Some("libsql://example.turso.io"), Some(""))),
             Err(Error::MissingAuthToken)
         ));
         let settings = Settings::resolve(env_with_db_url(
