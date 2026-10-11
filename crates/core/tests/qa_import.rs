@@ -107,7 +107,9 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
     let connection = open(&home).await;
     let root = fixture_root().canonicalize().unwrap();
 
-    let report = import(&connection, std::slice::from_ref(&root)).await.unwrap();
+    let report = import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
 
     assert!(!report.dry_run);
     assert_eq!(report.counts, fixture_counts());
@@ -259,7 +261,9 @@ async fn importing_the_same_fixtures_twice_changes_nothing() {
     let connection = open(&home).await;
     let root = fixture_root();
 
-    let first = import(&connection, std::slice::from_ref(&root)).await.unwrap();
+    let first = import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
     let mut before = Vec::new();
     for database in ["project", "feature", "item", "run"] {
         before.push(all_rows(&connection, database).await);
@@ -267,7 +271,9 @@ async fn importing_the_same_fixtures_twice_changes_nothing() {
     // updated_at は秒の精度なので、同じ秒の中では変わったかを判別できない
     std::thread::sleep(std::time::Duration::from_millis(1100));
 
-    let second = import(&connection, std::slice::from_ref(&root)).await.unwrap();
+    let second = import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
 
     assert_eq!(second, first);
     let mut after = Vec::new();
@@ -324,7 +330,9 @@ async fn project_repo_comes_from_the_git_remote_of_the_root() {
         assert!(status.success());
     }
 
-    import(&connection, std::slice::from_ref(&root)).await.unwrap();
+    import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
 
     assert_eq!(repos(&connection).await, ["acme/notes"]);
 
@@ -341,7 +349,9 @@ async fn a_single_file_outside_git_belongs_to_its_directory() {
     let file = directory.path().join("QA.md");
     std::fs::copy(fixture_root().join("features/note_editor/QA.md"), &file).unwrap();
 
-    let report = import(&connection, std::slice::from_ref(&file)).await.unwrap();
+    let report = import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
 
     assert_eq!(
         report.counts,

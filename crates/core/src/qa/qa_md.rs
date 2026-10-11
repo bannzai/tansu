@@ -480,6 +480,16 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 if is_header || is_separator {
                     continue;
                 }
+                // 仕様 ID は multi_select の選択肢の名前になる。空と `,` 入りは選択肢にできない (`db schema --add` の形式)
+                if cells[0].is_empty() || cells[0].contains(',') {
+                    skip(
+                        &mut qa_md,
+                        line_number,
+                        line,
+                        "仕様 ID が空か `,` を含む (選択肢の名前にできない)",
+                    );
+                    continue;
+                }
                 let item_name = match cells[2].trim_matches('*').trim() {
                     "" | "—" | "-" | "–" => None,
                     name => Some(name.to_owned()),
