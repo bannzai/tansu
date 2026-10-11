@@ -28,7 +28,7 @@ pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
     markdown.push_str(&format!("| {} |\n", header.join(" | ")));
     markdown.push_str(&format!("|{}\n", " --- |".repeat(header.len())));
     for row in rows {
-        let cells: Vec<String> = std::iter::once(escape_cell(&row.id.0))
+        let cells: Vec<String> = std::iter::once(id_text(&row.id.0))
             .chain(database.properties.iter().map(|property| {
                 row.values
                     .get(&property.id)
@@ -41,7 +41,7 @@ pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
     for row in rows.iter().filter(|row| !row.body.is_empty()) {
         markdown.push_str(&format!(
             "\n## {}\n\n{}\n",
-            escape_cell(&row.id.0),
+            id_text(&row.id.0),
             row.body.trim_end()
         ));
     }
@@ -70,6 +70,16 @@ fn cell_text(kind: &PropertyKind, value: &Value) -> String {
 }
 
 /// 表の区切り `|` と改行をセルの中で使えるように置き換える。
+/// 行 ID の書き方。agent が書き出しから ID を読んで `delete` / `upsert` に渡せるよう、コードスパンで文字列をそのまま残す
+/// (`escape_cell` の `\_` のような記号のエスケープを付けない)。コードスパンで表せない ID (`` ` `` / `|` / 改行を含む) だけは
+/// `escape_cell` にする。
+fn id_text(id: &str) -> String {
+    if id.contains(['`', '|', '\r', '\n']) {
+        return escape_cell(id);
+    }
+    format!("`{id}`")
+}
+
 /// 保存した文字列をそのまま読めるよう、HTML の `<` `>` `&` を文字参照に、markdown の記号を `\` 付きにする。
 /// 改行 (markdown は CR も改行として読むため CRLF・CR・LF のどれも) は、エスケープの後で `<br>` にする。
 fn escape_cell(text: &str) -> String {
@@ -98,6 +108,12 @@ fn escape_cell(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn id_is_kept_as_written_in_a_code_span() {
+        assert_eq!(id_text("ab_cd*1"), "`ab_cd*1`");
+        assert_eq!(id_text("a|b"), "a\\|b");
+    }
 
     #[test]
     fn cell_keeps_the_row_on_one_line() {

@@ -316,10 +316,10 @@ fn upsert_query_delete_export() {
         "{markdown}"
     );
     assert!(
-        markdown.contains("| task-1 | Write docs | 3 | todo |"),
+        markdown.contains("| `task-1` | Write docs | 3 | todo |"),
         "{markdown}"
     );
-    assert!(markdown.contains("## task-1\n\n手順の本文"), "{markdown}");
+    assert!(markdown.contains("## `task-1`\n\n手順の本文"), "{markdown}");
     let exported = succeed_json(&sandbox, &["export", "tasks", "--format", "json"]);
     assert_eq!(exported["database"]["name"], "tasks");
     assert_eq!(exported["rows"].as_array().unwrap().len(), 2);
