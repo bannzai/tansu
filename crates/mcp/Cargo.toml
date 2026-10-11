@@ -1,0 +1,9 @@
+[package]
+name = "tansu-mcp"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rmcp.workspace = true
+tansu-core.workspace = true

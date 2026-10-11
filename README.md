@@ -8,7 +8,16 @@
 
 ## 使い方
 
-(実装が進んだら、`git clone` からの起動手順・CLI・MCP サーバーの登録手順をここに書く)
+Rust (`rust-toolchain.toml` の版) と Bun (`web/.bun-version` の版) が要る。
+
+```sh
+git clone https://github.com/bannzai/tansu.git
+cd tansu
+make cli   # CLI を ~/.local/bin/tansu に置く
+tansu --version
+```
+
+`tansu serve` と `tansu mcp` は未実装 (進捗は [documents/DIRECTION.md](documents/DIRECTION.md))。実装が進んだら、サーバーの起動手順と MCP サーバーの登録手順をここに書く。
 
 ## データの扱い
 

@@ -1,0 +1,10 @@
+[package]
+name = "tansu-server"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+tansu-core.workspace = true
+tokio.workspace = true
