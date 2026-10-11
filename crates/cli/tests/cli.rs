@@ -532,7 +532,11 @@ fn sort_puts_rows_without_value_last_and_checkbox_filters() {
         ["c", "a", "b"]
     );
     assert_eq!(
-        row_ids(&query(&sandbox, "tasks", &["--sort", "points", "--limit", "1"])),
+        row_ids(&query(
+            &sandbox,
+            "tasks",
+            &["--sort", "points", "--limit", "1"]
+        )),
         ["c"]
     );
     assert_eq!(
@@ -547,7 +551,10 @@ fn sort_puts_rows_without_value_last_and_checkbox_filters() {
         row_ids(&query(&sandbox, "tasks", &["--where", "done=false"])),
         ["b"]
     );
-    fail(&sandbox, &["query", "tasks", "--json", "--where", "done=yes"]);
+    fail(
+        &sandbox,
+        &["query", "tasks", "--json", "--where", "done=yes"],
+    );
 
     // 別のデータベースの行の ID では書けない
     succeed(&sandbox, &["db", "create", "others"]);

@@ -355,11 +355,8 @@ mod tests {
 
     #[test]
     fn empty_list_clears_multi_select_but_is_not_a_select_value() {
-        let input = parse_row_input(
-            &database(),
-            &json!({"id": "r1", "values": {"labels": []}}),
-        )
-        .unwrap();
+        let input =
+            parse_row_input(&database(), &json!({"id": "r1", "values": {"labels": []}})).unwrap();
         assert_eq!(
             input.values,
             BTreeMap::from([(Id("p_labels".into()), None)])
