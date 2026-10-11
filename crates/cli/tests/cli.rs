@@ -182,6 +182,9 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
         &["db", "schema", "tasks", "--add", "title:number"],
     );
     fail(&sandbox, &["db", "schema", "tasks", "--add", "size:huge"]);
+    // --where で名前を切り出せない名前は作れない
+    fail(&sandbox, &["db", "schema", "tasks", "--add", "a=b:text"]);
+    fail(&sandbox, &["db", "schema", "tasks", "--add", "a^:text"]);
 
     // 外したプロパティは定義からも行の値からも消える
     let written = upsert(
