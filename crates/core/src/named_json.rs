@@ -199,7 +199,7 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
         PropertyKind::Text => Value::Text(string()?),
         PropertyKind::Url => Value::Url(string()?),
         PropertyKind::Date => Value::Date(
-            normalize_date(&string()?).ok_or_else(|| invalid("日付 (2026-10-11 か RFC 3339)"))?,
+            normalize_date(&string()?).ok_or_else(|| invalid("日付 (2026-10-11 か、秒の小数がミリ秒までの RFC 3339)"))?,
         ),
         PropertyKind::Number => Value::Number(json.as_f64().ok_or_else(|| invalid("数値"))?),
         PropertyKind::Checkbox => Value::Checkbox(json.as_bool().ok_or_else(|| invalid("真偽値"))?),
@@ -228,16 +228,18 @@ fn without_duplicates(ids: Vec<Id>) -> Vec<Id> {
 }
 
 /// date の値 `text` を保存する形に揃える。日付だけなら `2026-10-11`、日時なら RFC 3339 (区切りは大文字の `T`、UTC は `Z`)。
-/// どちらとしても読めなければ `None`。
+/// どちらとしても読めない時と、ミリ秒より細かい桁を持つ日時は `None`。
 ///
 /// 入力の書き方 (`2026-1-2`、小文字の `t` / `z` 等) を揃えるのは、SQLite の日時関数 (並べ替えに使う `julianday`) が
 /// ゼロ埋めした数字と大文字の区切りしか読まず、等価の絞り込みも保存した文字列と比べるため。
+/// ミリ秒より細かい日時を受け付けないのは、`julianday` がミリ秒までしか区別せず、並べ替えの順が保存した値と食い違うため。
 pub(crate) fn normalize_date(text: &str) -> Option<String> {
     if let Ok(date) = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d") {
         return Some(date.format("%Y-%m-%d").to_string());
     }
     chrono::DateTime::parse_from_rfc3339(text)
         .ok()
+        .filter(|date_time| date_time.timestamp_subsec_nanos() % 1_000_000 == 0)
         .map(|date_time| date_time.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true))
 }
 
@@ -433,6 +435,7 @@ mod tests {
             Some("2026-10-11T00:00:00.500Z")
         );
         assert_eq!(normalize_date("10/11"), None);
+        assert_eq!(normalize_date("2026-10-11T00:00:00.000100Z"), None);
     }
 
     #[test]
