@@ -112,6 +112,10 @@ pub async fn change_schema(
     unique: &[String],
     remove: &[String],
 ) -> Result<Database, Error> {
+    // 変更の指定が無ければ定義を読むだけなので、書き込みロックを取らない (別プロセスの書き込みを待たない)
+    if add.is_empty() && unique.is_empty() && remove.is_empty() {
+        return get_database(connection, database_name).await;
+    }
     let transaction = begin(connection).await?;
     let result = change_schema_in(&transaction, database_name, add, unique, remove).await;
     finish(transaction, result).await

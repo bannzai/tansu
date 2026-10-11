@@ -504,6 +504,58 @@ fn delete_is_rolled_back_when_removing_references_breaks_unique() {
 }
 
 #[test]
+fn sort_puts_rows_without_value_last_and_checkbox_filters() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "tasks"]);
+    succeed(
+        &sandbox,
+        &[
+            "db",
+            "schema",
+            "tasks",
+            "--add",
+            "points:number",
+            "--add",
+            "done:checkbox",
+        ],
+    );
+    for row in [
+        json!({"id": "a", "values": {"points": 2, "done": true}}),
+        json!({"id": "b", "values": {"done": false}}),
+        json!({"id": "c", "values": {"points": 1}}),
+    ] {
+        upsert(&sandbox, "tasks", row);
+    }
+    // 値の無い b は昇順でも降順でも最後
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--sort", "points"])),
+        ["c", "a", "b"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--sort", "points", "--limit", "1"])),
+        ["c"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--sort", "points:desc"])),
+        ["a", "c", "b"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--where", "done=true"])),
+        ["a"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--where", "done=false"])),
+        ["b"]
+    );
+    fail(&sandbox, &["query", "tasks", "--json", "--where", "done=yes"]);
+
+    // 別のデータベースの行の ID では書けない
+    succeed(&sandbox, &["db", "create", "others"]);
+    let stderr = fail(&sandbox, &["upsert", "others", "--json", r#"{"id": "a"}"#]);
+    assert!(stderr.contains("別のデータベース"), "{stderr}");
+}
+
+#[test]
 fn date_sort_compares_instants_across_offsets() {
     let sandbox = sandbox();
     succeed(&sandbox, &["db", "create", "events"]);

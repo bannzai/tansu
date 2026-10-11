@@ -463,7 +463,11 @@ async fn query_in(
                 PropertyKind::Date => r#"julianday(json_extract("values", ?))"#,
                 _ => r#"json_extract("values", ?)"#,
             };
-            sql.push_str(&format!(" ORDER BY {sort_key} {direction}, rowid"));
+            // 値の無い行は昇順でも降順でも最後に置く (SQLite は昇順で NULL を先頭にするため、`--limit` で値のある行を取りこぼす)
+            sql.push_str(&format!(
+                " ORDER BY {sort_key} IS NULL, {sort_key} {direction}, rowid"
+            ));
+            params.push(libsql::Value::from(value_path(&property.id)));
             params.push(libsql::Value::from(value_path(&property.id)));
         }
         None => sql.push_str(" ORDER BY rowid"),

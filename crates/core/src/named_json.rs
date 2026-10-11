@@ -164,7 +164,13 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
         }
         json => json,
     };
-    if json.is_null() {
+    // 空の配列 (multi_select / relation) は値が無いのと同じに扱い、値を消す。
+    // 空の配列を値として残すと、unique の判定や行の特定で「空」同士が一致してしまう。relation の参照を外して空になった時も値を消している
+    let empty_list = matches!(
+        property.kind,
+        PropertyKind::MultiSelect { .. } | PropertyKind::Relation { .. }
+    ) && json.as_array().is_some_and(Vec::is_empty);
+    if json.is_null() || empty_list {
         return Ok(None);
     }
     let invalid = |expected: &str| {
@@ -281,6 +287,18 @@ mod tests {
                     kind: PropertyKind::Date,
                     unique: false,
                 },
+                Property {
+                    id: Id("p_labels".into()),
+                    name: "labels".into(),
+                    kind: PropertyKind::MultiSelect {
+                        options: vec![SelectOption {
+                            id: Id("o_bug".into()),
+                            name: "bug".into(),
+                            color: None,
+                        }],
+                    },
+                    unique: false,
+                },
             ],
             created_at: "2026-10-11T00:00:00+09:00".into(),
         }
@@ -332,6 +350,22 @@ mod tests {
         assert_eq!(
             input.values,
             BTreeMap::from([(Id("p_status".into()), None)])
+        );
+    }
+
+    #[test]
+    fn empty_list_clears_multi_select_but_is_not_a_select_value() {
+        let input = parse_row_input(
+            &database(),
+            &json!({"id": "r1", "values": {"labels": []}}),
+        )
+        .unwrap();
+        assert_eq!(
+            input.values,
+            BTreeMap::from([(Id("p_labels".into()), None)])
+        );
+        assert!(
+            parse_row_input(&database(), &json!({"id": "r1", "values": {"status": []}})).is_err()
         );
     }
 
