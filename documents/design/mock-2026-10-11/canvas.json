@@ -1,0 +1,19 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-10-11T07:40:00Z" },
+  "title": "tansu モック",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1280, "h": 820, "title": "表ビュー (QA の item)", "expand": "fill" },
+    "QaInput.dc.html": { "x": 1360, "y": 0, "w": 1280, "h": 820, "title": "QA の入力ビュー", "expand": "fill", "is_interactive": true },
+    "RowDetail.dc.html": { "x": 0, "y": 940, "w": 1280, "h": 820, "title": "行の詳細ページ", "expand": "fill" },
+    "Phone.dc.html": { "x": 1360, "y": 940, "w": 390, "h": 844, "title": "iPhone (QA の入力ビュー)", "is_interactive": true }
+  },
+  "order": ["Main.dc.html", "QaInput.dc.html", "RowDetail.dc.html", "Phone.dc.html"],
+  "notes": {
+    "t1": { "x": 0, "y": -300, "text": "tansu: Mac の画面 (1280 px)", "kind": "title1", "maxW": 2640 },
+    "t2": { "x": 0, "y": 640, "text": "詳細ページと iPhone", "kind": "title1", "maxW": 2640 }
+  },
+  "designSystems": []
+}

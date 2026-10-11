@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tansu 行の詳細</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+body{margin:0;background:#ffffff;color:#1b1b1f;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px}
+a{color:#2b4ea8}a:hover{color:#1e3a85}
+table{border-collapse:collapse}
+th{font-weight:500;color:#5a5f6b;text-align:left}
+</style>
+</helmet>
+<div style="display: flex; flex-direction: column; min-height: 820px; background: #ffffff">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid #e1e3e8">
+    <a href="Main.dc.html" style="text-decoration: none; color: #2b4ea8">← item</a>
+    <span style="color: #5a5f6b">bannzai/Focus / billing</span>
+    <div style="flex: 1 1 120px"></div>
+    <span style="color: #5a5f6b; font-size: 12px">ID V1StGXR8_Z5jdHi6B-myT · 更新 2026-10-09 19:22</span>
+  </header>
+  <main style="flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 32px; padding: 28px 24px; max-width: 1100px; width: 100%; box-sizing: border-box; margin: 0 auto">
+    <section style="flex: 999 1 460px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 700">プレミアムの購入が完了する</h1>
+      <div style="display: flex; flex-direction: column; gap: 10px; border: 1px solid #e1e3e8; border-radius: 8px; padding: 4px 16px">
+        <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eceef2"><span style="width: 120px; color: #5a5f6b">feature</span><a href="Main.dc.html">billing</a></div>
+        <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eceef2"><span style="width: 120px; color: #5a5f6b">期待動作</span><span>購入後に機能が解放され、設定画面に「プレミアム」が表示される</span></div>
+        <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eceef2"><span style="width: 120px; color: #5a5f6b">自動化</span><span>manual</span></div>
+        <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eceef2"><span style="width: 120px; color: #5a5f6b">自動化の詳細</span><span>実機の購入シートが要る</span></div>
+        <div style="display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eceef2"><span style="width: 120px; color: #5a5f6b">仕様 ID</span><span style="display: flex; gap: 6px"><span style="padding: 2px 8px; border-radius: 4px; background: #f3f4f7; font-size: 12px">S3</span><span style="padding: 2px 8px; border-radius: 4px; background: #f3f4f7; font-size: 12px">S7</span></span></div>
+        <div style="display: flex; gap: 12px; padding: 10px 0"><span style="width: 120px; color: #5a5f6b">label</span><span style="display: flex; gap: 6px"><span style="padding: 2px 8px; border-radius: 4px; background: #eef2fb; color: #2b4ea8; font-size: 12px">課金</span><span style="padding: 2px 8px; border-radius: 4px; background: #eef2fb; color: #2b4ea8; font-size: 12px">初回起動</span></span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="font-weight: 500; color: #5a5f6b">本文</div>
+        <div style="border: 1px solid #e1e3e8; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; line-height: 1.7">
+          <p style="margin: 0">購入のシートは StoreKit の sandbox で開く。sandbox のアカウントは 1Password の「Focus sandbox」。</p>
+          <p style="margin: 0">確認の順:</p>
+          <ol style="margin: 0; padding-left: 22px"><li>設定 → プレミアム → 購入</li><li>シートで購入を完了する</li><li>設定画面に戻って「プレミアム」の表示を見る</li></ol>
+          <p style="margin: 0">関連: <a href="https://example.com/spec/billing">仕様 S3</a></p>
+        </div>
+      </div>
+    </section>
+    <aside style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div style="font-weight: 500; color: #5a5f6b">run (直近 4 件)</div>
+        <div style="flex: 1 1 0"></div>
+        <a href="QaInput.dc.html" style="font-size: 12px">入力ビューで記録</a>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <sc-for list="{{runs}}" as="run" hint-placeholder-count="4">
+          <div style="border: 1px solid #e1e3e8; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; color: #ffffff; background: {{run.color}}">{{run.result}}</span>
+              <span style="color: #5a5f6b; font-size: 12px">{{run.date}}</span>
+              <span style="color: #5a5f6b; font-size: 12px">{{run.commit}}</span>
+              <span style="color: #9094a0; font-size: 12px">{{run.source}}</span>
+            </div>
+            <div style="font-size: 13px">{{run.note}}</div>
+            <div style="color: #5a5f6b; font-size: 12px">{{run.env}}</div>
+          </div>
+        </sc-for>
+      </div>
+    </aside>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const color = { OK: "#1f7a4d", NG: "#b3261e", "あとで": "#8a6d00", "スキップ": "#5a5f6b" };
+    const runs = [
+      { result: "OK", date: "2026-10-09", commit: "7cea89d", source: "record", note: "購入後すぐに解放。画像あり", env: "iPhone 17 Pro / iOS 27.1" },
+      { result: "NG", date: "2026-10-02", commit: "c508876", source: "record", note: "シートを閉じた後にプレミアムの表示が出るまで 3 秒かかる", env: "iPhone 16 / iOS 27.0" },
+      { result: "OK", date: "2026-09-20", commit: "a1b2c3d", source: "import", note: "QA.md から取り込み (確認日 2026-09-20)", env: "" },
+      { result: "スキップ", date: "2026-09-01", commit: "9f8e7d6", source: "import", note: "起動条件: sandbox のアカウントが期限切れ", env: "" }
+    ].map((r) => ({ ...r, color: color[r.result] }));
+    return { runs };
+  }
+}
+</script>
+</body>
+</html>

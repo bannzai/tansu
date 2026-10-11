@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tansu QA の入力 (iPhone)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+body{margin:0;background:#ffffff;color:#1b1b1f;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:15px}
+a{color:#2b4ea8}a:hover{color:#1e3a85}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #ffffff; border-radius: 40px; overflow: hidden; border: 1px solid #e1e3e8">
+  <header style="display: flex; align-items: center; gap: 10px; padding: 56px 20px 12px; border-bottom: 1px solid #e1e3e8">
+    <a href="Main.dc.html" style="text-decoration: none; color: #2b4ea8; min-width: 44px; min-height: 44px; display: flex; align-items: center">← 一覧</a>
+    <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+      <span style="font-weight: 700">QA の入力</span>
+      <span style="color: #5a5f6b; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">bannzai/Focus / billing · iPhone 17 Pro</span>
+    </div>
+  </header>
+  <main style="flex: 1 1 auto; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: baseline; gap: 10px">
+      <span style="font-size: 24px; font-weight: 700; color: #2b4ea8">{{current.no}}</span>
+      <h2 style="margin: 0; font-size: 19px; font-weight: 700; line-height: 1.4">{{current.name}}</h2>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px">
+      <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background: #eef2fb; color: #2b4ea8; font-size: 12px">課金</span>
+      <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background: #f3f4f7; color: #5a5f6b; font-size: 12px">manual</span>
+    </div>
+    <div style="border: 1px solid #e1e3e8; border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <div style="font-weight: 500; color: #5a5f6b; font-size: 13px">手で見ること</div>
+      <div style="line-height: 1.6">{{current.expected}}</div>
+    </div>
+    <div style="display: flex; gap: 8px">
+      <button onClick="{{pickOk}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{okBorder}}; background: {{okBg}}; color: {{okColor}}; font: inherit; font-size: 17px; font-weight: 700">OK</button>
+      <button onClick="{{pickNg}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{ngBorder}}; background: {{ngBg}}; color: {{ngColor}}; font: inherit; font-size: 17px; font-weight: 700">NG</button>
+      <button onClick="{{pickLater}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{laterBorder}}; background: {{laterBg}}; color: {{laterColor}}; font: inherit; font-size: 17px; font-weight: 700">あとで</button>
+    </div>
+    <label style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-weight: 500; color: #5a5f6b; font-size: 13px">メモ</span>
+      <textarea rows="3" placeholder="気づいたこと" style="border: 1px solid #c9ccd4; border-radius: 10px; padding: 10px; font: inherit; resize: none"></textarea>
+    </label>
+    <div style="display: flex; gap: 8px">
+      <button onClick="{{prev}}" style="min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f">← 前</button>
+      <button onClick="{{next}}" style="flex: 1 1 0; min-height: 48px; border-radius: 10px; border: 0; background: #2b4ea8; color: #ffffff; font: inherit; font-weight: 500">記録して次へ →</button>
+    </div>
+  </main>
+  <footer style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 20px 28px; border-top: 1px solid #e1e3e8; background: #f7f8fa">
+    <span style="font-weight: 700">{{doneCount}} / {{total}} 件</span>
+    <span style="color: #1f7a4d">OK {{okCount}}</span>
+    <span style="color: #b3261e">NG {{ngCount}}</span>
+    <span style="color: #8a6d00">あとで {{laterCount}}</span>
+    <div style="flex: 1 1 10px"></div>
+    <button style="min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2b4ea8; background: #ffffff; font: inherit; color: #2b4ea8; font-weight: 500">全部コピー</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { index: 2, results: { 0: "OK", 1: "NG" } };
+  }
+  renderVals() {
+    const base = [
+      { no: 1, name: "プレミアムの購入が完了する", expected: "購入後に機能が解放され、設定画面に「プレミアム」が表示される" },
+      { no: 2, name: "購入の復元ができる", expected: "再インストール後に復元で解放状態が戻る" },
+      { no: 3, name: "無料トライアルの残り日数が表示される", expected: "トライアル中は残り日数、終了後は購入の導線が出る" },
+      { no: 4, name: "価格が地域の通貨で表示される", expected: "App Store の価格と同じ通貨・金額" },
+      { no: 5, name: "購入をキャンセルしても画面が壊れない", expected: "シートが閉じ、未購入の状態のまま" },
+      { no: 6, name: "期限切れ後に機能が戻る", expected: "サブスクリプションの期限が切れたら無料の状態に戻る" }
+    ];
+    const results = this.state.results;
+    const index = this.state.index;
+    const pick = (value) => () => this.setState({ results: { ...results, [index]: value } });
+    const chosen = results[index];
+    const style = (value, on) => ({
+      border: chosen === value ? on : "#c9ccd4",
+      bg: chosen === value ? on : "#ffffff",
+      color: chosen === value ? "#ffffff" : "#1b1b1f"
+    });
+    const ok = style("OK", "#1f7a4d");
+    const ng = style("NG", "#b3261e");
+    const later = style("あとで", "#8a6d00");
+    const counts = Object.values(results);
+    return {
+      current: base[index],
+      pickOk: pick("OK"), pickNg: pick("NG"), pickLater: pick("あとで"),
+      okBorder: ok.border, okBg: ok.bg, okColor: ok.color,
+      ngBorder: ng.border, ngBg: ng.bg, ngColor: ng.color,
+      laterBorder: later.border, laterBg: later.bg, laterColor: later.color,
+      prev: () => this.setState({ index: Math.max(0, index - 1) }),
+      next: () => this.setState({ index: Math.min(base.length - 1, index + 1) }),
+      doneCount: counts.length,
+      total: base.length,
+      okCount: counts.filter((v) => v === "OK").length,
+      ngCount: counts.filter((v) => v === "NG").length,
+      laterCount: counts.filter((v) => v === "あとで").length
+    };
+  }
+}
+</script>
+</body>
+</html>

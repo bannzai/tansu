@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tansu 表ビュー</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+body{margin:0;background:#ffffff;color:#1b1b1f;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px}
+a{color:#2b4ea8}a:hover{color:#1e3a85}
+table{border-collapse:collapse}
+th{font-weight:500;color:#5a5f6b;text-align:left}
+</style>
+</helmet>
+<div style="display: flex; flex-wrap: wrap; min-height: 820px; background: #ffffff">
+  <nav style="flex: 0 0 232px; min-width: 232px; background: #f3f4f7; border-right: 1px solid #e1e3e8; padding: 20px 16px; display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 20px; font-weight: 700; letter-spacing: 0.04em; padding: 4px 8px 16px; color: #1b1b1f">tansu</div>
+    <div style="font-size: 12px; color: #5a5f6b; padding: 0 8px 4px">データベース</div>
+    <a href="Main.dc.html" style="display: block; padding: 8px 10px; border-radius: 6px; background: #ffffff; color: #1b1b1f; font-weight: 500; text-decoration: none; border: 1px solid #e1e3e8">item</a>
+    <a href="Main.dc.html" style="display: block; padding: 8px 10px; border-radius: 6px; color: #1b1b1f; text-decoration: none">run</a>
+    <a href="Main.dc.html" style="display: block; padding: 8px 10px; border-radius: 6px; color: #1b1b1f; text-decoration: none">feature</a>
+    <a href="Main.dc.html" style="display: block; padding: 8px 10px; border-radius: 6px; color: #1b1b1f; text-decoration: none">project</a>
+    <div style="font-size: 12px; color: #5a5f6b; padding: 20px 8px 4px">ビュー</div>
+    <a href="QaInput.dc.html" style="display: block; padding: 8px 10px; border-radius: 6px; color: #2b4ea8; text-decoration: none; font-weight: 500">QA の入力</a>
+    <div style="margin-top: auto; padding: 8px; font-size: 12px; color: #5a5f6b">DB: ~/.tansu/tansu.sqlite</div>
+  </nav>
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 32px; display: flex; flex-direction: column; gap: 16px">
+    <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+      <h1 style="margin: 0; font-size: 22px; font-weight: 700">item</h1>
+      <span style="color: #5a5f6b">24 行</span>
+      <div style="flex: 1 1 200px"></div>
+      <a href="RowDetail.dc.html" style="display: inline-block; padding: 8px 14px; border-radius: 6px; background: #2b4ea8; color: #ffffff; text-decoration: none; font-weight: 500">行を追加</a>
+    </header>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+      <label style="display: flex; align-items: center; gap: 6px; border: 1px solid #c9ccd4; border-radius: 6px; padding: 6px 10px; background: #ffffff"><span style="color: #5a5f6b">project</span><input value="bannzai/Focus" style="border: 0; font: inherit; width: 120px; outline: none; color: #1b1b1f"></label>
+      <label style="display: flex; align-items: center; gap: 6px; border: 1px solid #c9ccd4; border-radius: 6px; padding: 6px 10px; background: #ffffff"><span style="color: #5a5f6b">feature</span><input value="すべて" style="border: 0; font: inherit; width: 90px; outline: none; color: #1b1b1f"></label>
+      <label style="display: flex; align-items: center; gap: 6px; border: 1px solid #2b4ea8; border-radius: 6px; padding: 6px 10px; background: #eef2fb"><span style="color: #2b4ea8">label</span><input value="課金" style="border: 0; font: inherit; width: 60px; outline: none; background: transparent; color: #1b1b1f"></label>
+      <label style="display: flex; align-items: center; gap: 6px; border: 1px solid #c9ccd4; border-radius: 6px; padding: 6px 10px; background: #ffffff"><span style="color: #5a5f6b">自動化</span><input value="manual" style="border: 0; font: inherit; width: 70px; outline: none; color: #1b1b1f"></label>
+      <button style="border: 1px solid #c9ccd4; background: #ffffff; border-radius: 6px; padding: 6px 12px; font: inherit; color: #1b1b1f; cursor: pointer">並べ替え: 直近の run</button>
+      <button style="border: 0; background: transparent; color: #2b4ea8; font: inherit; padding: 6px 4px; cursor: pointer">絞り込みを消す</button>
+    </div>
+    <div style="overflow-x: auto; border: 1px solid #e1e3e8; border-radius: 8px">
+      <table style="width: 100%; min-width: 900px">
+        <thead>
+          <tr style="background: #f7f8fa; border-bottom: 1px solid #e1e3e8">
+            <th style="padding: 10px 12px; width: 40px"></th>
+            <th style="padding: 10px 12px">項目名</th>
+            <th style="padding: 10px 12px">feature</th>
+            <th style="padding: 10px 12px">label</th>
+            <th style="padding: 10px 12px">自動化</th>
+            <th style="padding: 10px 12px">直近の run</th>
+            <th style="padding: 10px 12px">確認日</th>
+          </tr>
+        </thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+          <tr style="border-bottom: 1px solid #eceef2">
+            <td style="padding: 10px 12px; color: #9094a0">{{r.no}}</td>
+            <td style="padding: 10px 12px"><a href="RowDetail.dc.html" style="color: #1b1b1f; text-decoration: none; font-weight: 500">{{r.name}}</a><div style="color: #5a5f6b; font-size: 12px; margin-top: 2px">{{r.expected}}</div></td>
+            <td style="padding: 10px 12px">{{r.feature}}</td>
+            <td style="padding: 10px 12px"><span style="display: inline-block; padding: 2px 8px; border-radius: 4px; background: #eef2fb; color: #2b4ea8; font-size: 12px">{{r.label}}</span></td>
+            <td style="padding: 10px 12px; color: #5a5f6b">{{r.automation}}</td>
+            <td style="padding: 10px 12px"><span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; color: #ffffff; background: {{r.resultColor}}">{{r.result}}</span></td>
+            <td style="padding: 10px 12px; color: #5a5f6b">{{r.date}}</td>
+          </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+    <div style="display: flex; gap: 16px; color: #5a5f6b; font-size: 12px">
+      <span>表示 1–6 / 24</span>
+      <a href="Main.dc.html">次の 18 件</a>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const color = { OK: "#1f7a4d", NG: "#b3261e", "あとで": "#8a6d00", "未記録": "#9094a0" };
+    const rows = [
+      { no: 1, name: "プレミアムの購入が完了する", expected: "購入後に機能が解放され、設定画面に「プレミアム」が表示される", feature: "billing", label: "課金", automation: "manual", result: "OK", date: "2026-10-09" },
+      { no: 2, name: "購入の復元ができる", expected: "再インストール後に復元で解放状態が戻る", feature: "billing", label: "課金", automation: "manual", result: "NG", date: "2026-10-09" },
+      { no: 3, name: "無料トライアルの残り日数が表示される", expected: "トライアル中は残り日数、終了後は購入の導線が出る", feature: "billing", label: "課金", automation: "todo", result: "あとで", date: "2026-10-08" },
+      { no: 4, name: "価格が地域の通貨で表示される", expected: "App Store の価格と同じ通貨・金額", feature: "billing", label: "課金", automation: "auto", result: "OK", date: "2026-10-07" },
+      { no: 5, name: "購入をキャンセルしても画面が壊れない", expected: "シートが閉じ、未購入の状態のまま", feature: "billing", label: "課金", automation: "manual", result: "未記録", date: "" },
+      { no: 6, name: "期限切れ後に機能が戻る", expected: "サブスクリプションの期限が切れたら無料の状態に戻る", feature: "billing", label: "課金", automation: "manual", result: "未記録", date: "" }
+    ].map((r) => ({ ...r, resultColor: color[r.result] }));
+    return { rows };
+  }
+}
+</script>
+</body>
+</html>
