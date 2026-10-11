@@ -169,6 +169,15 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
         )
         .into());
     }
+    // dry-run は DB を開かない (開くとファイルの作成とマイグレーションで書き込みが起きる)
+    if let Command::Qa(QaCommand::Import {
+        paths,
+        json,
+        dry_run: true,
+    }) = &command
+    {
+        return Ok(Some(import_output(&qa_import::dry_run(paths)?, *json)?));
+    }
     let connection = db::open(&Settings::from_env()?).await?;
     let output = match command {
         Command::Db(DbCommand::Create { name }) => {
@@ -226,21 +235,21 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
                 ExportFormat::Json => to_json(&export::to_json(&database, &rows))?,
             }
         }
-        Command::Qa(QaCommand::Import {
-            paths,
-            json,
-            dry_run,
-        }) => {
-            let report = qa_import::import(&connection, &paths, dry_run).await?;
-            if json {
-                to_json(&report)?
-            } else {
-                import_summary(&report)
-            }
+        Command::Qa(QaCommand::Import { paths, json, .. }) => {
+            import_output(&qa_import::import(&connection, &paths).await?, json)?
         }
         Command::Serve | Command::Mcp => unreachable!("serve / mcp は DB を開く前に返している"),
     };
     Ok(Some(output))
+}
+
+/// `qa import` の出力。`json` なら結果をそのまま JSON に、そうでなければ [`import_summary`] に。
+fn import_output(report: &ImportReport, json: bool) -> Result<String, serde_json::Error> {
+    if json {
+        to_json(report)
+    } else {
+        Ok(import_summary(report))
+    }
 }
 
 /// `qa import` の `--json` 無しの出力。件数を 1 行と、読み飛ばした行を 1 行ずつ。
@@ -345,9 +354,17 @@ mod tests {
             paths,
             json,
             dry_run,
-        }) = Cli::try_parse_from(["tansu", "qa", "import", "--json", "--dry-run", "a", "b/QA.md"])
-            .unwrap()
-            .command
+        }) = Cli::try_parse_from([
+            "tansu",
+            "qa",
+            "import",
+            "--json",
+            "--dry-run",
+            "a",
+            "b/QA.md",
+        ])
+        .unwrap()
+        .command
         else {
             panic!("qa import として解釈されていない");
         };

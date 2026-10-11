@@ -18,7 +18,7 @@ use crate::model::Id;
 
 /// 取り込んだ行の数 (データベースごと)。同じ QA.md の 2 回目でも、`--dry-run` でも同じ数になる
 /// (入力に含まれる project / feature / item / run の数で、新しく足した行の数ではない)。
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ImportCounts {
     /// 取り込んだリポジトリの数。
     pub project: usize,
@@ -43,8 +43,15 @@ pub struct ImportReport {
     pub skipped: Vec<SkippedLine>,
 }
 
+/// 読んだ QA.md。取り込みの単位 (ルート, ファイル, feature 名, パース結果)。
+type ParsedFile = (PathBuf, PathBuf, String, QaMd);
+
+/// `paths` の QA.md を読むだけで、DB を開かず何も書かない (`--dry-run`)。結果は [`import`] と同じ件数と読み飛ばした行。
+pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
+    Ok(report(&parse_all(paths)?, true))
+}
+
 /// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。
-/// `dry_run` なら、データベースの作成も含めて何も書かず、同じ結果を返す。
 ///
 /// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
 /// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)
@@ -54,11 +61,16 @@ pub struct ImportReport {
 ///   `commit` は frontmatter の `last_verified_commit`
 ///
 /// 4 つのデータベースが無ければ作る。全部を 1 つのトランザクションで書き、途中で失敗したら何も書かない。
-pub async fn import(
-    connection: &Connection,
-    paths: &[PathBuf],
-    dry_run: bool,
-) -> Result<ImportReport, Error> {
+pub async fn import(connection: &Connection, paths: &[PathBuf]) -> Result<ImportReport, Error> {
+    let parsed = parse_all(paths)?;
+    let transaction = begin(connection).await?;
+    let result = write_all(&transaction, &parsed).await;
+    finish(transaction, result).await?;
+    Ok(report(&parsed, false))
+}
+
+/// `paths` のすべての QA.md を見つけて読む。パスが読めなければエラー。
+fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
     let mut files_by_root: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     for path in paths {
         let metadata = std::fs::metadata(path).map_err(|error| {
@@ -77,7 +89,7 @@ pub async fn import(
         }
     }
 
-    let mut parsed: Vec<(PathBuf, PathBuf, String, QaMd)> = Vec::new();
+    let mut parsed = Vec::new();
     for (root, files) in &files_by_root {
         for file in files {
             let text = std::fs::read_to_string(file).map_err(|error| {
@@ -91,12 +103,17 @@ pub async fn import(
             parsed.push((root.clone(), file.clone(), feature, qa_md));
         }
     }
+    Ok(parsed)
+}
 
-    let mut counts = ImportCounts::default();
+/// 読んだ QA.md から、取り込みの件数 (入力に含まれる project / feature / item / run の数) と読み飛ばした行をまとめる。
+fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
+    let mut projects = BTreeSet::new();
     let mut features = BTreeSet::new();
     let mut items = BTreeSet::new();
     let mut runs = BTreeSet::new();
-    for (root, _, feature, qa_md) in &parsed {
+    for (root, _, feature, qa_md) in parsed {
+        projects.insert(root);
         features.insert((root, feature));
         for item in &qa_md.items {
             items.insert((root, feature, &item.name));
@@ -105,40 +122,27 @@ pub async fn import(
             }
         }
     }
-    counts.project = files_by_root
-        .iter()
-        .filter(|(_, files)| !files.is_empty())
-        .count();
-    counts.feature = features.len();
-    counts.item = items.len();
-    counts.run = runs.len();
-    let report = ImportReport {
+    ImportReport {
         dry_run,
         files: parsed
             .iter()
             .map(|(_, file, _, _)| file.display().to_string())
             .collect(),
-        counts,
+        counts: ImportCounts {
+            project: projects.len(),
+            feature: features.len(),
+            item: items.len(),
+            run: runs.len(),
+        },
         skipped: parsed
             .iter()
             .flat_map(|(_, _, _, qa_md)| qa_md.skipped.iter().cloned())
             .collect(),
-    };
-    if dry_run {
-        return Ok(report);
     }
-
-    let transaction = begin(connection).await?;
-    let result = write_all(&transaction, &parsed).await;
-    finish(transaction, result).await?;
-    Ok(report)
 }
 
 /// [`import`] の書き込み。`connection` は書き込みロックを取ったトランザクション。
-async fn write_all(
-    connection: &Connection,
-    parsed: &[(PathBuf, PathBuf, String, QaMd)],
-) -> Result<(), Error> {
+async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(), Error> {
     ensure_schema(connection).await?;
     // multi_select の値は定義にある選択肢しか書けないため、仕様 ID を選択肢として先に足す (無いものだけが足される)
     let spec_ids: BTreeSet<&str> = parsed
@@ -287,9 +291,10 @@ fn default_feature_name(root: &Path, file: &Path) -> String {
     if parent == root {
         return "_root".to_owned();
     }
-    parent
-        .file_name()
-        .map_or_else(|| parent.display().to_string(), |name| name.to_string_lossy().into_owned())
+    parent.file_name().map_or_else(
+        || parent.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 /// `directory` を含む git リポジトリのルート (`git rev-parse --show-toplevel`)。git の外なら `None`。
@@ -324,8 +329,10 @@ pub fn repo_name(root: &Path) -> String {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .and_then(|url| repo_from_remote_url(url.trim()));
     from_remote.unwrap_or_else(|| {
-        root.file_name()
-            .map_or_else(|| root.display().to_string(), |name| name.to_string_lossy().into_owned())
+        root.file_name().map_or_else(
+            || root.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        )
     })
 }
 
@@ -357,7 +364,11 @@ mod tests {
             "git@github.com:owner/repo.git",
             "ssh://git@github.com/owner/repo.git",
         ] {
-            assert_eq!(repo_from_remote_url(url).as_deref(), Some("owner/repo"), "{url}");
+            assert_eq!(
+                repo_from_remote_url(url).as_deref(),
+                Some("owner/repo"),
+                "{url}"
+            );
         }
         assert_eq!(repo_from_remote_url("https://github.com/repo"), None);
         assert_eq!(repo_from_remote_url("repo"), None);

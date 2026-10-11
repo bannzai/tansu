@@ -8,7 +8,7 @@ use tansu_core::config::{EnvVars, Settings};
 use tansu_core::db::{self, rows, schema};
 use tansu_core::model::Row;
 use tansu_core::named_json;
-use tansu_core::qa::import::{ImportCounts, import};
+use tansu_core::qa::import::{ImportCounts, dry_run, import};
 
 /// `fixtures/qa/sample-notes` の絶対パス。
 fn fixture_root() -> PathBuf {
@@ -107,7 +107,7 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
     let connection = open(&home).await;
     let root = fixture_root().canonicalize().unwrap();
 
-    let report = import(&connection, &[root.clone()], false).await.unwrap();
+    let report = import(&connection, &[root.clone()]).await.unwrap();
 
     assert!(!report.dry_run);
     assert_eq!(report.counts, fixture_counts());
@@ -150,7 +150,10 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
         .iter()
         .map(|feature| feature["values"]["name"]["value"].as_str().unwrap())
         .collect();
-    assert_eq!(feature_names, ["_root", "note_editor", "note_list", "settings"]);
+    assert_eq!(
+        feature_names,
+        ["_root", "note_editor", "note_list", "settings"]
+    );
     assert_eq!(
         plain_values(&features[1]),
         json!({"project": [project_id], "name": "note_editor", "verification": "agent-browser, manual"})
@@ -234,9 +237,20 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
         .unwrap();
     assert!(login_run["values"].get("recorded_at").is_none());
     assert!(login_run["values"].get("commit").is_none());
-    assert_eq!(query_named(&connection, "run", &["result=ok"]).await.len(), 5);
-    assert_eq!(query_named(&connection, "run", &["result=ng"]).await.len(), 1);
-    assert_eq!(query_named(&connection, "run", &["result=skip"]).await.len(), 2);
+    assert_eq!(
+        query_named(&connection, "run", &["result=ok"]).await.len(),
+        5
+    );
+    assert_eq!(
+        query_named(&connection, "run", &["result=ng"]).await.len(),
+        1
+    );
+    assert_eq!(
+        query_named(&connection, "run", &["result=skip"])
+            .await
+            .len(),
+        2
+    );
 }
 
 #[tokio::test]
@@ -245,7 +259,7 @@ async fn importing_the_same_fixtures_twice_changes_nothing() {
     let connection = open(&home).await;
     let root = fixture_root();
 
-    let first = import(&connection, &[root.clone()], false).await.unwrap();
+    let first = import(&connection, &[root.clone()]).await.unwrap();
     let mut before = Vec::new();
     for database in ["project", "feature", "item", "run"] {
         before.push(all_rows(&connection, database).await);
@@ -253,7 +267,7 @@ async fn importing_the_same_fixtures_twice_changes_nothing() {
     // updated_at は秒の精度なので、同じ秒の中では変わったかを判別できない
     std::thread::sleep(std::time::Duration::from_millis(1100));
 
-    let second = import(&connection, &[root.clone()], false).await.unwrap();
+    let second = import(&connection, &[root.clone()]).await.unwrap();
 
     assert_eq!(second, first);
     let mut after = Vec::new();
@@ -267,17 +281,19 @@ async fn importing_the_same_fixtures_twice_changes_nothing() {
     );
 }
 
-#[tokio::test]
-async fn dry_run_reports_the_same_counts_without_writing() {
-    let home = tempfile::tempdir().unwrap();
-    let connection = open(&home).await;
-
-    let report = import(&connection, &[fixture_root()], true).await.unwrap();
+#[test]
+fn dry_run_reports_the_same_counts_without_a_connection() {
+    let report = dry_run(&[fixture_root()]).unwrap();
 
     assert!(report.dry_run);
     assert_eq!(report.counts, fixture_counts());
     assert_eq!(report.skipped.len(), 8);
-    assert!(schema::list_databases(&connection).await.unwrap().is_empty());
+    assert!(
+        dry_run(&[PathBuf::from("/nonexistent/QA.md")])
+            .unwrap_err()
+            .to_string()
+            .contains("/nonexistent/QA.md")
+    );
 }
 
 #[tokio::test]
@@ -308,14 +324,12 @@ async fn project_repo_comes_from_the_git_remote_of_the_root() {
         assert!(status.success());
     }
 
-    import(&connection, &[root.clone()], false).await.unwrap();
+    import(&connection, &[root.clone()]).await.unwrap();
 
     assert_eq!(repos(&connection).await, ["acme/notes"]);
 
     // ルートの下のディレクトリを指定した時は、囲むリポジトリの名前ではなくそのディレクトリの名前
-    import(&connection, &[root.join("features")], false)
-        .await
-        .unwrap();
+    import(&connection, &[root.join("features")]).await.unwrap();
     assert_eq!(repos(&connection).await, ["acme/notes", "features"]);
 }
 
@@ -325,13 +339,9 @@ async fn a_single_file_outside_git_belongs_to_its_directory() {
     let connection = open(&home).await;
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("QA.md");
-    std::fs::copy(
-        fixture_root().join("features/note_editor/QA.md"),
-        &file,
-    )
-    .unwrap();
+    std::fs::copy(fixture_root().join("features/note_editor/QA.md"), &file).unwrap();
 
-    let report = import(&connection, &[file.clone()], false).await.unwrap();
+    let report = import(&connection, &[file.clone()]).await.unwrap();
 
     assert_eq!(
         report.counts,
@@ -349,12 +359,17 @@ async fn a_single_file_outside_git_belongs_to_its_directory() {
     );
     assert_eq!(
         projects[0]["values"]["path"]["value"],
-        directory.path().canonicalize().unwrap().display().to_string()
+        directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
     );
 
     // 同じファイルをもう 1 度取り込んでも行は増えない
     assert_eq!(
-        import(&connection, &[file], false).await.unwrap().counts,
+        import(&connection, &[file]).await.unwrap().counts,
         report.counts
     );
     assert_eq!(all_rows(&connection, "feature").await.len(), 1);
@@ -370,11 +385,15 @@ async fn missing_path_is_an_error_and_writes_nothing() {
     let error = import(
         &connection,
         &[fixture_root(), PathBuf::from("/nonexistent/QA.md")],
-        false,
     )
     .await
     .unwrap_err();
 
     assert!(error.to_string().contains("/nonexistent/QA.md"), "{error}");
-    assert!(schema::list_databases(&connection).await.unwrap().is_empty());
+    assert!(
+        schema::list_databases(&connection)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

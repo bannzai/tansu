@@ -735,10 +735,7 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
         "/../../fixtures/qa/sample-notes"
     );
 
-    let dry = succeed_json(
-        &sandbox,
-        &["qa", "import", "--dry-run", "--json", fixtures],
-    );
+    let dry = succeed_json(&sandbox, &["qa", "import", "--dry-run", "--json", fixtures]);
     assert_eq!(dry["dry_run"], true);
     assert_eq!(
         dry["counts"],
@@ -757,7 +754,8 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
     assert_eq!(dry["skipped"][0]["line"], 34);
     assert_eq!(dry["skipped"][0]["content"], "  - 優先度: 高");
     assert!(dry["skipped"][0]["reason"].is_string());
-    // --dry-run は表も作らない
+    // --dry-run は DB を開かず、ファイルも作らない
+    assert!(!sandbox.tansu_home.path().join("tansu.sqlite").exists());
     assert_eq!(succeed_json(&sandbox, &["db", "list"]), json!([]));
 
     let imported = succeed_json(&sandbox, &["qa", "import", "--json", fixtures]);
@@ -768,10 +766,7 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
         query(&sandbox, "run", &["--where", "source=import"]).len(),
         8
     );
-    assert_eq!(
-        row_ids(&query(&sandbox, "project", &[])).len(),
-        1
-    );
+    assert_eq!(row_ids(&query(&sandbox, "project", &[])).len(), 1);
 
     // 2 回目も同じ出力で、行は増えない
     assert_eq!(

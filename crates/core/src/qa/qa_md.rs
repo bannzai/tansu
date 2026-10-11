@@ -351,7 +351,9 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                     && let Some(record) = qa_md.items[item_index].record.as_mut()
                 {
                     record.note.push('\n');
-                    record.note.push_str(trimmed.strip_prefix("- ").unwrap_or(trimmed));
+                    record
+                        .note
+                        .push_str(trimmed.strip_prefix("- ").unwrap_or(trimmed));
                 }
                 continue;
             }
@@ -535,9 +537,7 @@ fn parse_checkbox(trimmed: &str) -> Option<(bool, &str)> {
 /// 項目名は castle の `sync_evidence.sh` の `item_key` と同じく、最初の `**:` の前まで。
 fn parse_bold_name(text: &str) -> Option<(String, String)> {
     let rest = text.strip_prefix("**")?;
-    let (name, expected) = rest
-        .split_once("**:")
-        .or_else(|| rest.split_once("**："))?;
+    let (name, expected) = rest.split_once("**:").or_else(|| rest.split_once("**："))?;
     if name.is_empty() {
         return None;
     }
@@ -605,7 +605,9 @@ fn verified_date(line: &str) -> Option<String> {
 
 /// `<img src="URL" ...>` の URL。
 fn image_source(line: &str) -> Option<String> {
-    let after = line.find("src=").map(|index| &line[index + "src=".len()..])?;
+    let after = line
+        .find("src=")
+        .map(|index| &line[index + "src=".len()..])?;
     let quote = after.chars().next().filter(|c| *c == '"' || *c == '\'')?;
     let url = after[quote.len_utf8()..].split(quote).next()?;
     Some(url.to_owned()).filter(|url| !url.is_empty())
