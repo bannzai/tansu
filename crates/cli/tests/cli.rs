@@ -543,7 +543,11 @@ fn date_sort_compares_instants_across_offsets() {
         ["tokyo", "utc"]
     );
     assert_eq!(
-        row_ids(&query(&sandbox, "events", &["--sort", "at:desc", "--limit", "1"])),
+        row_ids(&query(
+            &sandbox,
+            "events",
+            &["--sort", "at:desc", "--limit", "1"]
+        )),
         ["lower"]
     );
 }
