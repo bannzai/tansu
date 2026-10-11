@@ -30,7 +30,7 @@
 
 | 値 | 開き方 | 複数の Mac |
 | --- | --- | --- |
-| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
+| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`。`file:` の後ろは URI ではなくファイルのパスそのもので、`//` やクエリは解釈しない) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
 | `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する (接続・マイグレーション (`PRAGMA user_version`・`BEGIN IMMEDIATE`) は #13 で検証するまで未検証) | 各 Mac が同じ DB を開くので同期の処理を持たない |
 
 - Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)
