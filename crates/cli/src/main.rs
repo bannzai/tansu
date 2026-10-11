@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -119,12 +119,18 @@ fn main() -> ExitCode {
         .map_err(Box::<dyn std::error::Error>::from)
         .and_then(|runtime| runtime.block_on(run(cli.command)));
     match result {
-        Ok(output) => {
-            if let Some(output) = output {
-                println!("{output}");
+        Ok(output) => match output.map_or(Ok(()), |output| {
+            writeln!(std::io::stdout().lock(), "{output}")
+        }) {
+            // 読み手 (`| head` 等) が先に閉じたのは、要る分を読み終えた合図なので成功にする
+            // (`println!` は書けないと panic して exit 101 になる)
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("tansu: 結果を出力できませんでした: {error}");
+                ExitCode::FAILURE
             }
-            ExitCode::SUCCESS
-        }
+        },
         Err(error) => {
             eprintln!("tansu: {}", error.to_string().replace('\n', " "));
             ExitCode::FAILURE

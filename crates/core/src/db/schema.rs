@@ -33,6 +33,14 @@ async fn create_database_in(connection: &Connection, name: &str) -> Result<Datab
 
 /// すべてのデータベースを名前順に返す。
 pub async fn list_databases(connection: &Connection) -> Result<Vec<Database>, Error> {
+    // 全データベースの定義を同じスナップショットで読む (間に別プロセスが定義を変えても、一部だけ新しい定義が混ざらないように)
+    let transaction = connection.transaction().await?;
+    let result = list_databases_in(&transaction).await;
+    finish(transaction, result).await
+}
+
+/// [`list_databases`] の本体。`connection` は読み取りのトランザクション。
+async fn list_databases_in(connection: &Connection) -> Result<Vec<Database>, Error> {
     let mut names = Vec::new();
     let mut rows = connection
         .query(r#"SELECT name FROM "database" ORDER BY name"#, ())
@@ -112,9 +120,12 @@ pub async fn change_schema(
     unique: &[String],
     remove: &[String],
 ) -> Result<Database, Error> {
-    // 変更の指定が無ければ定義を読むだけなので、書き込みロックを取らない (別プロセスの書き込みを待たない)
+    // 変更の指定が無ければ定義を読むだけなので、書き込みロックを取らない読み取りのトランザクションにする
+    // (別プロセスの書き込みを待たず、データベースとプロパティの定義は同じスナップショットで読む)
     if add.is_empty() && unique.is_empty() && remove.is_empty() {
-        return get_database(connection, database_name).await;
+        let transaction = connection.transaction().await?;
+        let result = get_database(&transaction, database_name).await;
+        return finish(transaction, result).await;
     }
     let transaction = begin(connection).await?;
     let result = change_schema_in(&transaction, database_name, add, unique, remove).await;

@@ -32,7 +32,15 @@ pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
             .chain(database.properties.iter().map(|property| {
                 row.values
                     .get(&property.id)
-                    .map(|value| escape_cell(&cell_text(&property.kind, value)))
+                    .map(|value| match value {
+                        // relation の値は行 ID なので、id 列と同じく文字列をそのまま残す
+                        Value::Relation(row_ids) => row_ids
+                            .iter()
+                            .map(|row_id| id_text(&row_id.0))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        _ => escape_cell(&cell_text(&property.kind, value)),
+                    })
                     .unwrap_or_default()
             }))
             .collect();

@@ -492,6 +492,9 @@ fn relation_reference_is_removed_when_target_row_is_deleted() {
             r#"{"id": "t2", "values": {"project": ["missing"]}}"#,
         ],
     );
+    // markdown の書き出しでも、relation の値の行 ID は文字列のまま (コードスパン) 出る
+    let markdown = succeed(&sandbox, &["export", "tasks", "--format", "markdown"]);
+    assert!(markdown.contains("| `t1` | `p1` |"), "{markdown}");
 
     succeed(&sandbox, &["delete", "projects", "p1"]);
     assert_eq!(query(&sandbox, "tasks", &[])[0]["values"], json!({}));
@@ -722,6 +725,27 @@ async fn select_is_name_in_cli_and_option_id_in_db() {
     assert!(stored.contains(&bug_id), "{stored}");
     assert!(!stored.contains(r#""done""#), "{stored}");
     assert!(!stored.contains(r#""bug""#), "{stored}");
+}
+
+#[test]
+fn closed_stdout_is_not_an_error() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "tasks"]);
+    // 読み手が先に閉じたパイプ (`tansu db list | head -c 0` に当たる) に書かせる
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let output = command(&sandbox, &["db", "list"])
+        .stdout(writer)
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "status: {:?}, stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
