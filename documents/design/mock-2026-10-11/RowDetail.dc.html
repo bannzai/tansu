@@ -73,8 +73,8 @@ class Component extends DCLogic {
   renderVals() {
     const color = { OK: "#1f7a4d", NG: "#b3261e", "あとで": "#8a6d00", "スキップ": "#5a5f6b" };
     const runs = [
-      { result: "OK", date: "2026-10-09", commit: "7cea89d", source: "record", note: "購入後すぐに解放。画像あり", env: "iPhone 17 Pro / iOS 27.1" },
-      { result: "NG", date: "2026-10-02", commit: "c508876", source: "record", note: "シートを閉じた後にプレミアムの表示が出るまで 3 秒かかる", env: "iPhone 16 / iOS 27.0" },
+      { result: "OK", date: "2026-10-09", commit: "1a2b3c4", source: "record", note: "購入後すぐに解放。画像あり", env: "iPhone 17 Pro / iOS 27.1" },
+      { result: "NG", date: "2026-10-02", commit: "5d6e7f8", source: "record", note: "シートを閉じた後にプレミアムの表示が出るまで 3 秒かかる", env: "iPhone 16 / iOS 27.0" },
       { result: "OK", date: "2026-09-20", commit: "a1b2c3d", source: "import", note: "QA.md から取り込み (確認日 2026-09-20)", env: "" },
       { result: "スキップ", date: "2026-09-01", commit: "9f8e7d6", source: "import", note: "起動条件: sandbox のアカウントが期限切れ", env: "" }
     ].map((r) => ({ ...r, color: color[r.result] }));
