@@ -67,9 +67,7 @@ async fn upsert_in(
             })
         }
     };
-    let mut values = existing
-        .map(|row| row.values.clone())
-        .unwrap_or_default();
+    let mut values = existing.map(|row| row.values.clone()).unwrap_or_default();
     for (property_id, value) in request.values {
         match value {
             Some(value) => values.insert(property_id, value),
@@ -142,10 +140,8 @@ async fn check_relation_targets(
     request: &RowInput,
 ) -> Result<(), Error> {
     for property in &database.properties {
-        let (
-            PropertyKind::Relation { target_database_id },
-            Some(Some(Value::Relation(row_ids))),
-        ) = (&property.kind, request.values.get(&property.id))
+        let (PropertyKind::Relation { target_database_id }, Some(Some(Value::Relation(row_ids)))) =
+            (&property.kind, request.values.get(&property.id))
         else {
             continue;
         };
@@ -184,7 +180,11 @@ fn check_unique(
     row_id: &Id,
     values: &BTreeMap<Id, Value>,
 ) -> Result<(), Error> {
-    for property in database.properties.iter().filter(|property| property.unique) {
+    for property in database
+        .properties
+        .iter()
+        .filter(|property| property.unique)
+    {
         let Some(value) = values.get(&property.id) else {
             continue;
         };
@@ -203,14 +203,22 @@ fn check_unique(
 
 /// データベース `database_name` の行 `row_id` を消す。行が無ければ何もしない (2 回実行しても同じ結果)。
 /// relation でこの行を参照している値からも、この行の ID を外す (外して空になった値はキーごと消す)。
-pub async fn delete(connection: &Connection, database_name: &str, row_id: &str) -> Result<(), Error> {
+pub async fn delete(
+    connection: &Connection,
+    database_name: &str,
+    row_id: &str,
+) -> Result<(), Error> {
     let transaction = begin(connection).await?;
     let result = delete_in(&transaction, database_name, row_id).await;
     finish(transaction, result).await
 }
 
 /// [`delete`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn delete_in(connection: &Connection, database_name: &str, row_id: &str) -> Result<(), Error> {
+async fn delete_in(
+    connection: &Connection,
+    database_name: &str,
+    row_id: &str,
+) -> Result<(), Error> {
     let database = schema::get_database(connection, database_name).await?;
     let deleted = connection
         .execute(
@@ -221,7 +229,9 @@ async fn delete_in(connection: &Connection, database_name: &str, row_id: &str) -
     if deleted == 0 {
         return Ok(());
     }
-    for (referring_database_id, property_id) in relation_properties_targeting(connection, &database.id).await? {
+    for (referring_database_id, property_id) in
+        relation_properties_targeting(connection, &database.id).await?
+    {
         let mut rows = connection
             .query(
                 &format!(
@@ -419,7 +429,10 @@ fn property_of<'a>(database: &'a Database, property_name: &str) -> Result<&'a Pr
 }
 
 /// データベース `database_id` のすべての行を追加した順に返す。
-pub(super) async fn rows_of_database(connection: &Connection, database_id: &Id) -> Result<Vec<Row>, Error> {
+pub(super) async fn rows_of_database(
+    connection: &Connection,
+    database_id: &Id,
+) -> Result<Vec<Row>, Error> {
     let mut rows = connection
         .query(
             &format!(r#"SELECT {ROW_COLUMNS} FROM "row" WHERE database_id = ? ORDER BY rowid"#),

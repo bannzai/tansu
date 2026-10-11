@@ -53,7 +53,11 @@ pub fn value_to_json(kind: &PropertyKind, value: &Value) -> serde_json::Value {
             json!(id.as_ref().map(|id| option_name(options, id)))
         }
         (PropertyKind::MultiSelect { options }, Value::MultiSelect(ids)) => {
-            json!(ids.iter().map(|id| option_name(options, id)).collect::<Vec<_>>())
+            json!(
+                ids.iter()
+                    .map(|id| option_name(options, id))
+                    .collect::<Vec<_>>()
+            )
         }
         (_, Value::Text(text) | Value::Url(text) | Value::Date(text)) => json!(text),
         (_, Value::Number(number)) => json!(number),
@@ -129,7 +133,8 @@ pub fn parse_row_input(database: &Database, input: &serde_json::Value) -> Result
         }
         Some(_) => {
             return Err(Error::InvalidInput(
-                "行の JSON の values は `{<プロパティ名>: <値>}` のオブジェクトにしてください".into(),
+                "行の JSON の values は `{<プロパティ名>: <値>}` のオブジェクトにしてください"
+                    .into(),
             ));
         }
     }
@@ -163,7 +168,11 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
             property.kind.type_name()
         ))
     };
-    let string = || json.as_str().map(str::to_owned).ok_or_else(|| invalid("文字列"));
+    let string = || {
+        json.as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| invalid("文字列"))
+    };
     let strings = || {
         json.as_array()
             .and_then(|items| {
@@ -203,7 +212,11 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
 
 /// select / multi_select のプロパティ `property` の選択肢 `options` から、name が `name` の選択肢の ID を引く。
 /// 無ければ [`Error::InvalidInput`] (選択肢は `db schema --add` で足す)。
-pub(crate) fn option_id(property: &Property, options: &[SelectOption], name: &str) -> Result<Id, Error> {
+pub(crate) fn option_id(
+    property: &Property,
+    options: &[SelectOption],
+    name: &str,
+) -> Result<Id, Error> {
     options
         .iter()
         .find(|option| option.name == name)
@@ -270,7 +283,10 @@ mod tests {
         assert_eq!(
             input.values,
             BTreeMap::from([
-                (Id("p_status".into()), Some(Value::Select(Some(Id("o_done".into()))))),
+                (
+                    Id("p_status".into()),
+                    Some(Value::Select(Some(Id("o_done".into()))))
+                ),
                 (Id("p_points".into()), Some(Value::Number(3.0))),
             ])
         );
@@ -294,8 +310,15 @@ mod tests {
 
     #[test]
     fn null_clears_the_value() {
-        let input = parse_row_input(&database(), &json!({"id": "r1", "values": {"status": null}})).unwrap();
-        assert_eq!(input.values, BTreeMap::from([(Id("p_status".into()), None)]));
+        let input = parse_row_input(
+            &database(),
+            &json!({"id": "r1", "values": {"status": null}}),
+        )
+        .unwrap();
+        assert_eq!(
+            input.values,
+            BTreeMap::from([(Id("p_status".into()), None)])
+        );
     }
 
     #[test]
@@ -319,7 +342,9 @@ mod tests {
     #[test]
     fn date_accepts_date_only_and_rfc3339() {
         for due in ["2026-10-11", "2026-10-11T09:00:00+09:00"] {
-            assert!(parse_row_input(&database(), &json!({"id": "r1", "values": {"due": due}})).is_ok());
+            assert!(
+                parse_row_input(&database(), &json!({"id": "r1", "values": {"due": due}})).is_ok()
+            );
         }
     }
 }

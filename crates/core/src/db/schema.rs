@@ -153,12 +153,15 @@ async fn change_schema_in(
 }
 
 /// `database` に `spec` (`<プロパティ名>:<型>[:...]`) のプロパティを足す。規則は [`change_schema`] の `add`。
-async fn add_property(connection: &Connection, database: &Database, spec: &str) -> Result<(), Error> {
+async fn add_property(
+    connection: &Connection,
+    database: &Database,
+    spec: &str,
+) -> Result<(), Error> {
     let mut parts = spec.splitn(3, ':');
-    let (Some(property_name), Some(type_name)) = (
-        parts.next().filter(|name| !name.is_empty()),
-        parts.next(),
-    ) else {
+    let (Some(property_name), Some(type_name)) =
+        (parts.next().filter(|name| !name.is_empty()), parts.next())
+    else {
         return Err(Error::InvalidInput(format!(
             "`{spec}` は解釈できません (`<プロパティ名>:<型>[:<選択肢,...>|:<相手の表>]` の形で指定してください)"
         )));
@@ -234,7 +237,10 @@ fn merge_kind(existing: &Property, requested: PropertyKind) -> Result<Option<Pro
         (PropertyKind::Select { options }, PropertyKind::Select { options: requested }) => {
             Ok(merge_options(options, requested).map(|options| PropertyKind::Select { options }))
         }
-        (PropertyKind::MultiSelect { options }, PropertyKind::MultiSelect { options: requested }) => {
+        (
+            PropertyKind::MultiSelect { options },
+            PropertyKind::MultiSelect { options: requested },
+        ) => {
             Ok(merge_options(options, requested)
                 .map(|options| PropertyKind::MultiSelect { options }))
         }
@@ -259,7 +265,10 @@ fn merge_kind(existing: &Property, requested: PropertyKind) -> Result<Option<Pro
 }
 
 /// `options` に無い name の選択肢を `requested` から足した一覧。足すものが無ければ `None`。
-fn merge_options(options: &[SelectOption], requested: Vec<SelectOption>) -> Option<Vec<SelectOption>> {
+fn merge_options(
+    options: &[SelectOption],
+    requested: Vec<SelectOption>,
+) -> Option<Vec<SelectOption>> {
     let added: Vec<SelectOption> = requested
         .into_iter()
         .filter(|option| options.iter().all(|existing| existing.name != option.name))
@@ -273,7 +282,11 @@ fn merge_options(options: &[SelectOption], requested: Vec<SelectOption>) -> Opti
 /// `,` 区切りの選択肢の name から、新しい ID の選択肢を作る。空の name と重複は除く。
 fn new_options(names: &str) -> Vec<SelectOption> {
     let mut options: Vec<SelectOption> = Vec::new();
-    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+    for name in names
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
         if options.iter().all(|option| option.name != name) {
             options.push(SelectOption {
                 id: Id::generate(),
@@ -286,7 +299,11 @@ fn new_options(names: &str) -> Vec<SelectOption> {
 }
 
 /// `database` のプロパティ `property_name` を unique にする。規則は [`change_schema`] の `unique`。
-async fn set_unique(connection: &Connection, database: &Database, property_name: &str) -> Result<(), Error> {
+async fn set_unique(
+    connection: &Connection,
+    database: &Database,
+    property_name: &str,
+) -> Result<(), Error> {
     let property = database
         .property(property_name)
         .ok_or_else(|| Error::PropertyNotFound {
@@ -321,20 +338,24 @@ async fn set_unique(connection: &Connection, database: &Database, property_name:
 }
 
 /// `database` のプロパティ `property_name` を外す。規則は [`change_schema`] の `remove`。
-async fn remove_property(connection: &Connection, database: &Database, property_name: &str) -> Result<(), Error> {
+async fn remove_property(
+    connection: &Connection,
+    database: &Database,
+    property_name: &str,
+) -> Result<(), Error> {
     let Some(property) = database.property(property_name) else {
         return Ok(());
     };
     connection
-        .execute("DELETE FROM property WHERE id = ?", [property.id.0.as_str()])
+        .execute(
+            "DELETE FROM property WHERE id = ?",
+            [property.id.0.as_str()],
+        )
         .await?;
     connection
         .execute(
             r#"UPDATE "row" SET "values" = json_remove("values", ?) WHERE database_id = ?"#,
-            (
-                format!(r#"$."{}""#, property.id.0),
-                database.id.0.as_str(),
-            ),
+            (format!(r#"$."{}""#, property.id.0), database.id.0.as_str()),
         )
         .await?;
     Ok(())

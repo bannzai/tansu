@@ -18,7 +18,12 @@ pub fn to_json(database: &Database, rows: &[Row]) -> serde_json::Value {
 pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
     let mut markdown = format!("# {}\n\n", database.name);
     let header: Vec<String> = std::iter::once("id".to_owned())
-        .chain(database.properties.iter().map(|property| escape_cell(&property.name)))
+        .chain(
+            database
+                .properties
+                .iter()
+                .map(|property| escape_cell(&property.name)),
+        )
         .collect();
     markdown.push_str(&format!("| {} |\n", header.join(" | ")));
     markdown.push_str(&format!("|{}\n", " --- |".repeat(header.len())));
@@ -49,7 +54,10 @@ fn cell_text(kind: &PropertyKind, value: &Value) -> String {
         serde_json::Value::String(text) => text,
         serde_json::Value::Array(items) => items
             .iter()
-            .map(|item| item.as_str().map_or_else(|| item.to_string(), str::to_owned))
+            .map(|item| {
+                item.as_str()
+                    .map_or_else(|| item.to_string(), str::to_owned)
+            })
             .collect::<Vec<_>>()
             .join(", "),
         serde_json::Value::Null => String::new(),

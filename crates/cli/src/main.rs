@@ -161,7 +161,9 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
             limit,
         } => {
             if !json {
-                return Err("query は --json を付けて実行してください (出力は JSON だけです)".into());
+                return Err(
+                    "query は --json を付けて実行してください (出力は JSON だけです)".into(),
+                );
             }
             let (database, rows) =
                 rows::query(&connection, &database, &filters, sort.as_deref(), limit).await?;
@@ -245,10 +247,23 @@ mod tests {
             Command::Mcp
         ));
         let Command::Query {
-            filters, sort, limit, ..
+            filters,
+            sort,
+            limit,
+            ..
         } = Cli::try_parse_from([
-            "tansu", "query", "tasks", "--json", "--where", "status=done", "--where", "title^=W",
-            "--sort", "points:desc", "--limit", "2",
+            "tansu",
+            "query",
+            "tasks",
+            "--json",
+            "--where",
+            "status=done",
+            "--where",
+            "title^=W",
+            "--sort",
+            "points:desc",
+            "--limit",
+            "2",
         ])
         .unwrap()
         .command
@@ -262,9 +277,10 @@ mod tests {
 
     #[test]
     fn row_id_may_start_with_hyphen() {
-        let Command::Delete { row_id, .. } = Cli::try_parse_from(["tansu", "delete", "tasks", "-abc"])
-            .unwrap()
-            .command
+        let Command::Delete { row_id, .. } =
+            Cli::try_parse_from(["tansu", "delete", "tasks", "-abc"])
+                .unwrap()
+                .command
         else {
             panic!("delete として解釈されていない");
         };

@@ -161,7 +161,13 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
     // select には無い選択肢だけを足す
     let merged = succeed_json(
         &sandbox,
-        &["db", "schema", "tasks", "--add", "status:select:todo,done,later"],
+        &[
+            "db",
+            "schema",
+            "tasks",
+            "--add",
+            "status:select:todo,done,later",
+        ],
     );
     assert_eq!(
         option_names(&merged["properties"][5]),
@@ -171,7 +177,10 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
         merged["properties"][5]["kind"]["options"][0]["id"],
         created["properties"][5]["kind"]["options"][0]["id"]
     );
-    fail(&sandbox, &["db", "schema", "tasks", "--add", "title:number"]);
+    fail(
+        &sandbox,
+        &["db", "schema", "tasks", "--add", "title:number"],
+    );
     fail(&sandbox, &["db", "schema", "tasks", "--add", "size:huge"]);
 
     // 外したプロパティは定義からも行の値からも消える
@@ -246,7 +255,10 @@ fn upsert_query_delete_export() {
         .unwrap();
     assert!(child.wait_with_output().unwrap().status.success());
 
-    assert_eq!(row_ids(&query(&sandbox, "tasks", &[])), ["task-1", "task-2"]);
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &[])),
+        ["task-1", "task-2"]
+    );
     assert_eq!(
         row_ids(&query(&sandbox, "tasks", &["--where", "status=done"])),
         ["task-2"]
@@ -279,15 +291,27 @@ fn upsert_query_delete_export() {
         )),
         ["task-2"]
     );
-    fail(&sandbox, &["query", "tasks", "--json", "--where", "status=later"]);
-    fail(&sandbox, &["query", "tasks", "--json", "--where", "points^=5"]);
+    fail(
+        &sandbox,
+        &["query", "tasks", "--json", "--where", "status=later"],
+    );
+    fail(
+        &sandbox,
+        &["query", "tasks", "--json", "--where", "points^=5"],
+    );
     fail(&sandbox, &["query", "missing", "--json"]);
     fail(&sandbox, &["query", "tasks"]);
 
     let markdown = succeed(&sandbox, &["export", "tasks", "--format", "markdown"]);
     assert!(markdown.starts_with("# tasks\n"), "{markdown}");
-    assert!(markdown.contains("| id | title | points | status |"), "{markdown}");
-    assert!(markdown.contains("| task-1 | Write docs | 3 | todo |"), "{markdown}");
+    assert!(
+        markdown.contains("| id | title | points | status |"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("| task-1 | Write docs | 3 | todo |"),
+        "{markdown}"
+    );
     assert!(markdown.contains("## task-1\n\n手順の本文"), "{markdown}");
     let exported = succeed_json(&sandbox, &["export", "tasks", "--format", "json"]);
     assert_eq!(exported["database"]["name"], "tasks");
@@ -335,10 +359,26 @@ fn unique_property_identifies_rows_and_rejects_duplicates() {
     succeed(&sandbox, &["db", "create", "projects"]);
     succeed(
         &sandbox,
-        &["db", "schema", "projects", "--add", "repo:text", "--add", "path:text"],
+        &[
+            "db",
+            "schema",
+            "projects",
+            "--add",
+            "repo:text",
+            "--add",
+            "path:text",
+        ],
     );
-    upsert(&sandbox, "projects", json!({"id": "p1", "values": {"repo": "owner/a"}}));
-    upsert(&sandbox, "projects", json!({"id": "p2", "values": {"repo": "owner/a"}}));
+    upsert(
+        &sandbox,
+        "projects",
+        json!({"id": "p1", "values": {"repo": "owner/a"}}),
+    );
+    upsert(
+        &sandbox,
+        "projects",
+        json!({"id": "p2", "values": {"repo": "owner/a"}}),
+    );
     let stderr = fail(&sandbox, &["db", "schema", "projects", "--unique", "repo"]);
     assert!(stderr.contains("repo"), "{stderr}");
     succeed(&sandbox, &["delete", "projects", "p2"]);
@@ -379,10 +419,20 @@ fn relation_reference_is_removed_when_target_row_is_deleted() {
     succeed(&sandbox, &["db", "create", "tasks"]);
     succeed(
         &sandbox,
-        &["db", "schema", "tasks", "--add", "project:relation:projects"],
+        &[
+            "db",
+            "schema",
+            "tasks",
+            "--add",
+            "project:relation:projects",
+        ],
     );
     upsert(&sandbox, "projects", json!({"id": "p1"}));
-    upsert(&sandbox, "tasks", json!({"id": "t1", "values": {"project": ["p1"]}}));
+    upsert(
+        &sandbox,
+        "tasks",
+        json!({"id": "t1", "values": {"project": ["p1"]}}),
+    );
 
     assert_eq!(
         query(&sandbox, "tasks", &[])[0]["values"]["project"],
@@ -458,7 +508,13 @@ async fn select_is_name_in_cli_and_option_id_in_db() {
         .query(r#"SELECT "values" FROM "row""#, ())
         .await
         .unwrap();
-    let stored = rows.next().await.unwrap().unwrap().get::<String>(0).unwrap();
+    let stored = rows
+        .next()
+        .await
+        .unwrap()
+        .unwrap()
+        .get::<String>(0)
+        .unwrap();
     assert!(stored.contains(&done_id), "{stored}");
     assert!(stored.contains(&bug_id), "{stored}");
     assert!(!stored.contains(r#""done""#), "{stored}");
@@ -470,7 +526,11 @@ fn writes_only_under_tansu_home() {
     let sandbox = sandbox();
     succeed(&sandbox, &["db", "create", "tasks"]);
     succeed(&sandbox, &["db", "schema", "tasks", "--add", "title:text"]);
-    upsert(&sandbox, "tasks", json!({"id": "t1", "values": {"title": "a"}}));
+    upsert(
+        &sandbox,
+        "tasks",
+        json!({"id": "t1", "values": {"title": "a"}}),
+    );
     query(&sandbox, "tasks", &[]);
     succeed(&sandbox, &["export", "tasks", "--format", "markdown"]);
 
