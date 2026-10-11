@@ -185,7 +185,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 );
                 continue;
             };
-            let value = match value.trim() {
+            let value = match frontmatter_scalar(value) {
                 "" | "null" => None,
                 value => Some(value.to_owned()),
             };
@@ -453,11 +453,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                     );
                     continue;
                 }
-                let cells: Vec<&str> = trimmed
-                    .trim_matches('|')
-                    .split('|')
-                    .map(str::trim)
-                    .collect();
+                let cells = split_table_cells(trimmed);
                 if cells.len() < 3 {
                     skip(
                         &mut qa_md,
@@ -479,8 +475,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                     name => Some(name.to_owned()),
                 };
                 qa_md.spec_rows.push(QaMdSpecRow {
-                    id: cells[0].to_owned(),
-                    expected: cells[1].to_owned(),
+                    id: cells[0].clone(),
+                    expected: cells[1].clone(),
                     item_name,
                 });
             }
@@ -513,6 +509,40 @@ pub fn parse(file: &str, text: &str) -> QaMd {
         }
     }
     qa_md
+}
+
+/// frontmatter の `キー:` の後ろの値。YAML の引用符 (`"..."` / `'...'`) で囲まれていればその中身 (エスケープは解釈しない。
+/// setup-qa の scaffold は引用符無しで書くが、手で直した QA.md に引用符付きがある)。
+fn frontmatter_scalar(value: &str) -> &str {
+    let value = value.trim();
+    ['"', '\'']
+        .into_iter()
+        .find_map(|quote| {
+            value
+                .strip_prefix(quote)
+                .and_then(|inner| inner.strip_suffix(quote))
+        })
+        .unwrap_or(value)
+}
+
+/// Markdown の表の 1 行 (`| a | b |`) をセルに分ける。`\|` はセルの中の `|` として残す。
+fn split_table_cells(row: &str) -> Vec<String> {
+    let mut cells = vec![String::new()];
+    let mut characters = row.trim().trim_matches('|').chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' if characters.peek() == Some(&'|') => {
+                characters.next();
+                cells.last_mut().expect("1 つ目のセル").push('|');
+            }
+            '|' => cells.push(String::new()),
+            _ => cells.last_mut().expect("1 つ目のセル").push(character),
+        }
+    }
+    cells
+        .into_iter()
+        .map(|cell| cell.trim().to_owned())
+        .collect()
 }
 
 /// `## ` の後ろが `N. 名前` (番号付きのセクション) か。
@@ -549,12 +579,9 @@ fn parse_automation(value: &str) -> Option<(QaAutomation, Option<String>)> {
     if value == "todo" {
         return Some((QaAutomation::Todo, None));
     }
-    let (automation, rest) = if let Some(rest) = value.strip_prefix("auto") {
-        (QaAutomation::Auto, rest)
-    } else if let Some(rest) = value.strip_prefix("manual") {
-        (QaAutomation::Manual, rest)
-    } else {
-        return None;
+    let (automation, rest) = match value.strip_prefix("auto") {
+        Some(rest) => (QaAutomation::Auto, rest),
+        None => (QaAutomation::Manual, value.strip_prefix("manual")?),
     };
     let rest = rest.trim();
     if rest.is_empty() {
@@ -693,6 +720,32 @@ mod tests {
         assert!(is_numbered_heading("1. 表示"));
         assert!(is_numbered_heading("12.編集"));
         assert!(!is_numbered_heading("横断確認項目"));
+    }
+
+    #[test]
+    fn frontmatter_quotes_are_not_part_of_the_value() {
+        let qa_md = parse(
+            "x/QA.md",
+            "---\nfeature: \"notes\"\nlast_verified_at: '2026-10-08'\nverification: 'a\"\n---\n",
+        );
+        assert_eq!(qa_md.feature.as_deref(), Some("notes"));
+        assert_eq!(qa_md.last_verified_at.as_deref(), Some("2026-10-08"));
+        assert_eq!(qa_md.verification.as_deref(), Some("'a\""));
+    }
+
+    #[test]
+    fn escaped_pipes_stay_inside_table_cells() {
+        assert_eq!(
+            split_table_cells(r"| S1 | A \| B | 一覧 |"),
+            ["S1", "A | B", "一覧"]
+        );
+        let qa_md = parse(
+            "x/QA.md",
+            "## 仕様チェックリスト\n\n| ID | 期待挙動 | 対応項目 |\n|---|---|---|\n| S1 | A \\| B | 一覧 |\n\n## 1. 表示\n\n- [ ] **一覧**: 出る\n",
+        );
+        assert_eq!(qa_md.spec_rows[0].expected, "A | B");
+        assert_eq!(qa_md.items[0].spec_ids, ["S1"]);
+        assert!(qa_md.skipped.is_empty(), "{:?}", qa_md.skipped);
     }
 
     #[test]
