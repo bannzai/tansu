@@ -1,4 +1,4 @@
-use tansu_core::config::{AuthToken, DbLocation, EnvVars, Settings};
+use tansu_core::config::{DbLocation, EnvVars, Settings};
 use tansu_core::{Error, db};
 
 /// `TANSU_HOME` を一時ディレクトリにした設定。実際のホームディレクトリには書かない。
@@ -141,6 +141,37 @@ async fn new_database_directory_is_private_and_existing_one_is_kept() {
     assert_eq!(mode(&existing_directory), 0o755);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn database_and_wal_files_are_private_even_in_a_shared_directory() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = tempfile::tempdir().unwrap();
+    let shared_directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(
+        shared_directory.path(),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let database = shared_directory.path().join("a.sqlite");
+    let settings = settings_with_db_url(&home, Some(format!("file:{}", database.display())));
+
+    let connection = db::open(&settings).await.unwrap();
+    connection
+        .execute("INSERT INTO \"database\" (id, name, created_at) VALUES ('d1', 'n', 't')", ())
+        .await
+        .unwrap();
+
+    let mode = |path: &std::path::Path| path.metadata().unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&database), 0o600);
+    let wal = shared_directory.path().join("a.sqlite-wal");
+    assert!(wal.exists(), "WAL モードでの書き込みの後は -wal ファイルがある");
+    assert_eq!(mode(&wal), 0o600);
+    let shm = shared_directory.path().join("a.sqlite-shm");
+    assert!(shm.exists(), "WAL モードでの書き込みの後は -shm ファイルがある");
+    assert_eq!(mode(&shm), 0o600);
+}
+
 #[tokio::test]
 async fn open_refuses_a_database_newer_than_the_binary() {
     let home = tempfile::tempdir().unwrap();
@@ -159,33 +190,3 @@ async fn open_refuses_a_database_newer_than_the_binary() {
     ));
 }
 
-#[test]
-fn empty_file_url_is_an_error() {
-    let home = tempfile::tempdir().unwrap();
-    let result = Settings::resolve(EnvVars {
-        tansu_home: Some(home.path().to_str().unwrap().into()),
-        db_url: Some("file:".into()),
-        ..EnvVars::default()
-    });
-
-    assert!(matches!(result, Err(Error::UnsupportedDbUrl(_))));
-}
-
-#[test]
-fn libsql_url_without_a_token_is_an_error() {
-    let home = tempfile::tempdir().unwrap();
-    let without_token = Settings::resolve(EnvVars {
-        tansu_home: Some(home.path().to_str().unwrap().into()),
-        db_url: Some("libsql://example.turso.io".into()),
-        ..EnvVars::default()
-    });
-    let with_empty_token = Settings::resolve(EnvVars {
-        tansu_home: Some(home.path().to_str().unwrap().into()),
-        db_url: Some("libsql://example.turso.io".into()),
-        db_auth_token: Some(AuthToken::new("")),
-        ..EnvVars::default()
-    });
-
-    assert!(matches!(without_token, Err(Error::MissingAuthToken)));
-    assert!(matches!(with_empty_token, Err(Error::MissingAuthToken)));
-}

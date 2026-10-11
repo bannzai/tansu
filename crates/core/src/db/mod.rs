@@ -27,6 +27,7 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
             if let Some(directory) = path.parent() {
                 create_private_dir_all(directory)?;
             }
+            create_private_file_if_missing(path)?;
             let connection = Builder::new_local(path).build().await?.connect()?;
             connection.busy_timeout(LOCAL_BUSY_TIMEOUT)?;
             enable_wal(&connection).await?;
@@ -54,9 +55,26 @@ fn create_private_dir_all(directory: &std::path::Path) -> std::io::Result<()> {
     builder.create(directory)
 }
 
-/// WAL への切り替えを `LOCAL_BUSY_TIMEOUT` まで再試行する間隔。
-/// `LOCAL_BUSY_TIMEOUT` (5 秒) の中で最大 100 回試せる粒度。WAL への切り替えは数 ms で終わる見込み (推定で、実測していない) なので、
-/// 長く待ち過ぎず、CPU を使い続ける busy loop にもならない。
+/// DB ファイルが無ければ、所有者だけが読み書きできる権限 (unix では 0o600) の空ファイルとして作る (空ファイルは SQLite が
+/// 空の DB として開く)。既存のディレクトリが他のユーザーから読める権限でも、DB の中身を読ませないため。
+/// WAL・journal・shm の付随ファイルは SQLite の unix VFS が DB ファイルと同じ権限で作るので、ここで作らなくてよい
+/// (SQLite の `src/os_unix.c`: `findCreateFileMode` のコメント「WAL and journal files are created using the same
+/// permissions as the associated database file」と、shm を開く `robust_open(zShm, ..., (sStat.st_mode&0777))`)。
+/// 既にあるファイルの権限は変えない。何度呼んでも同じ状態になる。
+fn create_private_file_if_missing(path: &std::path::Path) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    match options.open(path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// WAL への切り替えを `LOCAL_BUSY_TIMEOUT` まで再試行する間隔。WAL への切り替えは数 ms で終わる見込み (推定で、実測していない)
+/// なので、その 10 倍ほど空ければ長く待ち過ぎず、CPU を使い続ける busy loop にもならない。
 const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 /// 拡張結果コードから主結果コードを取り出すマスク (下位 8 ビット。https://www.sqlite.org/rescode.html)。
