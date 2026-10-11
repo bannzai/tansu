@@ -154,7 +154,13 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
                     property.kind.type_name()
                 )));
             }
-            tagged.get("value").unwrap_or(&serde_json::Value::Null)
+            // `value` の書き間違いを、値を消す null と取り違えないようにエラーにする
+            tagged.get("value").ok_or_else(|| {
+                Error::InvalidInput(format!(
+                    "プロパティ `{}` の値に `value` がありません (値を消す時は `\"value\": null` か null を書いてください)",
+                    property.name
+                ))
+            })?
         }
         json => json,
     };
@@ -329,6 +335,7 @@ mod tests {
             json!({"status": "unknown"}),
             json!({"points": "3"}),
             json!({"points": {"type": "text", "value": 3}}),
+            json!({"points": {"type": "number", "vale": 3}}),
             json!({"due": "10/11"}),
             json!({"missing": 1}),
         ] {

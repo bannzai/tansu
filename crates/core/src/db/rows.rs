@@ -376,13 +376,22 @@ async fn query_in(
             ))
         };
         let (condition, value) = match (&property.kind, prefix) {
-            (PropertyKind::Text | PropertyKind::Url | PropertyKind::Date, false) => (
+            (PropertyKind::Text | PropertyKind::Url, false) => (
                 r#"json_extract("values", ?) = ?"#,
                 libsql::Value::from(raw_value),
             ),
-            (PropertyKind::Text | PropertyKind::Url | PropertyKind::Date, true) => (
+            (PropertyKind::Text | PropertyKind::Url, true) => (
                 r#"instr(json_extract("values", ?), ?) = 1"#,
                 libsql::Value::from(raw_value),
+            ),
+            // date は保存時に区切りの t / z を大文字にしている (named_json) ため、検索の値も大文字にして比べる
+            (PropertyKind::Date, false) => (
+                r#"json_extract("values", ?) = ?"#,
+                libsql::Value::from(raw_value.to_ascii_uppercase()),
+            ),
+            (PropertyKind::Date, true) => (
+                r#"instr(json_extract("values", ?), ?) = 1"#,
+                libsql::Value::from(raw_value.to_ascii_uppercase()),
             ),
             (PropertyKind::Number, false) => (
                 r#"json_extract("values", ?) = ?"#,

@@ -521,6 +521,28 @@ fn date_sort_compares_instants_across_offsets() {
         row_ids(&query(&sandbox, "events", &["--sort", "at:desc"])),
         ["utc", "tokyo", "day"]
     );
+    // 区切りの t / z を小文字で書いても、保存時と同じく大文字にして検索する
+    upsert(
+        &sandbox,
+        "events",
+        json!({"id": "lower", "values": {"at": "2026-10-12t00:00:00z"}}),
+    );
+    assert_eq!(
+        row_ids(&query(
+            &sandbox,
+            "events",
+            &["--where", "at=2026-10-12t00:00:00z"]
+        )),
+        ["lower"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "events", &["--where", "at^=2026-10-11t"])),
+        ["tokyo", "utc"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "events", &["--sort", "at:desc", "--limit", "1"])),
+        ["lower"]
+    );
 }
 
 #[tokio::test]
