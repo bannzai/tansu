@@ -18,7 +18,7 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
   <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid #e1e3e8">
     <a href="Main.dc.html" style="text-decoration: none; color: #2b4ea8">← item</a>
     <h1 style="margin: 0; font-size: 18px; font-weight: 700">QA の入力</h1>
-    <span style="color: #5a5f6b">bannzai/Focus / billing</span>
+    <span style="color: #5a5f6b">example/sampleapp / billing</span>
     <div style="flex: 1 1 120px"></div>
     <label style="display: flex; align-items: center; gap: 6px; color: #5a5f6b">検証環境 <input value="iPhone 17 Pro / iOS 27.1" style="border: 1px solid #c9ccd4; border-radius: 6px; padding: 6px 8px; font: inherit; color: #1b1b1f; width: 200px"></label>
     <span style="color: #5a5f6b">commit 7cea89d</span>
@@ -40,9 +40,9 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
       <div style="display: flex; flex-direction: column; gap: 8px">
         <div style="font-weight: 500; color: #5a5f6b">結果</div>
         <div style="display: flex; gap: 8px">
-          <button onClick="{{pickOk}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{okBorder}}; background: {{okBg}}; color: {{okColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">OK</button>
-          <button onClick="{{pickNg}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{ngBorder}}; background: {{ngBg}}; color: {{ngColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">NG</button>
-          <button onClick="{{pickLater}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{laterBorder}}; background: {{laterBg}}; color: {{laterColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">あとで</button>
+          <button type="button" onClick="{{pickOk}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{okBorder}}; background: {{okBg}}; color: {{okColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">OK</button>
+          <button type="button" onClick="{{pickNg}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{ngBorder}}; background: {{ngBg}}; color: {{ngColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">NG</button>
+          <button type="button" onClick="{{pickLater}}" style="flex: 1 1 0; min-height: 48px; border-radius: 8px; border: 2px solid {{laterBorder}}; background: {{laterBg}}; color: {{laterColor}}; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer">あとで</button>
         </div>
       </div>
       <label style="display: flex; flex-direction: column; gap: 8px">
@@ -50,14 +50,14 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
         <textarea rows="4" placeholder="気づいたことや NG の再現手順" style="border: 1px solid #c9ccd4; border-radius: 8px; padding: 10px; font: inherit; resize: vertical"></textarea>
       </label>
       <div style="display: flex; gap: 8px">
-        <button onClick="{{prev}}" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f; cursor: pointer">← 前</button>
-        <button onClick="{{next}}" style="min-height: 44px; padding: 0 20px; border-radius: 8px; border: 0; background: #2b4ea8; color: #ffffff; font: inherit; font-weight: 500; cursor: pointer">記録して次へ →</button>
+        <button type="button" onClick="{{prev}}" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f; cursor: pointer">← 前</button>
+        <button type="button" onClick="{{next}}" style="min-height: 44px; padding: 0 20px; border-radius: 8px; border: 0; background: #2b4ea8; color: #ffffff; font: inherit; font-weight: 500; cursor: pointer">記録して次へ →</button>
       </div>
     </section>
     <aside style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
       <div style="font-weight: 500; color: #5a5f6b">この feature の項目</div>
       <sc-for list="{{items}}" as="it" hint-placeholder-count="6">
-        <button onClick="{{it.jump}}" style="display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid {{it.border}}; background: {{it.bg}}; border-radius: 8px; padding: 10px 12px; font: inherit; color: #1b1b1f; cursor: pointer; min-height: 44px">
+        <button type="button" onClick="{{it.jump}}" style="display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid {{it.border}}; background: {{it.bg}}; border-radius: 8px; padding: 10px 12px; font: inherit; color: #1b1b1f; cursor: pointer; min-height: 44px">
           <span style="width: 22px; color: #9094a0">{{it.no}}</span>
           <span style="flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{it.name}}</span>
           <span style="font-size: 12px; font-weight: 700; color: {{it.resultColor}}">{{it.result}}</span>
@@ -72,8 +72,8 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
     <span style="color: #8a6d00">あとで {{laterCount}}</span>
     <span style="color: #5a5f6b">保存済み 19:22</span>
     <div style="flex: 1 1 80px"></div>
-    <button style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f; cursor: pointer">入力を消す</button>
-    <button style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #2b4ea8; background: #ffffff; font: inherit; color: #2b4ea8; font-weight: 500; cursor: pointer">全部コピー (未入力と NG を markdown で)</button>
+    <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f; cursor: pointer">入力を消す</button>
+    <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid #2b4ea8; background: #ffffff; font: inherit; color: #2b4ea8; font-weight: 500; cursor: pointer">全部コピー (未入力と NG を markdown で)</button>
   </footer>
 </div>
 </x-dc>

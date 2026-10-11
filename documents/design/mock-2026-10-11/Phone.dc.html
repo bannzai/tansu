@@ -19,7 +19,7 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
     <a href="Main.dc.html" style="text-decoration: none; color: #2b4ea8; min-width: 44px; min-height: 44px; display: flex; align-items: center">← 一覧</a>
     <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
       <span style="font-weight: 700">QA の入力</span>
-      <span style="color: #5a5f6b; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">bannzai/Focus / billing · iPhone 17 Pro</span>
+      <span style="color: #5a5f6b; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">example/sampleapp / billing · iPhone 17 Pro</span>
     </div>
   </header>
   <main style="flex: 1 1 auto; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px">
@@ -36,17 +36,17 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
       <div style="line-height: 1.6">{{current.expected}}</div>
     </div>
     <div style="display: flex; gap: 8px">
-      <button onClick="{{pickOk}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{okBorder}}; background: {{okBg}}; color: {{okColor}}; font: inherit; font-size: 17px; font-weight: 700">OK</button>
-      <button onClick="{{pickNg}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{ngBorder}}; background: {{ngBg}}; color: {{ngColor}}; font: inherit; font-size: 17px; font-weight: 700">NG</button>
-      <button onClick="{{pickLater}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{laterBorder}}; background: {{laterBg}}; color: {{laterColor}}; font: inherit; font-size: 17px; font-weight: 700">あとで</button>
+      <button type="button" onClick="{{pickOk}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{okBorder}}; background: {{okBg}}; color: {{okColor}}; font: inherit; font-size: 17px; font-weight: 700">OK</button>
+      <button type="button" onClick="{{pickNg}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{ngBorder}}; background: {{ngBg}}; color: {{ngColor}}; font: inherit; font-size: 17px; font-weight: 700">NG</button>
+      <button type="button" onClick="{{pickLater}}" style="flex: 1 1 0; min-height: 52px; border-radius: 10px; border: 2px solid {{laterBorder}}; background: {{laterBg}}; color: {{laterColor}}; font: inherit; font-size: 17px; font-weight: 700">あとで</button>
     </div>
     <label style="display: flex; flex-direction: column; gap: 6px">
       <span style="font-weight: 500; color: #5a5f6b; font-size: 13px">メモ</span>
       <textarea rows="3" placeholder="気づいたこと" style="border: 1px solid #c9ccd4; border-radius: 10px; padding: 10px; font: inherit; resize: none"></textarea>
     </label>
     <div style="display: flex; gap: 8px">
-      <button onClick="{{prev}}" style="min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f">← 前</button>
-      <button onClick="{{next}}" style="flex: 1 1 0; min-height: 48px; border-radius: 10px; border: 0; background: #2b4ea8; color: #ffffff; font: inherit; font-weight: 500">記録して次へ →</button>
+      <button type="button" onClick="{{prev}}" style="min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid #c9ccd4; background: #ffffff; font: inherit; color: #1b1b1f">← 前</button>
+      <button type="button" onClick="{{next}}" style="flex: 1 1 0; min-height: 48px; border-radius: 10px; border: 0; background: #2b4ea8; color: #ffffff; font: inherit; font-weight: 500">記録して次へ →</button>
     </div>
   </main>
   <footer style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 20px 28px; border-top: 1px solid #e1e3e8; background: #f7f8fa">
@@ -55,7 +55,7 @@ a{color:#2b4ea8}a:hover{color:#1e3a85}
     <span style="color: #b3261e">NG {{ngCount}}</span>
     <span style="color: #8a6d00">あとで {{laterCount}}</span>
     <div style="flex: 1 1 10px"></div>
-    <button style="min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2b4ea8; background: #ffffff; font: inherit; color: #2b4ea8; font-weight: 500">全部コピー</button>
+    <button type="button" style="min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid #2b4ea8; background: #ffffff; font: inherit; color: #2b4ea8; font-weight: 500">全部コピー</button>
   </footer>
 </div>
 </x-dc>
