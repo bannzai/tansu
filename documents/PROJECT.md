@@ -6,15 +6,15 @@
 
 ## 構成
 
-SQLite 1 ファイルを、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じモジュールを通して開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。実行環境は Bun (TypeScript)。SQLite は Bun 組み込みの `bun:sqlite` を使い、ネイティブ拡張の依存を持たない。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Rust の crate: コア・CLI・MCP・サーバー (サーバーの言語はサーバーの置き場所の決定に従う。localhost なら Rust)、`web/` の Vite + React) に作り直す。サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) に依存するのはサーバーの crate とホスティング・ログインの範囲だけで、作り直しの PR はその決定を待って出す。
 
 | 入口 | 役割 |
 | --- | --- |
 | CLI `tansu` | すべての操作の入口。`--json` で機械可読の出力を返す。castle の skill とゲートはこの CLI を実行する |
 | MCP サーバー (stdio) | CLI と同じ操作を tool として公開する。CLI = MCP の tool を引数で呼ぶ薄い入口で、両者は同じコアを共有する |
-| Web 画面 | 単一ページの HTML。サーバーが配信し、同じサーバーの HTTP API を呼ぶ |
+| Web 画面 | React の単一ページ。サーバーが配信し、同じサーバーの HTTP API を呼ぶ。Turso のトークンをブラウザに渡さない |
 
-同じ処理を CLI・MCP・HTTP API の 3 箇所に書かない。コア (スキーマ・問い合わせ・更新) は 1 つのモジュール群に置き、3 つの入口はそれを呼ぶだけにする。
+同じ処理を CLI・MCP・HTTP API の 3 箇所に書かない。コアは 1 つの crate に置き、3 つの入口はそれを呼ぶだけにする。
 
 ## 汎用のデータベース
 
@@ -22,7 +22,21 @@ SQLite 1 ファイルを、tansu の入口のプロセス (CLI・`tansu mcp`・`
 - データベースは複数作れ、relation で表同士を結べる
 - 各行は詳細ページを持つ: markdown の本文 + プロパティの値
 - スキーマ (データベースとプロパティの定義) は SQLite の中に持ち、CLI の `db create` / `db schema` で変える。ファイルの手編集やマイグレーションのスクリプトを利用者に求めない。SQLite のスキーマの規約は `.claude/rules/sqlite-database.md`
-- tansu がこのマシンに書くファイルはすべて `TANSU_HOME` (既定 `~/.tansu`。`~/.claude` / `~/.codex` と同じく、ホーム直下のツール名のドット付きディレクトリに置く方が、利用者がバックアップ・削除の対象を見つけやすいため) の下に置く。DB ファイルの既定は `$TANSU_HOME/tansu.sqlite` で、環境変数 `TANSU_DB` があればそのパスを優先する (テストは `TANSU_HOME` を一時ディレクトリにし、実際のホームディレクトリに書かない)
+- tansu がこのマシンに書くファイルはすべて `TANSU_HOME` (既定 `~/.tansu`。`~/.claude` / `~/.codex` と同じく、ホーム直下のツール名のドット付きディレクトリに置く方が、利用者がバックアップ・削除の対象を見つけやすいため) の下に置く。ただし DB だけは `TANSU_DB_URL` の `file:<パス>` で別の場所にもできる (テストは `TANSU_HOME` を一時ディレクトリにし、実際のホームディレクトリに書かない)
+
+### DB の置き場所
+
+環境変数 `TANSU_DB_URL` で選ぶ。未設定ならローカルのファイル。
+
+| 値 | 開き方 | 複数の Mac |
+| --- | --- | --- |
+| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
+| `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する | 各 Mac が同じ DB を開くので同期の処理を持たない |
+
+- Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)
+- 同ページが新規の同期に勧める Turso Sync (ローカルで読み書きし `push()` / `pull()` で同期する) も第 1 弾では使わず、クラウド直結にする。必要になったら embedded replica と同じ観点 (複数プロセスの同時アクセス) で検討する
+- Rust で書き直された Turso Database (旧 Limbo。改名の一次情報は未確認で、README には出てこない) は 1.0 前で複数プロセスの WAL が experimental のため ( https://github.com/tursodatabase/turso README、2026-10-11 時点)、現時点の本番の経路である libSQL を使う (同 README は将来 libSQL を置き換える方向と書いている)
+- Turso のアカウント・DB・トークンの作成は利用者が行う (agent は外部サービスとの新規連携を行わない)
 
 ## CLI (汎用)
 
@@ -83,14 +97,14 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 
 ## 複数の Mac の同期
 
-同期の手段は関門 1 で決める。候補は、iCloud Drive 上の SQLite / 専用の private git repo に JSON で持つ / 常時稼働の 1 台にサーバーを置き他はクライアント。DIRECTION.md「必要な機能」の同期以外の項目は 1 台の Mac で完結させ、同期は最後に足す (着手順はロードマップの親 issue)。
+「DB の置き場所」で Turso Cloud を選んだ時は各 Mac が同じ DB を開くので、同期の処理を持たない。ローカルのファイルを選んだ時は同期しない。サーバー (`tansu serve`) をどこで動かすか (各 Mac の `127.0.0.1` / クラウド) は関門 1 の未回答の項目で、クラウドに置く時はログイン・ホスティング・CD・法務ドキュメントが要件に加わる。
 
 ## 制約
 
 - **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする
 - **`Host` の検査 (DNS rebinding 対策)**: HTTP API は `Host` が許可リストに無いリクエストを拒否する。許可リストは、`127.0.0.1` と `localhost` (ポート付き)、`--host` に指定した値、`--host 0.0.0.0` の時はこのマシンのネットワークインターフェースの IP (起動時に列挙する。iPhone はこれで接続する) に加え、`--allow-host <ホスト名>` で明示したもの (Tailscale の MagicDNS 名など)
 - **書き込みの API は CSRF も防ぐ**: 書き込み (upsert / delete / `qa record` 等) は `Host` が正当でも別のサイトからの form POST や no-cors のリクエストで届くため、`Origin` が無いか `Host` と同じオリジンの時だけ受け付け、`Sec-Fetch-Site` が `cross-site` なら拒否し、本文は `Content-Type: application/json` だけを受け付ける (別のサイトがプリフライトなしで送れる形式を受け付けない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため影響しない
-- **マシンの外へ出さない**: 外部への計測・テレメトリ・実行時の外部へのリクエストを持たない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む) と利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
+- **外部への送信は DB の接続だけ**: 外部への計測・テレメトリを持たない。実行時の外部へのリクエストは、「DB の置き場所」で Turso Cloud を選んだ時のその DB への接続だけで、ローカルのファイルを選んだ時はマシンの外へ何も送らない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む) と利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)
 - **冪等**: `qa import` と `upsert` は自然キー (取り込み元のファイルと項目名、行 ID) で upsert し、同じ入力で 2 回実行しても行が増えない。`qa record` は QA を実行した事実の記録なので、実行のたびに run を 1 行足す (同じ項目を 2 回確認すれば run は 2 行)。再試行で同じ実行が二重に入るのを防ぐ時は、呼び出し側が `--run-id <一意な ID>` を渡し、同じ `run-id` の run は 1 行にする
 
@@ -98,12 +112,13 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 
 | 領域 | 決定 | 理由 |
 | --- | --- | --- |
-| DB・ストレージ | 利用者のマシンの SQLite 1 ファイル (`bun:sqlite`) | ローカルで動かす前提。ネイティブ拡張の依存を持たない |
-| ホスティング | 持たない。利用者のマシンで clone から動かす | データが手元にあり、非公開のもの |
-| 認証 | 持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
-| 計測 | 手元の利用記録と DB の行数 | 外部へ送信しない制約に合う外部サービスが無い |
+| DB・ストレージ | libSQL。利用者のマシンの SQLite 1 ファイル、または Turso Cloud の DB (起動時に選ぶ) | ローカルで完結する使い方と、複数の Mac で同じ DB を使う使い方の両方を、接続先の違いだけで実現できる |
+| ホスティング | (関門 1 の未回答の項目。各 Mac の localhost か、クラウドか) | クラウドに置く時はログイン・CD・法務ドキュメントが要る |
+| 認証 | サーバーを各 Mac の localhost で動かす間は持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
+| 計測 | 手元の利用記録と DB の行数 | 外部への計測・テレメトリを持たない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
-| アラート (GCP・Crashlytics)・課金・ストア配布・法務ドキュメント・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払い・外部へのデータ送信が無い |
+| アラート (GCP・Crashlytics)・課金・ストア配布・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払いが無い |
+| 法務ドキュメント (利用規約・プライバシーポリシー) | サーバーを各 Mac の localhost で動かす間は対象外 (README の「データの扱い」で代える) | 利用者は bannzai 1 人で、外部への送信は利用者自身が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い)。サーバーをクラウドに置いて他人も使うなら要る (「複数の Mac の同期」) |
 
 ## 検証
 
