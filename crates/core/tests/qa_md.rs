@@ -344,7 +344,10 @@ fn spec_rows_whose_id_cannot_be_an_option_are_reported() {
     assert_eq!(qa_md.items[0].spec_ids, ["S3"]);
     assert_eq!(
         skipped_lines(&qa_md),
-        [(5, "| | 空の ID | 一覧 |"), (6, "| S1,S2 | カンマ入り | 一覧 |")]
+        [
+            (5, "| | 空の ID | 一覧 |"),
+            (6, "| S1,S2 | カンマ入り | 一覧 |")
+        ]
     );
 }
 

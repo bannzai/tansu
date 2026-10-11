@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::qa_md::{self, QaMd, QaMdItem, QaMdRecordKind, SkippedLine};
 use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema};
-use crate::db::{begin, finish, rows, schema};
+use crate::db::{begin, finish, .flat_map(|(_, _, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))s, schema};
 use crate::error::Error;
 use crate::model::Id;
 
@@ -43,8 +43,8 @@ pub struct ImportReport {
     pub skipped: Vec<SkippedLine>,
 }
 
-/// 読んだ QA.md。取り込みの単位 (ルート, ファイル, feature 名, パース結果)。
-type ParsedFile = (PathBuf, PathBuf, String, QaMd);
+/// 読んだ QA.md。取り込みの単位 (ルート, project の `repo`, ファイル, feature 名, パース結果)。
+type ParsedFile = (PathBuf, String, PathBuf, String, QaMd);
 
 /// `paths` の QA.md を読むだけで、DB を開かず何も書かない (`--dry-run`)。結果は [`import`] と同じ件数と読み飛ばした行。
 pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
@@ -91,6 +91,7 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
 
     let mut parsed = Vec::new();
     for (root, files) in &files_by_root {
+        let repo = repo_name(root);
         for file in files {
             let text = std::fs::read_to_string(file).map_err(|error| {
                 Error::InvalidInput(format!("{} を読めません: {error}", file.display()))
@@ -100,7 +101,7 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
                 .feature
                 .clone()
                 .unwrap_or_else(|| default_feature_name(root, file));
-            parsed.push((root.clone(), file.clone(), feature, qa_md));
+            parsed.push((root.clone(), repo.clone(), file.clone(), feature, qa_md));
         }
     }
     Ok(parsed)
@@ -112,13 +113,15 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
     let mut features = BTreeSet::new();
     let mut items = BTreeSet::new();
     let mut runs = BTreeSet::new();
-    for (root, _, feature, qa_md) in parsed {
-        projects.insert(root);
-        features.insert((root, feature));
+    // 書き込みと同じ自然キー (project は repo、feature は repo + 名前、item は feature + 名前) で数える。
+    // 同じ origin の worktree を 2 つ渡しても DB には 1 組しか入らないため、root のパスでは数えない
+    for (_, repo, _, feature, qa_md) in parsed {
+        projects.insert(repo);
+        features.insert((repo, feature));
         for item in &qa_md.items {
-            items.insert((root, feature, &item.name));
+            items.insert((repo, feature, &item.name));
             if run_result(item).is_some() {
-                runs.insert((root, feature, &item.name));
+                runs.insert((repo, feature, &item.name));
             }
         }
     }
@@ -126,7 +129,7 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
         dry_run,
         files: parsed
             .iter()
-            .map(|(_, file, _, _)| file.display().to_string())
+            .map(|(_, _, file, _, _)| file.display().to_string())|(_, file, _, _)| file.display().to_string())
             .collect(),
         counts: ImportCounts {
             project: projects.len(),
@@ -136,7 +139,7 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
         },
         skipped: parsed
             .iter()
-            .flat_map(|(_, _, _, qa_md)| qa_md.skipped.iter().cloned())
+            .flat_map(|(_, _, _, _, qa_md)| qa_md.skipped.iter().cloned())|(_, _, _, qa_md)| qa_md.skipped.iter().cloned())
             .collect(),
     }
 }
@@ -157,18 +160,18 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
         schema::change_schema_in(connection, ITEM, &[spec], &[], &[]).await?;
     }
 
-    let mut project_ids: BTreeMap<&Path, Id> = BTreeMap::new();
-    for (root, _, feature, qa_md) in parsed {
-        let project_id = match project_ids.get(root.as_path()) {
+    let mut project_ids: BTreeMap<&str, Id> = BTreeMap::new();
+    for (root, repo, _, feature, qa_md) in parsed {
+        let project_id = match project_ids.get(repo.as_str()) {
             Some(project_id) => project_id.clone(),
             None => {
                 let (_, row) = rows::upsert_in(
                     connection,
                     PROJECT,
-                    &json!({"values": {"repo": repo_name(root), "path": root.display().to_string()}}),
+                    &json!({"values": {"repo": repo, "path": root.display().to_string()}}),
                 )
                 .await?;
-                project_ids.insert(root.as_path(), row.id.clone());
+                project_ids.insert(repo, row.id.clone());
                 row.id
             }
         };

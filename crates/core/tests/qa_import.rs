@@ -388,6 +388,29 @@ async fn a_single_file_outside_git_belongs_to_its_directory() {
 }
 
 #[tokio::test]
+async fn two_roots_with_the_same_repo_are_counted_and_saved_once() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    // 同じ内容の clone / worktree が 2 つ (git の外なので repo はどちらもディレクトリ名の `notes`)
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let roots = [first.path().join("notes"), second.path().join("notes")];
+    for root in &roots {
+        copy_dir(&fixture_root(), root);
+    }
+
+    let report = import(&connection, &roots).await.unwrap();
+
+    assert_eq!(report.counts, fixture_counts());
+    assert_eq!(report.files.len(), 8);
+    assert_eq!(repos(&connection).await, ["notes"]);
+    assert_eq!(all_rows(&connection, "feature").await.len(), 4);
+    assert_eq!(all_rows(&connection, "item").await.len(), 12);
+    assert_eq!(all_rows(&connection, "run").await.len(), 8);
+    assert_eq!(dry_run(&roots).unwrap().counts, report.counts);
+}
+
+#[tokio::test]
 async fn missing_path_is_an_error_and_writes_nothing() {
     let home = tempfile::tempdir().unwrap();
     let connection = open(&home).await;
