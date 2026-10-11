@@ -29,11 +29,7 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
             }
             let connection = Builder::new_local(path).build().await?.connect()?;
             connection.busy_timeout(LOCAL_BUSY_TIMEOUT)?;
-            connection
-                .query("PRAGMA journal_mode=WAL", ())
-                .await?
-                .next()
-                .await?;
+            enable_wal(&connection).await?;
             connection
         }
         DbLocation::Remote { url, auth_token } => {
@@ -45,6 +41,48 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     };
     migrate(&connection).await?;
     Ok(connection)
+}
+
+/// WAL への切り替えを `LOCAL_BUSY_TIMEOUT` まで再試行する間隔。
+const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+
+/// SQLite の結果コード SQLITE_BUSY (https://www.sqlite.org/rescode.html#busy)。
+const SQLITE_BUSY: std::ffi::c_int = 5;
+
+/// SQLite の結果コード SQLITE_LOCKED (https://www.sqlite.org/rescode.html#locked)。
+const SQLITE_LOCKED: std::ffi::c_int = 6;
+
+/// ローカルのファイルを WAL モードにする。新しい DB を複数のプロセスが同時に開くと切り替えが競合し、
+/// `busy_timeout` があっても SQLITE_BUSY で失敗するか、切り替わらずに元のモードが返ることがある
+/// (https://www.sqlite.org/pragma.html#pragma_journal_mode「If the journal mode could not be changed,
+/// the original journal mode is returned.」)。どちらも `LOCAL_BUSY_TIMEOUT` まで待って再試行する。
+async fn enable_wal(connection: &Connection) -> Result<(), Error> {
+    let deadline = std::time::Instant::now() + LOCAL_BUSY_TIMEOUT;
+    loop {
+        let attempt = async {
+            let mut rows = connection.query("PRAGMA journal_mode=WAL", ()).await?;
+            let row = rows
+                .next()
+                .await?
+                .ok_or(Error::EmptyResult("PRAGMA journal_mode=WAL"))?;
+            Ok::<String, Error>(row.get::<String>(0)?)
+        }
+        .await;
+        let retry = match &attempt {
+            Ok(mode) => !mode.eq_ignore_ascii_case("wal"),
+            Err(Error::Db(libsql::Error::SqliteFailure(code, _))) => {
+                *code == SQLITE_BUSY || *code == SQLITE_LOCKED
+            }
+            Err(_) => false,
+        };
+        if !retry {
+            return attempt.map(|_| ());
+        }
+        if std::time::Instant::now() >= deadline {
+            return attempt.and_then(|mode| Err(Error::WalNotEnabled(mode)));
+        }
+        tokio::time::sleep(WAL_RETRY_INTERVAL).await;
+    }
 }
 
 /// 適用済みの番号 (`PRAGMA user_version`)。

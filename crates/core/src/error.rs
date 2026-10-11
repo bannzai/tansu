@@ -21,6 +21,9 @@ pub enum Error {
         "DB のスキーマの版 ({db}) がこのバイナリの版 ({binary}) より新しいため開けません。tansu を更新してください"
     )]
     SchemaNewerThanBinary { db: i64, binary: i64 },
+    /// ローカルの DB を WAL モードに切り替えられなかった (再試行の期限まで別のプロセスと競合し続けた)。
+    #[error("DB を WAL モードに切り替えられませんでした (journal_mode が {0} のまま)")]
+    WalNotEnabled(String),
     /// 必ず 1 行返すはずの問い合わせが行を返さなかった。
     #[error("{0} が結果を返しませんでした")]
     EmptyResult(&'static str),
