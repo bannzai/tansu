@@ -374,7 +374,10 @@ fn upsert_query_delete_export() {
         row_ids(&query(&sandbox, "tasks", &["--sort", "title:DESC"])),
         ["task-2"]
     );
-    let stderr = fail(&sandbox, &["query", "tasks", "--json", "--sort", "title:up"]);
+    let stderr = fail(
+        &sandbox,
+        &["query", "tasks", "--json", "--sort", "title:up"],
+    );
     assert!(stderr.contains("up"), "{stderr}");
 }
 
