@@ -129,10 +129,7 @@ async fn open_refuses_a_database_newer_than_the_binary() {
 
     assert!(matches!(
         error,
-        Error::SchemaNewerThanBinary {
-            db: 99,
-            binary: 1
-        }
+        Error::SchemaNewerThanBinary { db: 99, binary: 1 }
     ));
 }
 
