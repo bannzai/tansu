@@ -345,6 +345,37 @@ fn upsert_query_delete_export() {
             "status": {"type": "select", "value": "done"},
         })
     );
+
+    // body は書いた時だけ置き換え、省略と null では残す
+    upsert(
+        &sandbox,
+        "tasks",
+        json!({"id": "task-2", "body": "再現手順"}),
+    );
+    assert_eq!(
+        upsert(&sandbox, "tasks", json!({"id": "task-2", "values": {}}))["body"],
+        "再現手順"
+    );
+    assert_eq!(
+        upsert(&sandbox, "tasks", json!({"id": "task-2", "body": null}))["body"],
+        "再現手順"
+    );
+    assert_eq!(
+        upsert(&sandbox, "tasks", json!({"id": "task-2", "body": ""}))["body"],
+        ""
+    );
+
+    // delete の後の書き出しには残った行だけが出る
+    let exported = succeed_json(&sandbox, &["export", "tasks", "--format", "json"]);
+    assert_eq!(row_ids(exported["rows"].as_array().unwrap()), ["task-2"]);
+
+    // 並べ替えの向きは大文字でもよく、それ以外の指定はエラー
+    assert_eq!(
+        row_ids(&query(&sandbox, "tasks", &["--sort", "title:DESC"])),
+        ["task-2"]
+    );
+    let stderr = fail(&sandbox, &["query", "tasks", "--json", "--sort", "title:up"]);
+    assert!(stderr.contains("up"), "{stderr}");
 }
 
 #[test]

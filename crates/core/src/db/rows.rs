@@ -470,10 +470,20 @@ async fn query_in(
     }
     match sort {
         Some(sort) => {
+            // プロパティ名は `:` を含めない (`db schema --add` の区切り) ため、`:` の後ろは必ず向きの指定として読む
             let (property_name, direction) = match sort.rsplit_once(':') {
-                Some((property_name, "desc")) => (property_name, "DESC"),
-                Some((property_name, "asc")) => (property_name, "ASC"),
-                _ => (sort, "ASC"),
+                None => (sort, "ASC"),
+                Some((property_name, direction)) if direction.eq_ignore_ascii_case("asc") => {
+                    (property_name, "ASC")
+                }
+                Some((property_name, direction)) if direction.eq_ignore_ascii_case("desc") => {
+                    (property_name, "DESC")
+                }
+                Some((_, direction)) => {
+                    return Err(Error::InvalidInput(format!(
+                        "並べ替えの向き `{direction}` は解釈できません (`<プロパティ名>:asc` か `<プロパティ名>:desc` で指定してください)"
+                    )));
+                }
             };
             let property = property_of(&database, property_name)?;
             if !matches!(
