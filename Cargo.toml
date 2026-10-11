@@ -1,0 +1,28 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+version = "0.0.0"
+publish = false
+
+[workspace.dependencies]
+tansu-core = { path = "crates/core" }
+tansu-mcp = { path = "crates/mcp" }
+tansu-server = { path = "crates/server" }
+
+axum = "0.8.9"
+clap = { version = "4.6.7", features = ["derive"] }
+# core は ローカルの SQLite ファイル (core) と Turso Cloud への直接接続 (remote + tls) だけを使う。
+# 既定の replication / sync は embedded replica 用で、使わない (documents/PROJECT.md「DB の置き場所」)
+libsql = { version = "0.9.30", default-features = false, features = ["core", "remote", "tls"] }
+# stdio のサーバー (`tansu mcp`) に要る機能だけを入れる
+rmcp = { version = "3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+# features は crate ごとに要るものだけを足す (core は `time`、テストは `macros` と `rt-multi-thread`)。
+# Wasm 化の時に core からランタイムを外しやすくするため、ここでは `full` にしない
+tokio = { version = "1", default-features = false }

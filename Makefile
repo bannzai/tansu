@@ -13,19 +13,21 @@ export TANSU_PORT
 # serve サブコマンドは Web 画面の issue で実装する。それまでは、無いコマンドを呼んで黙って失敗する代わりに理由を出して止める。
 # 実装後はこの target を次の 2 行に置き換える (サーバーが前面で動くため、ブラウザは背面で少し待ってから開く):
 #   (sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
-#   bun run ./src/cli.ts serve --port $(TANSU_PORT)
+#   cargo run -p tansu-cli -- serve --port $(TANSU_PORT)
 web:
 	@echo "tansu serve は未実装です (Web 画面の issue で実装する。進捗は documents/DIRECTION.md「必要な機能」)" >&2
 	@exit 1
 
-# Web 画面は Bun がソースから直接配信するため、サーバー向けの個別のビルドは無い。
-build-web: build-cli
+# Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ をサーバーが配信する構成は Web 画面の issue で作る。
+build-web:
+	bun install --frozen-lockfile --cwd web
+	bun run --cwd web build
 
 # CLI の単一バイナリをビルドして ~/.local/bin へ配置する (castle の skill とゲートはこの tansu を実行する)。
 # cp で同じ inode を上書きすると、macOS がキャッシュした ad-hoc 署名と中身が食い違って Killed: 9 になるため、install で置き換える。
 cli: build-cli
 	mkdir -p $(HOME)/.local/bin
-	install -m 755 dist/tansu $(HOME)/.local/bin/tansu
+	install -m 755 target/release/tansu $(HOME)/.local/bin/tansu
 
 build-cli:
-	bun run build
+	cargo build --release --locked -p tansu-cli

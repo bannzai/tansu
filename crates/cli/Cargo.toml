@@ -1,0 +1,15 @@
+[package]
+name = "tansu-cli"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tansu"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+tansu-core.workspace = true
+tansu-mcp.workspace = true
+tansu-server.workspace = true
