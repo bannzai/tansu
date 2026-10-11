@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Cargo workspace の crate: `core` / `cli` / `mcp` / `server`、`web/` の Vite + React) に作り直す。サーバーは各 Mac の localhost で動かす (DIRECTION.md「決めたこと」2026-10-11) ので、サーバーの crate は Rust (axum) で、ログイン・ホスティングは持たない。論理的な型と SQLite への持ち方は `documents/data-model.md`。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。雛形は Cargo workspace の crate (core / cli / mcp / server) と web/ の Vite + React で、立ち上げ PR #1 の TypeScript の雛形から作り直した。サーバーは各 Mac の localhost で動かす (DIRECTION.md「決めたこと」2026-10-11) ので、サーバーの crate は Rust (axum) で、ログイン・ホスティングは持たない。論理的な型と SQLite への持ち方は `documents/data-model.md`。
 
 | 入口 | 役割 |
 | --- | --- |
