@@ -13,6 +13,11 @@ pub enum Error {
         "TANSU_DB_URL ({0}...) を解釈できません (空でないパスの file:<パス> か libsql://<host> を指定してください)"
     )]
     UnsupportedDbUrl(String),
+    /// `TANSU_DB_URL` が `file::memory:` (インメモリの DB)。ファイルのパスではなく、WAL にも切り替えられないため開かない。
+    #[error(
+        "file::memory: (インメモリの DB) には対応していません (file:<ファイルのパス> を指定してください)"
+    )]
+    InMemoryDbNotSupported,
     /// `libsql://<host>` を指定したのに `TANSU_DB_AUTH_TOKEN` が無い。
     #[error("libsql:// の DB を開くには TANSU_DB_AUTH_TOKEN が要ります")]
     MissingAuthToken,

@@ -35,7 +35,7 @@ impl Id {
 pub struct Database {
     /// このデータベースの ID。
     pub id: Id,
-    /// データベースの中で一意。
+    /// すべてのデータベースの中で一意。
     pub name: String,
     /// `position` 順。
     pub properties: Vec<Property>,
