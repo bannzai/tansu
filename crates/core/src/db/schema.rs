@@ -313,20 +313,14 @@ async fn set_unique(
     if property.unique {
         return Ok(());
     }
-    let rows = rows::rows_of_database(connection, &database.id).await?;
-    for (index, row) in rows.iter().enumerate() {
-        let Some(value) = row.values.get(&property.id) else {
-            continue;
-        };
-        if let Some(duplicate) = rows[index + 1..]
-            .iter()
-            .find(|other| other.values.get(&property.id) == Some(value))
-        {
-            return Err(Error::UniqueViolation {
-                property: property.name.clone(),
-                row_id: duplicate.id.0.clone(),
-            });
-        }
+    if let Some(duplicate) = rows::duplicate_row(
+        &rows::rows_of_database(connection, &database.id).await?,
+        &property.id,
+    ) {
+        return Err(Error::UniqueViolation {
+            property: property.name.clone(),
+            row_id: duplicate.id.0.clone(),
+        });
     }
     connection
         .execute(

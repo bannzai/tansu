@@ -456,6 +456,69 @@ fn relation_reference_is_removed_when_target_row_is_deleted() {
     assert_eq!(query(&sandbox, "tasks", &[])[0]["values"], json!({}));
 }
 
+#[test]
+fn delete_is_rolled_back_when_removing_references_breaks_unique() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "projects"]);
+    succeed(&sandbox, &["db", "create", "tasks"]);
+    succeed(
+        &sandbox,
+        &[
+            "db",
+            "schema",
+            "tasks",
+            "--add",
+            "project:relation:projects",
+            "--unique",
+            "project",
+        ],
+    );
+    upsert(&sandbox, "projects", json!({"id": "p1"}));
+    upsert(&sandbox, "projects", json!({"id": "p2"}));
+    upsert(
+        &sandbox,
+        "tasks",
+        json!({"id": "t1", "values": {"project": ["p1", "p2"]}}),
+    );
+    upsert(
+        &sandbox,
+        "tasks",
+        json!({"id": "t2", "values": {"project": ["p2"]}}),
+    );
+
+    // p1 を外すと t1 と t2 がどちらも ["p2"] になり unique が破れるため、削除ごと失敗する
+    let stderr = fail(&sandbox, &["delete", "projects", "p1"]);
+    assert!(stderr.contains("unique"), "{stderr}");
+    assert_eq!(row_ids(&query(&sandbox, "projects", &[])), ["p1", "p2"]);
+    assert_eq!(
+        query(&sandbox, "tasks", &[])[0]["values"]["project"],
+        json!({"type": "relation", "value": ["p1", "p2"]})
+    );
+}
+
+#[test]
+fn date_sort_compares_instants_across_offsets() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "events"]);
+    succeed(&sandbox, &["db", "schema", "events", "--add", "at:date"]);
+    // 文字列の順は day < utc < tokyo だが、時刻の順は day (10 日 0 時 UTC) < tokyo (11 日 0 時 UTC) < utc (11 日 1 時 UTC)
+    for (id, at) in [
+        ("tokyo", "2026-10-11T09:00:00+09:00"),
+        ("utc", "2026-10-11T01:00:00Z"),
+        ("day", "2026-10-10"),
+    ] {
+        upsert(&sandbox, "events", json!({"id": id, "values": {"at": at}}));
+    }
+    assert_eq!(
+        row_ids(&query(&sandbox, "events", &["--sort", "at"])),
+        ["day", "tokyo", "utc"]
+    );
+    assert_eq!(
+        row_ids(&query(&sandbox, "events", &["--sort", "at:desc"])),
+        ["utc", "tokyo", "day"]
+    );
+}
+
 #[tokio::test]
 async fn select_is_name_in_cli_and_option_id_in_db() {
     let sandbox = sandbox();

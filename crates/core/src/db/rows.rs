@@ -229,9 +229,10 @@ async fn delete_in(
     if deleted == 0 {
         return Ok(());
     }
-    for (referring_database_id, property_id) in
+    for (referring_database_id, property) in
         relation_properties_targeting(connection, &database.id).await?
     {
+        let property_id = &property.id;
         let mut rows = connection
             .query(
                 &format!(
@@ -239,7 +240,7 @@ async fn delete_in(
                 ),
                 (
                     referring_database_id.0.as_str(),
-                    value_path(&property_id),
+                    value_path(property_id),
                     row_id,
                 ),
             )
@@ -250,10 +251,10 @@ async fn delete_in(
         }
         drop(rows);
         for mut referring_row in referring_rows {
-            if let Some(Value::Relation(row_ids)) = referring_row.values.get_mut(&property_id) {
+            if let Some(Value::Relation(row_ids)) = referring_row.values.get_mut(property_id) {
                 row_ids.retain(|id| id.0 != row_id);
                 if row_ids.is_empty() {
-                    referring_row.values.remove(&property_id);
+                    referring_row.values.remove(property_id);
                 }
             }
             connection
@@ -267,29 +268,62 @@ async fn delete_in(
                 )
                 .await?;
         }
+        // 参照を外すと、unique の relation で別々の行の値が同じになり得る (["p1", "p2"] と ["p2"] から p1 を外す等)。
+        // その時は削除ごと巻き戻す
+        if property.unique
+            && let Some(duplicate) = duplicate_row(
+                &rows_of_database(connection, &referring_database_id).await?,
+                property_id,
+            )
+        {
+            return Err(Error::UniqueViolation {
+                property: property.name.clone(),
+                row_id: duplicate.id.0.clone(),
+            });
+        }
     }
     Ok(())
 }
 
-/// 相手の表が `target_database_id` の relation のプロパティを、(そのプロパティを持つデータベースの ID, プロパティの ID) で返す。
+/// 相手の表が `target_database_id` の relation のプロパティを、(そのプロパティを持つデータベースの ID, プロパティ) で返す。
 async fn relation_properties_targeting(
     connection: &Connection,
     target_database_id: &Id,
-) -> Result<Vec<(Id, Id)>, Error> {
+) -> Result<Vec<(Id, Property)>, Error> {
     let mut rows = connection
-        .query("SELECT database_id, id, kind FROM property", ())
+        .query(
+            "SELECT database_id, id, name, kind, unique_value FROM property",
+            (),
+        )
         .await?;
     let mut properties = Vec::new();
     while let Some(row) = rows.next().await? {
-        if let PropertyKind::Relation {
-            target_database_id: target,
-        } = serde_json::from_str::<PropertyKind>(&row.get::<String>(2)?)?
-            && target == *target_database_id
+        let kind = serde_json::from_str::<PropertyKind>(&row.get::<String>(3)?)?;
+        if matches!(&kind, PropertyKind::Relation { target_database_id: target } if target == target_database_id)
         {
-            properties.push((Id(row.get::<String>(0)?), Id(row.get::<String>(1)?)));
+            properties.push((
+                Id(row.get::<String>(0)?),
+                Property {
+                    id: Id(row.get::<String>(1)?),
+                    name: row.get::<String>(2)?,
+                    kind,
+                    unique: row.get::<i64>(4)? != 0,
+                },
+            ));
         }
     }
     Ok(properties)
+}
+
+/// `rows` の中で、プロパティ `property_id` の値が先に出た行と同じ行 (unique の重複)。無ければ `None`。
+pub(super) fn duplicate_row<'a>(rows: &'a [Row], property_id: &Id) -> Option<&'a Row> {
+    rows.iter().enumerate().find_map(|(index, row)| {
+        let value = row.values.get(property_id)?;
+        rows[..index]
+            .iter()
+            .any(|earlier| earlier.values.get(property_id) == Some(value))
+            .then_some(row)
+    })
 }
 
 /// データベース `database_name` の行を絞り込んで返す。行の解釈に使った定義も返す。
@@ -299,6 +333,21 @@ async fn relation_properties_targeting(
 /// - `sort`: `<プロパティ名>[:asc|:desc]`。text / number / checkbox / url / date だけ。無ければ追加した順
 /// - `limit`: 返す行の上限。無ければすべて
 pub async fn query(
+    connection: &Connection,
+    database_name: &str,
+    filters: &[String],
+    sort: Option<&str>,
+    limit: Option<u64>,
+) -> Result<(Database, Vec<Row>), Error> {
+    // 定義と行を同じスナップショットで読む (間に別プロセスがプロパティを足すと、新しい値を古い定義で解釈して落とすため)。
+    // 読むだけなので書き込みロックは取らない
+    let transaction = connection.transaction().await?;
+    let result = query_in(&transaction, database_name, filters, sort, limit).await;
+    finish(transaction, result).await
+}
+
+/// [`query`] の本体。`connection` は読み取りのトランザクション。
+async fn query_in(
     connection: &Connection,
     database_name: &str,
     filters: &[String],
@@ -396,9 +445,12 @@ pub async fn query(
                     property.kind.type_name()
                 )));
             }
-            sql.push_str(&format!(
-                r#" ORDER BY json_extract("values", ?) {direction}, rowid"#
-            ));
+            // date は時差付きの日時を含むため、文字列ではなく時刻 (julianday は時差を UTC に直す) で比べる
+            let sort_key = match property.kind {
+                PropertyKind::Date => r#"julianday(json_extract("values", ?))"#,
+                _ => r#"json_extract("values", ?)"#,
+            };
+            sql.push_str(&format!(" ORDER BY {sort_key} {direction}, rowid"));
             params.push(libsql::Value::from(value_path(&property.id)));
         }
         None => sql.push_str(" ORDER BY rowid"),
