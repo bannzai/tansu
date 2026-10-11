@@ -206,14 +206,23 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
         PropertyKind::Select { options } => {
             Value::Select(Some(option_id(property, options, &string()?)?))
         }
-        PropertyKind::MultiSelect { options } => Value::MultiSelect(
+        PropertyKind::MultiSelect { options } => Value::MultiSelect(without_duplicates(
             strings()?
                 .iter()
                 .map(|name| option_id(property, options, name))
                 .collect::<Result<_, _>>()?,
-        ),
-        PropertyKind::Relation { .. } => Value::Relation(strings()?.into_iter().map(Id).collect()),
+        )),
+        PropertyKind::Relation { .. } => Value::Relation(without_duplicates(
+            strings()?.into_iter().map(Id).collect(),
+        )),
     }))
+}
+
+/// `ids` から 2 回目以降に出た ID を除く (最初に出た順は保つ)。同じ選択肢・同じ行を 2 回持つ値に意味は無く、
+/// 残すと unique の判定で `["p1", "p1"]` と `["p1"]` が別の値になるため。
+fn without_duplicates(ids: Vec<Id>) -> Vec<Id> {
+    let mut seen = std::collections::BTreeSet::new();
+    ids.into_iter().filter(|id| seen.insert(id.clone())).collect()
 }
 
 /// date の値 `text` を保存する形に揃える。日付だけなら `2026-10-11`、日時なら RFC 3339 (区切りは大文字の `T`、UTC は `Z`)。
@@ -363,6 +372,22 @@ mod tests {
         );
         assert!(
             parse_row_input(&database(), &json!({"id": "r1", "values": {"status": []}})).is_err()
+        );
+    }
+
+    #[test]
+    fn duplicated_items_are_stored_once() {
+        let input = parse_row_input(
+            &database(),
+            &json!({"id": "r1", "values": {"labels": ["bug", "bug"]}}),
+        )
+        .unwrap();
+        assert_eq!(
+            input.values,
+            BTreeMap::from([(
+                Id("p_labels".into()),
+                Some(Value::MultiSelect(vec![Id("o_bug".into())]))
+            )])
         );
     }
 

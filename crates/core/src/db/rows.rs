@@ -1,7 +1,7 @@
 //! 利用者の表の行 (`row` テーブル) を読み書きする。値は `row.values` の JSON 1 列に持ち、絞り込みは `json_extract` で見る
 //! (`documents/data-model.md`「SQLite / libSQL への持ち方」)。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use libsql::Connection;
 
@@ -63,7 +63,11 @@ async fn upsert_in(
             rows.iter().find(|row| {
                 unique_values
                     .iter()
-                    .any(|(property_id, value)| row.values.get(*property_id) == Some(*value))
+                    .any(|(property_id, value)| {
+                        row.values
+                            .get(*property_id)
+                            .is_some_and(|stored| same_unique_value(stored, value))
+                    })
             })
         }
     };
@@ -190,7 +194,13 @@ fn check_unique(
         };
         if let Some(duplicate) = rows
             .iter()
-            .find(|row| row.id != *row_id && row.values.get(&property.id) == Some(value))
+            .find(|row| {
+                row.id != *row_id
+                    && row
+                        .values
+                        .get(&property.id)
+                        .is_some_and(|stored| same_unique_value(stored, value))
+            })
         {
             return Err(Error::UniqueViolation {
                 property: property.name.clone(),
@@ -227,6 +237,12 @@ async fn delete_in(
         )
         .await?;
     if deleted == 0 {
+        // 行が無いのは 2 回目の delete と同じ状態なので成功にする。別のデータベースに実在する ID は指定の誤りなのでエラーにする
+        if database_of_row(connection, &Id(row_id.into())).await?.is_some() {
+            return Err(Error::InvalidInput(format!(
+                "行 `{row_id}` は別のデータベースの行です"
+            )));
+        }
         return Ok(());
     }
     for (referring_database_id, property) in
@@ -321,9 +337,26 @@ pub(super) fn duplicate_row<'a>(rows: &'a [Row], property_id: &Id) -> Option<&'a
         let value = row.values.get(property_id)?;
         rows[..index]
             .iter()
-            .any(|earlier| earlier.values.get(property_id) == Some(value))
+            .any(|earlier| {
+                earlier
+                    .values
+                    .get(property_id)
+                    .is_some_and(|earlier_value| same_unique_value(earlier_value, value))
+            })
             .then_some(row)
     })
+}
+
+/// unique の判定で 2 つの値を同じとみなすか。multi_select / relation は要素の順序を問わない
+/// (`["p1", "p2"]` と `["p2", "p1"]` は同じ組を指すため)。
+fn same_unique_value(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::MultiSelect(left_ids), Value::MultiSelect(right_ids))
+        | (Value::Relation(left_ids), Value::Relation(right_ids)) => {
+            left_ids.iter().collect::<BTreeSet<_>>() == right_ids.iter().collect::<BTreeSet<_>>()
+        }
+        _ => left == right,
+    }
 }
 
 /// データベース `database_name` の行を絞り込んで返す。行の解釈に使った定義も返す。

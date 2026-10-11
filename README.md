@@ -22,7 +22,7 @@ tansu --version
 
 ### CLI
 
-データは `TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite` に入る。出力は JSON で、失敗すると stderr に 1 行を出して exit 1 で終わる。
+データは `TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite` に入る。出力は JSON で、失敗すると stderr に 1 行を出して exit 1 で終わる。引数の書き方の誤り (足りない引数・知らないオプション) は、コマンドラインの解析 (clap) が使い方を複数行で出して exit 2 で終わる。
 
 ```sh
 # 表を作り、プロパティを足す。型は text / number / checkbox / url / date / select / multi_select / relation

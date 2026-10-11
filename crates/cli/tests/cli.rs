@@ -492,6 +492,17 @@ fn delete_is_rolled_back_when_removing_references_breaks_unique() {
         "tasks",
         json!({"id": "t2", "values": {"project": ["p2"]}}),
     );
+    // 並びが違うだけの値は同じ値とみなす
+    let stderr = fail(
+        &sandbox,
+        &[
+            "upsert",
+            "tasks",
+            "--json",
+            r#"{"id": "t3", "values": {"project": ["p2", "p1"]}}"#,
+        ],
+    );
+    assert!(stderr.contains("unique"), "{stderr}");
 
     // p1 を外すと t1 と t2 がどちらも ["p2"] になり unique が破れるため、削除ごと失敗する
     let stderr = fail(&sandbox, &["delete", "projects", "p1"]);
@@ -556,10 +567,13 @@ fn sort_puts_rows_without_value_last_and_checkbox_filters() {
         &["query", "tasks", "--json", "--where", "done=yes"],
     );
 
-    // 別のデータベースの行の ID では書けない
+    // 別のデータベースの行の ID では書けず、消せない
     succeed(&sandbox, &["db", "create", "others"]);
     let stderr = fail(&sandbox, &["upsert", "others", "--json", r#"{"id": "a"}"#]);
     assert!(stderr.contains("別のデータベース"), "{stderr}");
+    let stderr = fail(&sandbox, &["delete", "others", "a"]);
+    assert!(stderr.contains("別のデータベース"), "{stderr}");
+    assert_eq!(row_ids(&query(&sandbox, "tasks", &["--limit", "1"])), ["a"]);
 }
 
 #[test]
