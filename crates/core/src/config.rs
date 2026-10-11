@@ -13,7 +13,8 @@ const DEFAULT_HOME_DIR_NAME: &str = ".tansu";
 const DEFAULT_DB_FILE_NAME: &str = "tansu.sqlite";
 
 /// `://` を含まない `TANSU_DB_URL` を `Error::UnsupportedDbUrl` に入れる時に残す先頭の文字数。
-/// URL の後ろには認証情報が続き得るため全体は入れず、スキームの見当が付く長さ (作業指示の値) だけを残す。
+/// URL の後ろには認証情報が続き得るため全体は入れない。16 文字なら `libsql://` (9 文字) と `file:` (5 文字) の
+/// どちらのスキームも収まり、`://` の後の認証情報 (ホスト名より後) はほぼ含まない。
 const URL_PREFIX_LEN_WITHOUT_SCHEME_SEPARATOR: usize = 16;
 
 /// Turso Cloud の認証トークン。`Debug` の出力 (ログ・エラー・テストの失敗表示) に値を出さない。
@@ -21,6 +22,7 @@ const URL_PREFIX_LEN_WITHOUT_SCHEME_SEPARATOR: usize = 16;
 pub struct AuthToken(String);
 
 impl AuthToken {
+    /// 環境変数などから読んだトークンの値を包む。値の検証はしない (空文字は `Settings::resolve` が未設定として扱う)。
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
@@ -88,6 +90,7 @@ impl Settings {
     }
 
     /// 環境変数の値から設定を解決する。空文字は未設定として扱う。
+    /// `TANSU_HOME` と `file:<パス>` のパスが相対パスの時は、プロセスのカレントディレクトリ基準になる (絶対パスは必須にしない)。
     pub fn resolve(env: EnvVars) -> Result<Self, Error> {
         let home = match (non_empty(env.tansu_home), non_empty(env.home)) {
             (Some(tansu_home), _) => PathBuf::from(tansu_home),

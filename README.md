@@ -8,11 +8,14 @@
 
 ## 使い方
 
-Rust (`rust-toolchain.toml` の版) が要る。`web/` を触る時は Bun (`web/.bun-version` の版) も要る。libsql のビルドに C コンパイラが要るかは未確認。
+Rust (`rust-toolchain.toml` の版) が要る。入れ方は [rustup](https://rustup.rs/) を入れ、clone 後に `rustup toolchain install` を実行すると `rust-toolchain.toml` の版が入る。`web/` を触る時は Bun (`web/.bun-version` の版) も要る。
+
+libsql の crate (`Cargo.lock` の `libsql-ffi`) は、同梱の SQLite の C ソースをビルドするため C コンパイラが要る (macOS は Xcode Command Line Tools)。<!-- source: https://github.com/tursodatabase/libsql の libsql-ffi/build.rs が cc::Build で bundled/src/sqlite3.c をコンパイルし、libsql-ffi の build-dependencies に cc と cmake がある (Cargo.lock の libsql-ffi の依存にも cc と cmake)。crates.io の説明は "Native bindings to libSQL" だけ -->
 
 ```sh
 git clone https://github.com/bannzai/tansu.git
 cd tansu
+rustup toolchain install   # rust-toolchain.toml の版を入れる
 make cli   # CLI を ~/.local/bin/tansu に置く
 tansu --version
 ```

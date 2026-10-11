@@ -21,7 +21,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup --version
       # rustup 1.28 以降はアクティブな toolchain を自動でインストールしない。引数なしの `rustup toolchain install` で
       # rust-toolchain.toml の channel と components を入れ、Rust の版の定義をそのファイルの 1 箇所にする
       # (https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0/ 「To ensure its installation, run `rustup toolchain install` with no arguments.」)

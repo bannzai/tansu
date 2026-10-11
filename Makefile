@@ -30,4 +30,4 @@ cli: build-cli
 	install -m 755 target/release/tansu $(HOME)/.local/bin/tansu
 
 build-cli:
-	cargo build --release -p tansu-cli
+	cargo build --release --locked -p tansu-cli

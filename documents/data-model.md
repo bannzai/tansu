@@ -4,61 +4,7 @@
 
 ## 汎用層
 
-```rust
-/// 行・データベース・プロパティ・選択肢の ID。短い文字列 (nanoid 相当、21 文字) で、CLI の引数・URL・`--run-id` にそのまま書ける
-pub struct Id(String);
-
-/// 利用者が定義する表 (Notion のデータベースに当たる)
-pub struct Database {
-    pub id: Id,
-    pub name: String,            // データベースの中で一意
-    pub properties: Vec<Property>, // position 順
-    pub created_at: String,      // 時差付き ISO 8601
-}
-
-/// 表の列の定義。型ごとに設定が違うので enum で持つ
-pub struct Property {
-    pub id: Id,
-    pub name: String,            // 同じデータベースの中で一意
-    pub kind: PropertyKind,
-    pub unique: bool,            // true なら同じ値の行を 2 つ持てない (QA 層の run_id・project.repo が使う)
-}
-
-pub enum PropertyKind {
-    Text,
-    Number,
-    Checkbox,
-    Url,
-    Date,
-    Select { options: Vec<SelectOption> },
-    MultiSelect { options: Vec<SelectOption> },
-    Relation { target_database_id: Id }, // 片方向。逆引きはクエリで出す
-}
-
-pub struct SelectOption { pub id: Id, pub name: String, pub color: Option<String> }
-
-/// 1 つのセルの値。PropertyKind と 1 対 1 に対応し、値自身が型を持つ (--json の読み手が定義を引かずに解釈できるように)
-pub enum Value {
-    Text(String),
-    Number(f64),
-    Checkbox(bool),
-    Url(String),
-    Date(String),                 // ISO 8601。日付だけなら "2026-10-11"
-    Select(Option<Id>),           // 保存は選択肢の ID。CLI の入出力は name に変換する
-    MultiSelect(Vec<Id>),
-    Relation(Vec<Id>),            // 相手の行の ID
-}
-
-/// 表の 1 行 (Notion のページに当たる)
-pub struct Row {
-    pub id: Id,
-    pub database_id: Id,
-    pub body: String,                    // markdown 本文
-    pub values: BTreeMap<Id, Value>,     // キーはプロパティの ID。未設定のプロパティはキー無し
-    pub created_at: String,
-    pub updated_at: String,
-}
-```
+型の定義は `crates/core/src/model.rs` にある (serde の表現もそこ)。ここには写しを置かない。
 
 ## SQLite / libSQL への持ち方
 
@@ -77,7 +23,7 @@ pub struct Row {
 
 ## QA 層
 
-`qa import` が最初に作る 4 つのデータベース。汎用層の `Row` を次の形に読み替える (union のプロパティは汎用層に無いので、`automation` は select + text の 2 列に平たくする)。
+`qa import` が最初に作る 4 つのデータベース (Rust の型はまだ無い。QA 層の CLI の issue で、必要になった時に `crates/core` に足す)。汎用層の `Row` を次の形に読み替える (union のプロパティは汎用層に無いので、`automation` は select + text の 2 列に平たくする)。
 
 ```rust
 pub struct QaProject { pub repo: String /* unique */, pub path: Option<String> }

@@ -115,6 +115,32 @@ async fn file_url_decides_where_the_database_is_created() {
     assert!(!home.path().join("tansu.sqlite").exists());
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn new_database_directory_is_private_and_existing_one_is_kept() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let new_directory = elsewhere.path().join("new");
+    let existing_directory = elsewhere.path().join("existing");
+    std::fs::create_dir(&existing_directory).unwrap();
+    std::fs::set_permissions(&existing_directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    for directory in [&new_directory, &existing_directory] {
+        let settings = settings_with_db_url(
+            &home,
+            Some(format!("file:{}", directory.join("a.sqlite").display())),
+        );
+        db::open(&settings).await.unwrap();
+    }
+
+    let mode =
+        |directory: &std::path::Path| directory.metadata().unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&new_directory), 0o700);
+    assert_eq!(mode(&existing_directory), 0o755);
+}
+
 #[tokio::test]
 async fn open_refuses_a_database_newer_than_the_binary() {
     let home = tempfile::tempdir().unwrap();

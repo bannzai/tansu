@@ -25,7 +25,7 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     let connection = match &settings.db {
         DbLocation::Local(path) => {
             if let Some(directory) = path.parent() {
-                std::fs::create_dir_all(directory)?;
+                create_private_dir_all(directory)?;
             }
             let connection = Builder::new_local(path).build().await?.connect()?;
             connection.busy_timeout(LOCAL_BUSY_TIMEOUT)?;
@@ -43,8 +43,24 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     Ok(connection)
 }
 
+/// DB を置くディレクトリを作る。DB に private リポジトリの QA の項目が入るため、unix では新しく作るディレクトリを
+/// 所有者だけが読み書きできる権限 (0o700) にして、同じ Mac の他のユーザーに読ませない。
+/// 既にあるディレクトリの権限は変えない。何度呼んでも同じ状態になる。
+fn create_private_dir_all(directory: &std::path::Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(directory)
+}
+
 /// WAL への切り替えを `LOCAL_BUSY_TIMEOUT` まで再試行する間隔。
+/// `LOCAL_BUSY_TIMEOUT` (5 秒) の中で最大 100 回試せる粒度。WAL への切り替えは数 ms で終わる見込み (推定で、実測していない) なので、
+/// 長く待ち過ぎず、CPU を使い続ける busy loop にもならない。
 const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(50);
+
+/// 拡張結果コードから主結果コードを取り出すマスク (下位 8 ビット。https://www.sqlite.org/rescode.html)。
+const PRIMARY_RESULT_CODE_MASK: std::ffi::c_int = 0xff;
 
 /// SQLite の結果コード SQLITE_BUSY (https://www.sqlite.org/rescode.html#busy)。
 const SQLITE_BUSY: std::ffi::c_int = 5;
@@ -56,6 +72,9 @@ const SQLITE_LOCKED: std::ffi::c_int = 6;
 /// `busy_timeout` があっても SQLITE_BUSY で失敗するか、切り替わらずに元のモードが返ることがある
 /// (https://www.sqlite.org/pragma.html#pragma_journal_mode「If the journal mode could not be changed,
 /// the original journal mode is returned.」)。どちらも `LOCAL_BUSY_TIMEOUT` まで待って再試行する。
+///
+/// `libsql::Error::SqliteFailure` の第 1 要素は `sqlite3_extended_errcode` の値なので、主結果コードで比べるために下位 8 ビットを取る
+/// (https://www.sqlite.org/rescode.html「primary result code」は拡張結果コードの下位 8 ビット)。
 async fn enable_wal(connection: &Connection) -> Result<(), Error> {
     let deadline = std::time::Instant::now() + LOCAL_BUSY_TIMEOUT;
     loop {
@@ -71,7 +90,8 @@ async fn enable_wal(connection: &Connection) -> Result<(), Error> {
         let retry = match &attempt {
             Ok(mode) => !mode.eq_ignore_ascii_case("wal"),
             Err(Error::Db(libsql::Error::SqliteFailure(code, _))) => {
-                *code == SQLITE_BUSY || *code == SQLITE_LOCKED
+                let primary_code = *code & PRIMARY_RESULT_CODE_MASK;
+                primary_code == SQLITE_BUSY || primary_code == SQLITE_LOCKED
             }
             Err(_) => false,
         };
