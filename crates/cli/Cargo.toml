@@ -10,6 +10,15 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tansu-core.workspace = true
 tansu-mcp.workspace = true
 tansu-server.workspace = true
+# main はサブコマンド 1 回分の非同期処理を current_thread の runtime で動かすだけなので `rt` だけを足す
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+# 統合テストの #[tokio::test] (current_thread) に要る
+tokio = { workspace = true, features = ["macros", "rt"] }

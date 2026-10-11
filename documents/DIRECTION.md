@@ -62,6 +62,7 @@ MVP に入れないもの: Notion との同期、他人への配布 (crates.io�
 | 2026-10-11 | 関門 1 (agent) | データモデルは `documents/data-model.md` のとおり: 行の値は JSON 1 列 (EAV にしない)、値は自身の型を持つ、relation は片方向、run は汎用の行、ID は短い文字列、QA の automation は select + text の 2 列、property に unique、select は保存 ID・CLI の入出力 name | agent |
 | 2026-10-11 | 関門 1 (チャット) の後 | 置き場所の指定は `TANSU_DB_URL` (未設定ならローカルのファイル。2026-10-08 の `TANSU_DB` はこれに置き換える)。Turso の embedded replica は CLI・MCP・serve が同じ DB を開く構成と合わないため使わず、ローカルのファイルかクラウド直結の 2 択にする (`documents/PROJECT.md`「DB の置き場所」) | agent |
 | 2026-10-11 | 関門 1 (チャット) | リポジトリ名は当面 tansu のまま。よりよい名前にいずれ変える (時期は未定) | bannzai |
+| 2026-10-11 | 汎用の DB と CLI の実装 (#6) | CLI の行の JSON は `values` をプロパティ名・選択肢の name で表す (`documents/data-model.md`「CLI の入出力」)。`upsert` は `id` か unique のプロパティの値で書く行を決め、どちらも無い入力はエラーにする (「すべての書き込みを冪等にする」に合わせた。後からキー無しの追加を許すのは呼び出し側を壊さないが、逆は壊すため厳しい方にした)。`delete` は行が無くても成功にする。生成する ID は `-` を含まない 21 文字 (CLI の引数でオプションと解釈されないように) | agent |
 
 ## agent に任せること
 

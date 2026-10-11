@@ -13,10 +13,14 @@ tansu-mcp = { path = "crates/mcp" }
 tansu-server = { path = "crates/server" }
 
 axum = "0.8.9"
+# 行の created_at / updated_at に時差付き ISO 8601 を書くための現在時刻だけに使う (clock 以外の機能は要らない)
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive"] }
 # core は ローカルの SQLite ファイル (core) と Turso Cloud への直接接続 (remote + tls) だけを使う。
 # 既定の replication / sync は embedded replica 用で、使わない (documents/PROJECT.md「DB の置き場所」)
 libsql = { version = "0.9.30", default-features = false, features = ["core", "remote", "tls"] }
+# 行・データベース・プロパティ・選択肢の ID (21 文字。documents/data-model.md)
+nanoid = "0.4.0"
 # stdio のサーバー (`tansu mcp`) に要る機能だけを入れる
 rmcp = { version = "3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
 serde = { version = "1", features = ["derive"] }

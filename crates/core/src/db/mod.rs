@@ -1,8 +1,12 @@
-//! DB を開き、マイグレーションを当てる。物理スキーマ (CREATE TABLE) はこのモジュールの `migrations/` にだけ書く。
+//! DB を開き、マイグレーションを当てる。物理スキーマ (CREATE TABLE) はこのモジュールの `migrations/` にだけ書き、
+//! SQL はこのモジュールの下 (`schema` / `rows`) にだけ書く (`.claude/rules/sqlite-database.md`)。
+
+pub mod rows;
+pub mod schema;
 
 use std::time::Duration;
 
-use libsql::{Builder, Connection, TransactionBehavior};
+use libsql::{Builder, Connection, Transaction, TransactionBehavior};
 
 use crate::config::{DbLocation, Settings};
 use crate::error::Error;
@@ -21,6 +25,7 @@ const LOCAL_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// 設定が指す DB を開き、未適用のマイグレーションを当てて接続を返す。
 /// 何度呼んでも同じ状態になる (適用済みのマイグレーションは当て直さない)。
 /// DB のスキーマの版がこのバイナリより新しい時は `Error::SchemaNewerThanBinary` を返す。
+/// `libsql://` (Turso Cloud) は Turso Cloud の接続の issue まで [`Error::RemoteNotSupported`] を返す。
 pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     let connection = match &settings.db {
         DbLocation::Local(path) => {
@@ -33,12 +38,7 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
             enable_wal(&connection).await?;
             connection
         }
-        DbLocation::Remote { url, auth_token } => {
-            Builder::new_remote(url.clone(), auth_token.expose().to_owned())
-                .build()
-                .await?
-                .connect()?
-        }
+        DbLocation::Remote { .. } => return Err(Error::RemoteNotSupported),
     };
     migrate(&connection).await?;
     Ok(connection)
@@ -145,6 +145,41 @@ fn ensure_not_newer(db: i64) -> Result<(), Error> {
         return Err(Error::SchemaNewerThanBinary { db, binary });
     }
     Ok(())
+}
+
+/// 書き込みを始める。読み取りの時点で書き込みロックを取り、読んでから書くまでの間に別プロセスが割り込まないようにする
+/// (unique の検査を読み取りと同じトランザクションで行うため)。
+async fn begin(connection: &Connection) -> Result<Transaction, Error> {
+    Ok(connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .await?)
+}
+
+/// `result` が成功なら `transaction` を確定し、失敗なら巻き戻して `result` のエラーを返す。
+async fn finish<T>(transaction: Transaction, result: Result<T, Error>) -> Result<T, Error> {
+    match result {
+        Ok(value) => {
+            transaction.commit().await?;
+            Ok(value)
+        }
+        Err(error) => {
+            // 巻き戻しの失敗より、巻き戻す原因になった `error` の方が利用者に必要なため、巻き戻しのエラーは捨てる
+            let _ = transaction.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 行・データベースに書く時刻。時差付き ISO 8601 (`documents/data-model.md`)。
+/// 秒より細かい精度は持たない (行の既定の並びは追加順の rowid で決め、時刻では並べないため)。
+fn now() -> String {
+    chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+}
+
+/// `row.values` の JSON の中で、プロパティ `property_id` の値 (`Value` の `value`) を指す JSON path。
+/// ID は `[0-9A-Za-z_-]` だけなので二重引用符で囲めば path として安全に書ける。
+fn value_path(property_id: &crate::model::Id) -> String {
+    format!(r#"$."{}".value"#, property_id.0)
 }
 
 /// 最新なら write ロックを取らずに戻る。足りない番号がある時だけ `BEGIN IMMEDIATE` を開き、
