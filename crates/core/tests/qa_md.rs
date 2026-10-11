@@ -324,6 +324,18 @@ fn broken_lines_are_reported_and_the_rest_is_still_read() {
 }
 
 #[test]
+fn fenced_code_blocks_are_not_read_as_syntax() {
+    let qa_md = parse(
+        "x/QA.md",
+        "## 実行ナレッジ\n\n```md\n- [x] **一覧**: 記述例\n## 1. 例\n```\n\n## 1. 表示\n\n- [ ] **一覧**: 出る\n  ```sh\n  - [x] **別**: 例\n  ```\n",
+    );
+    assert_eq!(qa_md.items.len(), 1);
+    assert_eq!(qa_md.items[0].name, "一覧");
+    assert!(!qa_md.items[0].checked);
+    assert!(qa_md.skipped.is_empty(), "{:?}", qa_md.skipped);
+}
+
+#[test]
 fn unreadable_last_verified_at_is_reported_and_dropped() {
     let qa_md = parse(
         "x/QA.md",

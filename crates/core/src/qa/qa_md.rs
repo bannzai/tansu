@@ -147,6 +147,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     let mut qa_md = QaMd::default();
     let mut section = Section::None;
     let mut in_frontmatter = false;
+    let mut in_code_block = false;
     let mut current_item: Option<(usize, usize)> = None;
     let mut record_indent: Option<usize> = None;
     let mut evidence: Option<Evidence> = None;
@@ -205,6 +206,15 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 },
                 _ => skip(&mut qa_md, line_number, line, "frontmatter の知らないキー"),
             }
+            continue;
+        }
+
+        // fenced code block (記述例・コマンド) の中は構文として読まない
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block {
             continue;
         }
 
