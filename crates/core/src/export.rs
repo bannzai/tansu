@@ -16,7 +16,7 @@ pub fn to_json(database: &Database, rows: &[Row]) -> serde_json::Value {
 /// 定義と行を markdown にする。見出しにデータベース名、行ごとに 1 行の表 (列は ID とプロパティ)、
 /// 本文がある行はその後ろに行 ID の見出しと本文を続ける。select / multi_select は選択肢の name で書く。
 pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
-    let mut markdown = format!("# {}\n\n", database.name);
+    let mut markdown = format!("# {}\n\n", escape_cell(&database.name));
     let header: Vec<String> = std::iter::once("id".to_owned())
         .chain(
             database
@@ -39,7 +39,11 @@ pub fn to_markdown(database: &Database, rows: &[Row]) -> String {
         markdown.push_str(&format!("| {} |\n", cells.join(" | ")));
     }
     for row in rows.iter().filter(|row| !row.body.is_empty()) {
-        markdown.push_str(&format!("\n## {}\n\n{}\n", row.id.0, row.body.trim_end()));
+        markdown.push_str(&format!(
+            "\n## {}\n\n{}\n",
+            escape_cell(&row.id.0),
+            row.body.trim_end()
+        ));
     }
     markdown
 }
@@ -66,11 +70,29 @@ fn cell_text(kind: &PropertyKind, value: &Value) -> String {
 }
 
 /// 表の区切り `|` と改行をセルの中で使えるように置き換える。
+/// 保存した文字列をそのまま読めるよう、HTML の `<` `>` `&` を文字参照に、markdown の記号を `\` 付きにする。
+/// 改行 (markdown は CR も改行として読むため CRLF・CR・LF のどれも) は、エスケープの後で `<br>` にする。
 fn escape_cell(text: &str) -> String {
-    // markdown は CR も改行として読むため、CRLF・CR・LF のどれも <br> にする
-    text.replace('|', "\\|")
-        .replace("\r\n", "<br>")
-        .replace(['\r', '\n'], "<br>")
+    let mut escaped = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                escaped.push_str("<br>");
+            }
+            '\n' => escaped.push_str("<br>"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '&' => escaped.push_str("&amp;"),
+            '\\' | '|' | '*' | '_' | '`' | '[' | ']' | '~' => {
+                escaped.push('\\');
+                escaped.push(character);
+            }
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -80,5 +102,13 @@ mod tests {
     #[test]
     fn cell_keeps_the_row_on_one_line() {
         assert_eq!(escape_cell("a|b\r\nc\rd\ne"), "a\\|b<br>c<br>d<br>e");
+    }
+
+    #[test]
+    fn cell_shows_html_and_markdown_as_written() {
+        assert_eq!(
+            escape_cell(r"<input> & **重要** a_b `c` [d] ~e~ \"),
+            r"&lt;input&gt; &amp; \*\*重要\*\* a\_b \`c\` \[d\] \~e\~ \\"
+        );
     }
 }
