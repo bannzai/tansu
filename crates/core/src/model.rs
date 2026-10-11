@@ -42,10 +42,16 @@ pub enum PropertyKind {
     Checkbox,
     Url,
     Date,
-    Select { options: Vec<SelectOption> },
-    MultiSelect { options: Vec<SelectOption> },
+    Select {
+        options: Vec<SelectOption>,
+    },
+    MultiSelect {
+        options: Vec<SelectOption>,
+    },
     /// 片方向。逆引きはクエリで出す。
-    Relation { target_database_id: Id },
+    Relation {
+        target_database_id: Id,
+    },
 }
 
 /// select / multi-select の選択肢。

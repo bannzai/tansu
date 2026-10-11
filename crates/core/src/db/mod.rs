@@ -25,7 +25,11 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
             }
             let connection = Builder::new_local(path).build().await?.connect()?;
             connection.busy_timeout(LOCAL_BUSY_TIMEOUT)?;
-            connection.query("PRAGMA journal_mode=WAL", ()).await?.next().await?;
+            connection
+                .query("PRAGMA journal_mode=WAL", ())
+                .await?
+                .next()
+                .await?;
             connection
         }
         DbLocation::Remote { url, auth_token } => {

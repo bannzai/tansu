@@ -5,7 +5,9 @@ pub enum Error {
     #[error("TANSU_HOME も HOME も設定されていないため、データの置き場所を決められません")]
     HomeUnresolved,
     /// `TANSU_DB_URL` が `file:<パス>` でも `libsql://<host>` でもない。
-    #[error("TANSU_DB_URL の `{0}` は解釈できません (file:<パス> か libsql://<host> を指定してください)")]
+    #[error(
+        "TANSU_DB_URL の `{0}` は解釈できません (file:<パス> か libsql://<host> を指定してください)"
+    )]
     UnsupportedDbUrl(String),
     /// `libsql://<host>` を指定したのに `TANSU_DB_AUTH_TOKEN` が無い。
     #[error("libsql:// の DB を開くには TANSU_DB_AUTH_TOKEN が要ります")]

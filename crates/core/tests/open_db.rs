@@ -37,7 +37,10 @@ async fn open_creates_the_three_tables_under_tansu_home() {
 
     let connection = db::open(&settings).await.unwrap();
 
-    assert_eq!(table_names(&connection).await, ["database", "property", "row"]);
+    assert_eq!(
+        table_names(&connection).await,
+        ["database", "property", "row"]
+    );
     assert_eq!(db::schema_version(&connection).await.unwrap(), 1);
     assert!(home.path().join("tansu.sqlite").exists());
 }
@@ -50,6 +53,9 @@ async fn open_twice_does_not_reapply_migrations() {
     db::open(&settings).await.unwrap();
     let connection = db::open(&settings).await.unwrap();
 
-    assert_eq!(table_names(&connection).await, ["database", "property", "row"]);
+    assert_eq!(
+        table_names(&connection).await,
+        ["database", "property", "row"]
+    );
     assert_eq!(db::schema_version(&connection).await.unwrap(), 1);
 }

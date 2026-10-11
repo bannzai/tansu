@@ -134,8 +134,12 @@ mod tests {
 
     #[test]
     fn file_url_points_to_the_given_path() {
-        let settings = Settings::resolve(env_with_db_url(Some("file:/var/db/a.sqlite"), None)).unwrap();
-        assert_eq!(settings.db, DbLocation::Local(PathBuf::from("/var/db/a.sqlite")));
+        let settings =
+            Settings::resolve(env_with_db_url(Some("file:/var/db/a.sqlite"), None)).unwrap();
+        assert_eq!(
+            settings.db,
+            DbLocation::Local(PathBuf::from("/var/db/a.sqlite"))
+        );
     }
 
     #[test]
@@ -144,7 +148,11 @@ mod tests {
             Settings::resolve(env_with_db_url(Some("libsql://example.turso.io"), None)),
             Err(Error::MissingAuthToken)
         ));
-        let settings = Settings::resolve(env_with_db_url(Some("libsql://example.turso.io"), Some("token"))).unwrap();
+        let settings = Settings::resolve(env_with_db_url(
+            Some("libsql://example.turso.io"),
+            Some("token"),
+        ))
+        .unwrap();
         assert_eq!(
             settings.db,
             DbLocation::Remote {
