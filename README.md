@@ -8,7 +8,7 @@
 
 ## 使い方
 
-Rust (`rust-toolchain.toml` の版) と Bun (`web/.bun-version` の版) が要る。
+Rust (`rust-toolchain.toml` の版) が要る。`web/` を触る時は Bun (`web/.bun-version` の版) も要る。libsql のビルドに C コンパイラが要るかは未確認。
 
 ```sh
 git clone https://github.com/bannzai/tansu.git

@@ -6,6 +6,5 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod model;
-pub mod qa;
 
 pub use error::Error;

@@ -20,6 +20,7 @@ web:
 
 # Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ をサーバーが配信する構成は Web 画面の issue で作る。
 build-web:
+	bun install --frozen-lockfile --cwd web
 	bun run --cwd web build
 
 # CLI の単一バイナリをビルドして ~/.local/bin へ配置する (castle の skill とゲートはこの tansu を実行する)。

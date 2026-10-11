@@ -13,6 +13,7 @@ pub struct Id(pub String);
 /// 利用者が定義する表 (Notion のデータベースに当たる)。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Database {
+    /// このデータベースの ID。
     pub id: Id,
     /// データベースの中で一意。
     pub name: String,
@@ -25,9 +26,11 @@ pub struct Database {
 /// 表の列の定義。型ごとに設定が違うので [`PropertyKind`] で持つ。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Property {
+    /// このプロパティの ID。`Row.values` のキーになる。
     pub id: Id,
     /// 同じデータベースの中で一意。
     pub name: String,
+    /// プロパティの型とその設定。
     pub kind: PropertyKind,
     /// true なら同じ値の行を 2 つ持てない (QA 層の `run_id`・`project.repo` が使う)。
     pub unique: bool,
@@ -37,19 +40,29 @@ pub struct Property {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PropertyKind {
+    /// 文字列。
     Text,
+    /// 数値。
     Number,
+    /// 真偽値。
     Checkbox,
+    /// URL。
     Url,
+    /// 日付または日時。
     Date,
+    /// 選択肢から 1 つを選ぶ。
     Select {
+        /// 選べる選択肢。
         options: Vec<SelectOption>,
     },
+    /// 選択肢から複数を選ぶ。
     MultiSelect {
+        /// 選べる選択肢。
         options: Vec<SelectOption>,
     },
-    /// 片方向。逆引きはクエリで出す。
+    /// 別のデータベースの行への参照。片方向で、逆引きはクエリで出す。
     Relation {
+        /// 参照先のデータベースの ID。
         target_database_id: Id,
     },
 }
@@ -57,8 +70,11 @@ pub enum PropertyKind {
 /// select / multi-select の選択肢。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SelectOption {
+    /// この選択肢の ID。`Value` はこの ID で選択を保存する。
     pub id: Id,
+    /// 利用者に見せる選択肢の名前。
     pub name: String,
+    /// 表示の色。未指定なら画面の既定に任せる。
     pub color: Option<String>,
 }
 
@@ -66,29 +82,38 @@ pub struct SelectOption {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 pub enum Value {
+    /// 文字列。
     Text(String),
+    /// 数値。
     Number(f64),
+    /// 真偽値。
     Checkbox(bool),
+    /// URL。
     Url(String),
     /// ISO 8601。日付だけなら `"2026-10-11"`。
     Date(String),
-    /// 保存は選択肢の ID。CLI の入出力は name に変換する。
+    /// 選んだ選択肢の ID。未選択なら `None`。保存は ID で、CLI の入出力は name に変換する。
     Select(Option<Id>),
+    /// 選んだ選択肢の ID の一覧。
     MultiSelect(Vec<Id>),
-    /// 相手の行の ID。
+    /// 参照先の行の ID の一覧。
     Relation(Vec<Id>),
 }
 
 /// 表の 1 行 (Notion のページに当たる)。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Row {
+    /// この行の ID。
     pub id: Id,
+    /// この行が属するデータベースの ID。
     pub database_id: Id,
     /// markdown 本文。
     pub body: String,
     /// キーはプロパティの ID。未設定のプロパティはキー無し。
     pub values: BTreeMap<Id, Value>,
+    /// 時差付き ISO 8601。
     pub created_at: String,
+    /// 時差付き ISO 8601。
     pub updated_at: String,
 }
 

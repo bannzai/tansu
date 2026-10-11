@@ -8,5 +8,3 @@ test-results/
 *.sqlite-wal
 *.sqlite-shm
 target/
-web/dist/
-web/node_modules/

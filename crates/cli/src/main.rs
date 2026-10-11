@@ -6,10 +6,12 @@ use clap::{Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(name = "tansu", version, about, arg_required_else_help = true)]
 struct Cli {
+    /// 実行するサブコマンド。
     #[command(subcommand)]
     command: Command,
 }
 
+/// tansu のサブコマンド。
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Web 画面と HTTP API のサーバーを起動する
@@ -19,6 +21,7 @@ enum Command {
 }
 
 impl Command {
+    /// コマンドラインに打つサブコマンド名。
     fn name(&self) -> &'static str {
         match self {
             Command::Serve => "serve",

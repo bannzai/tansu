@@ -2,8 +2,8 @@
 paths:
   - "fixtures/**"
   - "e2e/**"
-  - "web/**/*.test.ts"
-  - "crates/**/tests/**"
+  - "web/**/*.test.{ts,tsx}"
+  - "crates/**"
   - "documents/design/**"
 ---
 
