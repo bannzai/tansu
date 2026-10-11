@@ -155,26 +155,31 @@ fn feature_qa_md_reads_evidence_automation_and_spec_checklist() {
         qa_md.spec_rows,
         [
             QaMdSpecRow {
+                line: 18,
                 id: "S1".into(),
                 expected: "ノートは更新日時の新しい順に並ぶ".into(),
                 item_name: Some("一覧の並び".into()),
             },
             QaMdSpecRow {
+                line: 19,
                 id: "S2".into(),
                 expected: "検索語を含むノートだけが表示される".into(),
                 item_name: Some("検索で絞り込める".into()),
             },
             QaMdSpecRow {
+                line: 20,
                 id: "S3".into(),
                 expected: "ノートが 0 件なら案内文を表示する".into(),
                 item_name: None,
             },
             QaMdSpecRow {
+                line: 21,
                 id: "S4".into(),
                 expected: "ピン留めしたノートは先頭に固定される".into(),
                 item_name: Some("ピン留めの固定".into()),
             },
             QaMdSpecRow {
+                line: 22,
                 id: "S5".into(),
                 expected: "削除したノートはゴミ箱に移る".into(),
                 item_name: Some("ゴミ箱へ移動".into()),
@@ -186,7 +191,7 @@ fn feature_qa_md_reads_evidence_automation_and_spec_checklist() {
         [
             (34, "  - 優先度: 高"),
             (82, "- [ ] 太字の無い項目: この行は項目として読めない"),
-            (0, "| S5 | 削除したノートはゴミ箱に移る | ゴミ箱へ移動 |"),
+            (22, "| S5 | 削除したノートはゴミ箱に移る | ゴミ箱へ移動 |"),
         ]
     );
     assert_eq!(qa_md.skipped[0].file, "features/note_list/QA.md");
@@ -349,6 +354,18 @@ fn spec_rows_whose_id_cannot_be_an_option_are_reported() {
             (6, "| S1,S2 | カンマ入り | 一覧 |")
         ]
     );
+}
+
+#[test]
+fn an_evidence_block_without_details_ends_at_the_next_heading() {
+    let qa_md = parse(
+        "x/QA.md",
+        "## 1. 表示\n\n- [x] **一覧**: 出る\n\n#### 動作確認\n\n### **一覧**: 出る\n\n**確認日: 2026-10-09**\n\n## 2. 操作\n\n- [ ] **削除**: 消える\n",
+    );
+    assert_eq!(qa_md.items.len(), 2);
+    assert_eq!(qa_md.items[0].verified_at.as_deref(), Some("2026-10-09"));
+    assert_eq!(qa_md.items[1].name, "削除");
+    assert!(qa_md.skipped.is_empty(), "{:?}", qa_md.skipped);
 }
 
 #[test]

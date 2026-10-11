@@ -403,11 +403,54 @@ async fn two_roots_with_the_same_repo_are_counted_and_saved_once() {
 
     assert_eq!(report.counts, fixture_counts());
     assert_eq!(report.files.len(), 8);
+    // 2 つ目の worktree の 4 ファイルは feature 名が重なるため、ファイルごと読み飛ばして報告する
+    assert_eq!(report.skipped.len(), 8 + 4);
+    assert!(
+        report.skipped[8].reason.contains("既に"),
+        "{:?}",
+        report.skipped[8]
+    );
     assert_eq!(repos(&connection).await, ["notes"]);
     assert_eq!(all_rows(&connection, "feature").await.len(), 4);
     assert_eq!(all_rows(&connection, "item").await.len(), 12);
     assert_eq!(all_rows(&connection, "run").await.len(), 8);
     assert_eq!(dry_run(&roots).unwrap().counts, report.counts);
+}
+
+#[tokio::test]
+async fn a_second_file_with_the_same_feature_name_is_skipped_as_a_whole() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("notes");
+    copy_dir(&fixture_root(), &root);
+    // note_list と同じ feature 名を名乗る別のファイル (項目名も同じ)
+    std::fs::create_dir_all(root.join("features/other")).unwrap();
+    std::fs::write(
+        root.join("features/other/QA.md"),
+        "---\nfeature: note_list\n---\n## 1. 別\n\n- [x] **一覧の並び**: 上書きしてはいけない\n",
+    )
+    .unwrap();
+
+    let report = import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
+
+    assert_eq!(report.counts, fixture_counts());
+    let skipped = report
+        .skipped
+        .iter()
+        .find(|skipped| skipped.file.ends_with("features/other/QA.md"))
+        .unwrap();
+    assert_eq!(skipped.line, 1);
+    assert_eq!(skipped.content, "feature: note_list");
+    assert!(skipped.reason.contains("features/note_list/QA.md"), "{skipped:?}");
+    let order = query_named(&connection, "item", &["name=一覧の並び"]).await;
+    assert_eq!(order.len(), 1);
+    assert_eq!(
+        order[0]["values"]["expected"]["value"],
+        "ノートが更新日時の新しい順に並ぶ"
+    );
 }
 
 #[tokio::test]

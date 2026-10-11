@@ -92,6 +92,8 @@ pub enum QaMdRecordKind {
 /// 仕様チェックリストの表の 1 行 (`| S1 | 期待挙動 | 対応項目 |`)。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QaMdSpecRow {
+    /// 表の行の行番号 (1 始まり)。
+    pub line: usize,
     /// 仕様 ID (S1, S2, ...)。
     pub id: String,
     /// 期待挙動。
@@ -218,6 +220,10 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             continue;
         }
 
+        // `<details>` が無い・閉じ忘れのエビデンスブロックは次の `## ` 見出しで終わりにする (以降を読み飛ばさないため)
+        if evidence.is_some() && line.starts_with("## ") {
+            evidence = None;
+        }
         if let Some(state) = evidence.as_mut() {
             let opens = line.matches("<details").count();
             let closes = line.matches("</details>").count();
@@ -495,6 +501,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                     name => Some(name.to_owned()),
                 };
                 qa_md.spec_rows.push(QaMdSpecRow {
+                    line: line_number,
                     id: cells[0].clone(),
                     expected: cells[1].clone(),
                     item_name,
@@ -518,10 +525,9 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 }
             }
             None => {
-                // 行番号は表の行を覚えていないため、表の行の内容で特定できる形にする
                 qa_md.skipped.push(SkippedLine {
                     file: file.to_owned(),
-                    line: 0,
+                    line: row.line,
                     content: format!("| {} | {} | {} |", row.id, row.expected, item_name),
                     reason: "仕様チェックリストの対応項目に一致するチェック項目が無い".to_owned(),
                 });
@@ -620,14 +626,15 @@ fn parse_automation(value: &str) -> Option<(QaAutomation, Option<String>)> {
 /// `⏭️ スキップ: 理由` / `❌ 失敗: 事象` の行なら、その記録。絵文字の有無だけで見分け (`⏭` は異体字セレクタの有無を問わない)、
 /// `:` (全角でも) の後ろを本文にする。`:` が無ければ絵文字の後ろ全体を本文にする。
 fn parse_record(content: &str) -> Option<QaMdRecord> {
-    let (kind, marker) = if content.contains('⏭') {
+    // 行頭の絵文字だけで見分ける (本文に別の絵文字が出ても種別を変えない)
+    let (kind, marker) = if content.starts_with('⏭') {
         (QaMdRecordKind::Skip, '⏭')
-    } else if content.contains('❌') {
+    } else if content.starts_with('❌') {
         (QaMdRecordKind::Fail, '❌')
     } else {
         return None;
     };
-    let after_marker = &content[content.find(marker)? + marker.len_utf8()..];
+    let after_marker = &content[marker.len_utf8()..];
     let note = after_marker
         .split_once([':', '：'])
         .map_or(after_marker, |(_, note)| note)
@@ -701,6 +708,11 @@ mod tests {
             Some("理由だけ".into())
         );
         assert_eq!(parse_record("自動化: todo"), None);
+        assert_eq!(parse_record("メモ: ❌ になる"), None);
+        assert_eq!(
+            parse_record("❌ 失敗: ⏭ ボタンが効かない").map(|record| record.kind),
+            Some(QaMdRecordKind::Fail)
+        );
     }
 
     #[test]

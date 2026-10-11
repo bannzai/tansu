@@ -2,6 +2,7 @@
 //! 同じファイルを 2 回取り込んでも行が増えない (project は `repo`、feature は project + 名前、item は feature + 名前、
 //! run は `run_id` を自然キーにして upsert する。`documents/PROJECT.md`「制約」の冪等)。
 
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,7 +13,7 @@ use serde_json::json;
 
 use super::qa_md::{self, QaMd, QaMdItem, QaMdRecordKind, SkippedLine};
 use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema};
-use crate::db::{begin, finish, .flat_map(|(_, _, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))s, schema};
+use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
 use crate::model::Id;
 
@@ -89,18 +90,41 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
         }
     }
 
-    let mut parsed = Vec::new();
+    let mut parsed: Vec<ParsedFile> = Vec::new();
+    // 同じ project の同じ feature 名を持つファイルは、後のファイルの項目が先のファイルの項目を黙って上書きしないよう、
+    // 2 つ目以降をファイルごと読み飛ばして報告する (feature は project + 名前で行を決めるため)
+    let mut first_file_by_feature: BTreeMap<(String, String), PathBuf> = BTreeMap::new();
     for (root, files) in &files_by_root {
         let repo = repo_name(root);
         for file in files {
             let text = std::fs::read_to_string(file).map_err(|error| {
                 Error::InvalidInput(format!("{} を読めません: {error}", file.display()))
             })?;
-            let qa_md = qa_md::parse(&file.display().to_string(), &text);
+            let file_name = file.display().to_string();
+            let mut qa_md = qa_md::parse(&file_name, &text);
             let feature = qa_md
                 .feature
                 .clone()
                 .unwrap_or_else(|| default_feature_name(root, file));
+            match first_file_by_feature.entry((repo.clone(), feature.clone())) {
+                Entry::Vacant(entry) => {
+                    entry.insert(file.clone());
+                }
+                Entry::Occupied(entry) => {
+                    qa_md = QaMd {
+                        skipped: vec![SkippedLine {
+                            file: file_name,
+                            line: 1,
+                            content: format!("feature: {feature}"),
+                            reason: format!(
+                                "同じ project の feature `{feature}` が既に {} にある (このファイルは取り込まない)",
+                                entry.get().display()
+                            ),
+                        }],
+                        ..QaMd::default()
+                    };
+                }
+            }
             parsed.push((root.clone(), repo.clone(), file.clone(), feature, qa_md));
         }
     }
@@ -129,7 +153,7 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
         dry_run,
         files: parsed
             .iter()
-            .map(|(_, _, file, _, _)| file.display().to_string())|(_, file, _, _)| file.display().to_string())
+            .map(|(_, _, file, _, _)| file.display().to_string())
             .collect(),
         counts: ImportCounts {
             project: projects.len(),
@@ -139,7 +163,7 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
         },
         skipped: parsed
             .iter()
-            .flat_map(|(_, _, _, _, qa_md)| qa_md.skipped.iter().cloned())|(_, _, _, qa_md)| qa_md.skipped.iter().cloned())
+            .flat_map(|(_, _, _, _, qa_md)| qa_md.skipped.iter().cloned())
             .collect(),
     }
 }
@@ -150,7 +174,9 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     // multi_select の値は定義にある選択肢しか書けないため、仕様 ID を選択肢として先に足す (無いものだけが足される)
     let spec_ids: BTreeSet<&str> = parsed
         .iter()
-        .flat_map(|(_, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))
+        .flat_map(|(_, _, _, _, qa_md)| {
+            qa_md.spec_rows.iter().map(|row| row.id.as_str())
+        })
         .collect();
     if !spec_ids.is_empty() {
         let spec = format!(
