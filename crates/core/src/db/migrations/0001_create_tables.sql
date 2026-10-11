@@ -1,5 +1,5 @@
 -- 物理テーブルは固定の 3 つで、利用者の表はこの 3 つのデータとして持つ (documents/data-model.md「SQLite / libSQL への持ち方」)。
--- database / row / values は SQLite のキーワードなので二重引用符で囲む。
+-- values は SQLite の予約語で引用符が必須。database / row は引用符無しでも識別子に使えるが揃えて囲む。
 
 CREATE TABLE "database" (
   id TEXT PRIMARY KEY NOT NULL,
@@ -26,5 +26,4 @@ CREATE TABLE "row" (
   updated_at TEXT NOT NULL
 );
 
--- 行の読み書きは必ずデータベースを絞ってから行う (query・unique の検査・relation の参照の削除)。
-CREATE INDEX row_database_id ON "row" (database_id);
+CREATE INDEX row_database_id ON "row"(database_id);

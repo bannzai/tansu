@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tansu モック (2026-10-11)</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+body{margin:0;background:#e9eaee;color:#1b1b1f;font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px}
+a{color:#2b4ea8}
+table{border-collapse:collapse}
+th{font-weight:500;color:#5a5f6b;text-align:left}
+.board{background:#ffffff;margin:32px auto;max-width:1280px;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.board-title{max-width:1280px;margin:40px auto 0;font-size:16px;font-weight:700;color:#5a5f6b}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;background:#eef2fb;color:#2b4ea8;font-size:12px}
+.tag-gray{display:inline-block;padding:2px 8px;border-radius:4px;background:#f3f4f7;color:#5a5f6b;font-size:12px}
+.result{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:500;color:#ffffff}
+.ok{background:#1f7a4d}.ng{background:#b3261e}.later{background:#8a6d00}.none{background:#9094a0}.skip{background:#5a5f6b}
+.field{display:flex;align-items:center;gap:6px;border:1px solid #c9ccd4;border-radius:6px;padding:6px 10px;background:#ffffff}
+.field span{color:#5a5f6b}
+.btn{min-height:44px;padding:0 16px;border-radius:8px;border:1px solid #c9ccd4;background:#ffffff;font:inherit;color:#1b1b1f}
+.btn-primary{min-height:44px;padding:0 20px;border-radius:8px;border:0;background:#2b4ea8;color:#ffffff;font:inherit;font-weight:500}
+.choice{flex:1 1 0;min-height:48px;border-radius:8px;border:2px solid #c9ccd4;background:#ffffff;font:inherit;font-size:16px;font-weight:700;color:#1b1b1f}
+.choice.on-ng{border-color:#b3261e;background:#b3261e;color:#ffffff}
+.item{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #e1e3e8;background:#ffffff;border-radius:8px;padding:10px 12px;font:inherit;color:#1b1b1f;min-height:44px}
+.item.on{border-color:#2b4ea8;background:#eef2fb}
+.item .no{width:22px;color:#9094a0}
+.item .name{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.run{border:1px solid #e1e3e8;border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.run .meta{display:flex;align-items:center;gap:8px;font-size:12px;color:#5a5f6b}
+.kv{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #eceef2}
+.kv > span:first-child{width:120px;color:#5a5f6b}
+</style>
+</head>
+<body>
+
+<div class="board-title" id="top">1. 表ビュー (QA の item)。データベースごとの表で、プロパティと label で絞り込む</div>
+<div class="board" style="display:flex;flex-wrap:wrap;min-height:820px">
+  <nav style="flex:0 0 232px;min-width:232px;background:#f3f4f7;border-right:1px solid #e1e3e8;padding:20px 16px;display:flex;flex-direction:column;gap:6px">
+    <div style="font-size:20px;font-weight:700;letter-spacing:.04em;padding:4px 8px 16px">tansu</div>
+    <div style="font-size:12px;color:#5a5f6b;padding:0 8px 4px">データベース</div>
+    <a href="#top" style="display:block;padding:8px 10px;border-radius:6px;background:#ffffff;color:#1b1b1f;font-weight:500;text-decoration:none;border:1px solid #e1e3e8">item</a>
+    <a href="#top" style="display:block;padding:8px 10px;border-radius:6px;color:#1b1b1f;text-decoration:none">run</a>
+    <a href="#top" style="display:block;padding:8px 10px;border-radius:6px;color:#1b1b1f;text-decoration:none">feature</a>
+    <a href="#top" style="display:block;padding:8px 10px;border-radius:6px;color:#1b1b1f;text-decoration:none">project</a>
+    <div style="font-size:12px;color:#5a5f6b;padding:20px 8px 4px">ビュー</div>
+    <a href="#qa" style="display:block;padding:8px 10px;border-radius:6px;color:#2b4ea8;text-decoration:none;font-weight:500">QA の入力</a>
+    <div style="margin-top:auto;padding:8px;font-size:12px;color:#5a5f6b">DB: ~/.tansu/tansu.sqlite</div>
+  </nav>
+  <main style="flex:999 1 560px;min-width:0;padding:24px 32px;display:flex;flex-direction:column;gap:16px">
+    <header style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+      <h1 style="margin:0;font-size:22px;font-weight:700">item</h1>
+      <span style="color:#5a5f6b">24 行</span>
+      <div style="flex:1 1 200px"></div>
+      <a href="#detail" style="display:inline-block;padding:8px 14px;border-radius:6px;background:#2b4ea8;color:#ffffff;text-decoration:none;font-weight:500">行を追加</a>
+    </header>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <label class="field"><span>project</span><input value="example/sampleapp" style="border:0;font:inherit;width:120px;outline:none"></label>
+      <label class="field"><span>feature</span><input value="すべて" style="border:0;font:inherit;width:90px;outline:none"></label>
+      <label class="field" style="border-color:#2b4ea8;background:#eef2fb"><span style="color:#2b4ea8">label</span><input value="課金" style="border:0;font:inherit;width:60px;outline:none;background:transparent"></label>
+      <label class="field"><span>自動化</span><input value="manual" style="border:0;font:inherit;width:70px;outline:none"></label>
+      <button type="button" class="btn" style="min-height:34px;padding:6px 12px">並べ替え: 直近の run</button>
+      <button type="button" style="border:0;background:transparent;color:#2b4ea8;font:inherit;padding:6px 4px">絞り込みを消す</button>
+    </div>
+    <div style="overflow-x:auto;border:1px solid #e1e3e8;border-radius:8px">
+      <table style="width:100%;min-width:900px">
+        <thead><tr style="background:#f7f8fa;border-bottom:1px solid #e1e3e8">
+          <th style="padding:10px 12px;width:40px"></th><th style="padding:10px 12px">項目名</th><th style="padding:10px 12px">feature</th><th style="padding:10px 12px">label</th><th style="padding:10px 12px">自動化</th><th style="padding:10px 12px">直近の run</th><th style="padding:10px 12px">確認日</th>
+        </tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">1</td><td style="padding:10px 12px"><a href="#detail" style="color:#1b1b1f;text-decoration:none;font-weight:500">プレミアムの購入が完了する</a><div style="color:#5a5f6b;font-size:12px;margin-top:2px">購入後に機能が解放され、設定画面に「プレミアム」が表示される</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">manual</td><td style="padding:10px 12px"><span class="result ok">OK</span></td><td style="padding:10px 12px;color:#5a5f6b">2026-10-09</td></tr>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">2</td><td style="padding:10px 12px"><span style="font-weight:500">購入の復元ができる</span><div style="color:#5a5f6b;font-size:12px;margin-top:2px">再インストール後に復元で解放状態が戻る</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">manual</td><td style="padding:10px 12px"><span class="result ng">NG</span></td><td style="padding:10px 12px;color:#5a5f6b">2026-10-09</td></tr>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">3</td><td style="padding:10px 12px"><span style="font-weight:500">無料トライアルの残り日数が表示される</span><div style="color:#5a5f6b;font-size:12px;margin-top:2px">トライアル中は残り日数、終了後は購入の導線が出る</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">todo</td><td style="padding:10px 12px"><span class="result later">あとで</span></td><td style="padding:10px 12px;color:#5a5f6b">2026-10-08</td></tr>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">4</td><td style="padding:10px 12px"><span style="font-weight:500">価格が地域の通貨で表示される</span><div style="color:#5a5f6b;font-size:12px;margin-top:2px">App Store の価格と同じ通貨・金額</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">auto</td><td style="padding:10px 12px"><span class="result ok">OK</span></td><td style="padding:10px 12px;color:#5a5f6b">2026-10-07</td></tr>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">5</td><td style="padding:10px 12px"><span style="font-weight:500">購入をキャンセルしても画面が壊れない</span><div style="color:#5a5f6b;font-size:12px;margin-top:2px">シートが閉じ、未購入の状態のまま</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">manual</td><td style="padding:10px 12px"><span class="result none">未記録</span></td><td style="padding:10px 12px;color:#5a5f6b"></td></tr>
+          <tr style="border-bottom:1px solid #eceef2"><td style="padding:10px 12px;color:#9094a0">6</td><td style="padding:10px 12px"><span style="font-weight:500">期限切れ後に機能が戻る</span><div style="color:#5a5f6b;font-size:12px;margin-top:2px">サブスクリプションの期限が切れたら無料の状態に戻る</div></td><td style="padding:10px 12px">billing</td><td style="padding:10px 12px"><span class="tag">課金</span></td><td style="padding:10px 12px;color:#5a5f6b">manual</td><td style="padding:10px 12px"><span class="result none">未記録</span></td><td style="padding:10px 12px;color:#5a5f6b"></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:16px;color:#5a5f6b;font-size:12px"><span>表示 1–6 / 24</span><a href="#top">次の 18 件</a></div>
+  </main>
+</div>
+
+<div class="board-title" id="qa">2. QA の入力ビュー。1 項目ずつ OK / NG / あとで + メモを入力し、フッターに進捗と「全部コピー」</div>
+<div class="board" style="display:flex;flex-direction:column;min-height:820px">
+  <header style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid #e1e3e8">
+    <a href="#top" style="text-decoration:none">← item</a>
+    <h1 style="margin:0;font-size:18px;font-weight:700">QA の入力</h1>
+    <span style="color:#5a5f6b">example/sampleapp / billing</span>
+    <div style="flex:1 1 120px"></div>
+    <label style="display:flex;align-items:center;gap:6px;color:#5a5f6b">検証環境 <input value="iPhone 17 Pro / iOS 27.1" style="border:1px solid #c9ccd4;border-radius:6px;padding:6px 8px;font:inherit;width:200px"></label>
+    <span style="color:#5a5f6b">commit 1a2b3c4</span>
+  </header>
+  <main style="flex:1 1 auto;display:flex;flex-wrap:wrap;gap:24px;padding:24px;max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto">
+    <section style="flex:999 1 420px;min-width:0;display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;align-items:baseline;gap:12px"><span style="font-size:28px;font-weight:700;color:#2b4ea8">2</span><h2 style="margin:0;font-size:22px;font-weight:700">購入の復元ができる</h2></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px"><span class="tag">課金</span><span class="tag-gray">manual: 実機の購入シートが要る</span></div>
+      <div style="border:1px solid #e1e3e8;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px"><div style="font-weight:500;color:#5a5f6b">手で見ること</div><div>アプリを削除して再インストールし、設定の「購入を復元」で解放状態が戻る</div></div>
+      <div style="display:flex;flex-direction:column;gap:8px"><div style="font-weight:500;color:#5a5f6b">結果</div>
+        <div style="display:flex;gap:8px"><button type="button" class="choice">OK</button><button type="button" class="choice on-ng">NG</button><button type="button" class="choice">あとで</button></div></div>
+      <label style="display:flex;flex-direction:column;gap:8px"><span style="font-weight:500;color:#5a5f6b">メモ</span><textarea rows="4" placeholder="気づいたことや NG の再現手順" style="border:1px solid #c9ccd4;border-radius:8px;padding:10px;font:inherit;resize:vertical"></textarea></label>
+      <div style="display:flex;gap:8px"><button type="button" class="btn">← 前</button><button type="button" class="btn-primary">記録して次へ →</button></div>
+    </section>
+    <aside style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px">
+      <div style="font-weight:500;color:#5a5f6b">この feature の項目</div>
+      <button type="button" class="item"><span class="no">1</span><span class="name">プレミアムの購入が完了する</span><span style="font-size:12px;font-weight:700;color:#1f7a4d">OK</span></button>
+      <button type="button" class="item on"><span class="no">2</span><span class="name">購入の復元ができる</span><span style="font-size:12px;font-weight:700;color:#b3261e">NG</span></button>
+      <button type="button" class="item"><span class="no">3</span><span class="name">無料トライアルの残り日数が表示される</span><span style="font-size:12px;font-weight:700;color:#9094a0"></span></button>
+      <button type="button" class="item"><span class="no">4</span><span class="name">価格が地域の通貨で表示される</span><span></span></button>
+      <button type="button" class="item"><span class="no">5</span><span class="name">購入をキャンセルしても画面が壊れない</span><span></span></button>
+      <button type="button" class="item"><span class="no">6</span><span class="name">期限切れ後に機能が戻る</span><span></span></button>
+    </aside>
+  </main>
+  <footer style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:14px 24px;border-top:1px solid #e1e3e8;background:#f7f8fa">
+    <span style="font-weight:700">2 / 6 件 入力済み</span><span style="color:#1f7a4d">OK 1</span><span style="color:#b3261e">NG 1</span><span style="color:#8a6d00">あとで 0</span><span style="color:#5a5f6b">保存済み 19:22</span>
+    <div style="flex:1 1 80px"></div>
+    <button type="button" class="btn" style="min-height:40px">入力を消す</button>
+    <button type="button" class="btn" style="min-height:40px;border-color:#2b4ea8;color:#2b4ea8;font-weight:500">全部コピー (未入力と NG を markdown で)</button>
+  </footer>
+</div>
+
+<div class="board-title" id="detail">3. 行の詳細ページ。プロパティの一覧と markdown 本文、直近の run</div>
+<div class="board" style="display:flex;flex-direction:column;min-height:820px">
+  <header style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid #e1e3e8">
+    <a href="#top" style="text-decoration:none">← item</a><span style="color:#5a5f6b">example/sampleapp / billing</span>
+    <div style="flex:1 1 120px"></div><span style="color:#5a5f6b;font-size:12px">ID V1StGXR8_Z5jdHi6B-myT · 更新 2026-10-09 19:22</span>
+  </header>
+  <main style="flex:1 1 auto;display:flex;flex-wrap:wrap;gap:32px;padding:28px 24px;max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto">
+    <section style="flex:999 1 460px;min-width:0;display:flex;flex-direction:column;gap:20px">
+      <h1 style="margin:0;font-size:26px;font-weight:700">プレミアムの購入が完了する</h1>
+      <div style="display:flex;flex-direction:column;border:1px solid #e1e3e8;border-radius:8px;padding:4px 16px">
+        <div class="kv"><span>feature</span><a href="#top">billing</a></div>
+        <div class="kv"><span>期待動作</span><span>購入後に機能が解放され、設定画面に「プレミアム」が表示される</span></div>
+        <div class="kv"><span>自動化</span><span>manual</span></div>
+        <div class="kv"><span>自動化の詳細</span><span>実機の購入シートが要る</span></div>
+        <div class="kv"><span>仕様 ID</span><span style="display:flex;gap:6px"><span class="tag-gray">S3</span><span class="tag-gray">S7</span></span></div>
+        <div class="kv" style="border-bottom:0"><span>label</span><span style="display:flex;gap:6px"><span class="tag">課金</span><span class="tag">初回起動</span></span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px"><div style="font-weight:500;color:#5a5f6b">本文</div>
+        <div style="border:1px solid #e1e3e8;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px;line-height:1.7">
+          <p style="margin:0">購入のシートは StoreKit の sandbox で開く。sandbox のアカウントは パスワード管理の「sampleapp sandbox」。</p>
+          <p style="margin:0">確認の順:</p>
+          <ol style="margin:0;padding-left:22px"><li>設定 → プレミアム → 購入</li><li>シートで購入を完了する</li><li>設定画面に戻って「プレミアム」の表示を見る</li></ol>
+          <p style="margin:0">関連: <a href="https://example.com/spec/billing">仕様 S3</a></p>
+        </div></div>
+    </section>
+    <aside style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:8px"><div style="font-weight:500;color:#5a5f6b">run (直近 4 件)</div><div style="flex:1 1 0"></div><a href="#qa" style="font-size:12px">入力ビューで記録</a></div>
+      <div class="run"><div class="meta"><span class="result ok">OK</span><span>2026-10-09</span><span>1a2b3c4</span><span style="color:#9094a0">record</span></div><div style="font-size:13px">購入後すぐに解放。画像あり</div><div style="color:#5a5f6b;font-size:12px">iPhone 17 Pro / iOS 27.1</div></div>
+      <div class="run"><div class="meta"><span class="result ng">NG</span><span>2026-10-02</span><span>5d6e7f8</span><span style="color:#9094a0">record</span></div><div style="font-size:13px">シートを閉じた後にプレミアムの表示が出るまで 3 秒かかる</div><div style="color:#5a5f6b;font-size:12px">iPhone 16 / iOS 27.0</div></div>
+      <div class="run"><div class="meta"><span class="result ok">OK</span><span>2026-09-20</span><span>a1b2c3d</span><span style="color:#9094a0">import</span></div><div style="font-size:13px">QA.md から取り込み (確認日 2026-09-20)</div></div>
+      <div class="run"><div class="meta"><span class="result skip">スキップ</span><span>2026-09-01</span><span>9f8e7d6</span><span style="color:#9094a0">import</span></div><div style="font-size:13px">起動条件: sandbox のアカウントが期限切れ</div></div>
+    </aside>
+  </main>
+</div>
+
+<div class="board-title">4. iPhone (390 px) の QA の入力ビュー。同じ LAN から開き、被テストアプリと並べて使う</div>
+<div class="board" style="max-width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;border-radius:40px;overflow:hidden;border:1px solid #e1e3e8;font-size:15px">
+  <header style="display:flex;align-items:center;gap:10px;padding:56px 20px 12px;border-bottom:1px solid #e1e3e8">
+    <a href="#top" style="text-decoration:none;min-width:44px;min-height:44px;display:flex;align-items:center">← 一覧</a>
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-weight:700">QA の入力</span><span style="color:#5a5f6b;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">example/sampleapp / billing · iPhone 17 Pro</span></div>
+  </header>
+  <main style="flex:1 1 auto;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:baseline;gap:10px"><span style="font-size:24px;font-weight:700;color:#2b4ea8">3</span><h2 style="margin:0;font-size:19px;font-weight:700;line-height:1.4">無料トライアルの残り日数が表示される</h2></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px"><span class="tag">課金</span><span class="tag-gray">manual</span></div>
+    <div style="border:1px solid #e1e3e8;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px"><div style="font-weight:500;color:#5a5f6b;font-size:13px">手で見ること</div><div style="line-height:1.6">トライアル中は残り日数、終了後は購入の導線が出る</div></div>
+    <div style="display:flex;gap:8px"><button type="button" class="choice" style="min-height:52px;border-radius:10px;font-size:17px">OK</button><button type="button" class="choice" style="min-height:52px;border-radius:10px;font-size:17px">NG</button><button type="button" class="choice" style="min-height:52px;border-radius:10px;font-size:17px">あとで</button></div>
+    <label style="display:flex;flex-direction:column;gap:6px"><span style="font-weight:500;color:#5a5f6b;font-size:13px">メモ</span><textarea rows="3" placeholder="気づいたこと" style="border:1px solid #c9ccd4;border-radius:10px;padding:10px;font:inherit;resize:none"></textarea></label>
+    <div style="display:flex;gap:8px"><button type="button" class="btn" style="min-height:48px;border-radius:10px">← 前</button><button type="button" class="btn-primary" style="flex:1 1 0;min-height:48px;border-radius:10px">記録して次へ →</button></div>
+  </main>
+  <footer style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 20px 28px;border-top:1px solid #e1e3e8;background:#f7f8fa">
+    <span style="font-weight:700">2 / 6 件</span><span style="color:#1f7a4d">OK 1</span><span style="color:#b3261e">NG 1</span><span style="color:#8a6d00">あとで 0</span>
+    <div style="flex:1 1 10px"></div><button type="button" class="btn" style="min-height:40px;border-color:#2b4ea8;color:#2b4ea8;font-weight:500">全部コピー</button>
+  </footer>
+</div>
+
+</body>
+</html>

@@ -11,10 +11,12 @@ use tansu_core::{export, named_json};
 #[derive(Debug, Parser)]
 #[command(name = "tansu", version, about, arg_required_else_help = true)]
 struct Cli {
+    /// 実行するサブコマンド。
     #[command(subcommand)]
     command: Command,
 }
 
+/// tansu のサブコマンド。
 #[derive(Debug, Subcommand)]
 enum Command {
     /// データベース (表) とプロパティの定義を作る・変える・一覧する
@@ -66,6 +68,7 @@ enum Command {
     Mcp,
 }
 
+/// `tansu db` のサブコマンド。
 #[derive(Debug, Subcommand)]
 enum DbCommand {
     /// データベースを作る (同じ名前が既にあれば何もしない)。定義を JSON で出す
@@ -198,11 +201,13 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
     Ok(Some(output))
 }
 
+/// stdout に出す整形した JSON。
 fn to_json(value: &impl serde::Serialize) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(value)
 }
 
 impl Command {
+    /// コマンドラインに打つサブコマンド名。
     fn name(&self) -> &'static str {
         match self {
             Command::Db(_) => "db",

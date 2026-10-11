@@ -17,6 +17,7 @@ pub async fn create_database(connection: &Connection, name: &str) -> Result<Data
     finish(transaction, result).await
 }
 
+/// [`create_database`] の本体。`connection` は書き込みロックを取ったトランザクション。
 async fn create_database_in(connection: &Connection, name: &str) -> Result<Database, Error> {
     if let Some(database) = find_database(connection, name).await? {
         return Ok(database);
@@ -54,6 +55,7 @@ pub async fn get_database(connection: &Connection, name: &str) -> Result<Databas
         .ok_or_else(|| Error::DatabaseNotFound(name.into()))
 }
 
+/// 名前が `name` のデータベースを、プロパティの定義ごと読む。無ければ `None`。
 async fn find_database(connection: &Connection, name: &str) -> Result<Option<Database>, Error> {
     let mut rows = connection
         .query(
@@ -75,6 +77,7 @@ async fn find_database(connection: &Connection, name: &str) -> Result<Option<Dat
     }))
 }
 
+/// データベース `database_id` のプロパティを `position` 順に返す。
 async fn properties_of(connection: &Connection, database_id: &Id) -> Result<Vec<Property>, Error> {
     let mut rows = connection
         .query(
@@ -114,6 +117,7 @@ pub async fn change_schema(
     finish(transaction, result).await
 }
 
+/// [`change_schema`] の本体。`connection` は書き込みロックを取ったトランザクション。
 async fn change_schema_in(
     connection: &Connection,
     database_name: &str,
@@ -148,6 +152,7 @@ async fn change_schema_in(
     get_database(connection, database_name).await
 }
 
+/// `database` に `spec` (`<プロパティ名>:<型>[:...]`) のプロパティを足す。規則は [`change_schema`] の `add`。
 async fn add_property(connection: &Connection, database: &Database, spec: &str) -> Result<(), Error> {
     let mut parts = spec.splitn(3, ':');
     let (Some(property_name), Some(type_name)) = (
@@ -280,6 +285,7 @@ fn new_options(names: &str) -> Vec<SelectOption> {
     options
 }
 
+/// `database` のプロパティ `property_name` を unique にする。規則は [`change_schema`] の `unique`。
 async fn set_unique(connection: &Connection, database: &Database, property_name: &str) -> Result<(), Error> {
     let property = database
         .property(property_name)
@@ -314,6 +320,7 @@ async fn set_unique(connection: &Connection, database: &Database, property_name:
     Ok(())
 }
 
+/// `database` のプロパティ `property_name` を外す。規則は [`change_schema`] の `remove`。
 async fn remove_property(connection: &Connection, database: &Database, property_name: &str) -> Result<(), Error> {
     let Some(property) = database.property(property_name) else {
         return Ok(());

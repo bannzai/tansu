@@ -17,6 +17,7 @@ struct Sandbox {
     user_home: TempDir,
 }
 
+/// 空の一時ディレクトリ 2 つで置き場所を作る。
 fn sandbox() -> Sandbox {
     Sandbox {
         tansu_home: tempfile::tempdir().unwrap(),
@@ -24,6 +25,7 @@ fn sandbox() -> Sandbox {
     }
 }
 
+/// `sandbox` を `TANSU_HOME` と `HOME` にし、DB の接続先の環境変数を外した `tansu <args>` のコマンド。
 fn command(sandbox: &Sandbox, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_tansu"));
     command
@@ -46,6 +48,7 @@ fn succeed(sandbox: &Sandbox, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// 成功したことを確かめ、stdout を JSON として返す。
 fn succeed_json(sandbox: &Sandbox, args: &[&str]) -> Value {
     serde_json::from_str(&succeed(sandbox, args)).unwrap()
 }
@@ -59,24 +62,29 @@ fn assert_failed(output: Output) -> String {
     stderr
 }
 
+/// `tansu <args>` が失敗したことを [`assert_failed`] で確かめ、stderr の 1 行を返す。
 fn fail(sandbox: &Sandbox, args: &[&str]) -> String {
     assert_failed(command(sandbox, args).output().unwrap())
 }
 
+/// `tansu upsert <database> --json <row>` を成功させ、書いた行の JSON を返す。
 fn upsert(sandbox: &Sandbox, database: &str, row: Value) -> Value {
     succeed_json(sandbox, &["upsert", database, "--json", &row.to_string()])
 }
 
+/// `tansu query <database> --json <options>` を成功させ、行の JSON の配列を返す。
 fn query(sandbox: &Sandbox, database: &str, options: &[&str]) -> Vec<Value> {
     let mut args = vec!["query", database, "--json"];
     args.extend(options);
     succeed_json(sandbox, &args).as_array().unwrap().clone()
 }
 
+/// 行の JSON の `id` を並びのまま返す。
 fn row_ids(rows: &[Value]) -> Vec<&str> {
     rows.iter().map(|row| row["id"].as_str().unwrap()).collect()
 }
 
+/// select / multi_select のプロパティの定義の JSON から、選択肢の name を並びのまま返す。
 fn option_names(property: &Value) -> Vec<&str> {
     property["kind"]["options"]
         .as_array()

@@ -136,6 +136,7 @@ pub fn parse_row_input(database: &Database, input: &serde_json::Value) -> Result
     Ok(RowInput { id, body, values })
 }
 
+/// プロパティ `property` の値として書かれた `json` を解釈する。null は `None` (値を消す)。書き方は [`parse_row_input`]。
 fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Option<Value>, Error> {
     let json = match json {
         serde_json::Value::Object(tagged) => {

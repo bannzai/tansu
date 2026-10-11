@@ -30,6 +30,7 @@ pub async fn upsert(
     finish(transaction, result).await
 }
 
+/// [`upsert`] の本体。`connection` は書き込みロックを取ったトランザクション。
 async fn upsert_in(
     connection: &Connection,
     database_name: &str,
@@ -208,6 +209,7 @@ pub async fn delete(connection: &Connection, database_name: &str, row_id: &str) 
     finish(transaction, result).await
 }
 
+/// [`delete`] の本体。`connection` は書き込みロックを取ったトランザクション。
 async fn delete_in(connection: &Connection, database_name: &str, row_id: &str) -> Result<(), Error> {
     let database = schema::get_database(connection, database_name).await?;
     let deleted = connection
@@ -445,6 +447,7 @@ async fn database_of_row(connection: &Connection, row_id: &Id) -> Result<Option<
     }
 }
 
+/// [`ROW_COLUMNS`] の並びで読んだ 1 行を [`Row`] にする。
 fn row_from_sql(row: &libsql::Row) -> Result<Row, Error> {
     Ok(Row {
         id: Id(row.get::<String>(0)?),

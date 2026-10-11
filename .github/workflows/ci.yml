@@ -21,17 +21,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # dtolnay/rust-toolchain は rust-toolchain.toml を読まず toolchain 入力だけでインストールするため、
-      # rust-toolchain.toml の channel と components に合わせて明示する
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-        with:
-          toolchain: 1.98.0
-          components: rustfmt, clippy
+      # rustup 1.28 以降はアクティブな toolchain を自動でインストールしない。引数なしの `rustup toolchain install` で
+      # rust-toolchain.toml の channel と components を入れ、Rust の版の定義をそのファイルの 1 箇所にする
+      # (https://blog.rust-lang.org/2025/03/02/Rustup-1.28.0/ 「To ensure its installation, run `rustup toolchain install` with no arguments.」)
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo build --release -p tansu-cli
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p tansu-cli
       # ビルドしたバイナリが起動することを確かめる
       - run: ./target/release/tansu --version
 
