@@ -25,3 +25,6 @@ CREATE TABLE "row" (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- 行の読み書きは必ずデータベースを絞ってから行う (query・unique の検査・relation の参照の削除)。
+CREATE INDEX row_database_id ON "row" (database_id);
