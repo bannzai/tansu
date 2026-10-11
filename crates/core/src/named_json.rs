@@ -192,17 +192,9 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
     Ok(Some(match &property.kind {
         PropertyKind::Text => Value::Text(string()?),
         PropertyKind::Url => Value::Url(string()?),
-        PropertyKind::Date => {
-            let date = string()?;
-            if chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err()
-                && chrono::DateTime::parse_from_rfc3339(&date).is_err()
-            {
-                return Err(invalid("日付 (2026-10-11 か RFC 3339)"));
-            }
-            // RFC 3339 は区切りの t / z を小文字でも許すが、SQLite の日時関数 (並べ替えに使う julianday) は大文字しか読まない。
-            // 受理した形の英字は T / Z だけなので、大文字にして保存する
-            Value::Date(date.to_ascii_uppercase())
-        }
+        PropertyKind::Date => Value::Date(
+            normalize_date(&string()?).ok_or_else(|| invalid("日付 (2026-10-11 か RFC 3339)"))?,
+        ),
         PropertyKind::Number => Value::Number(json.as_f64().ok_or_else(|| invalid("数値"))?),
         PropertyKind::Checkbox => Value::Checkbox(json.as_bool().ok_or_else(|| invalid("真偽値"))?),
         PropertyKind::Select { options } => {
@@ -216,6 +208,20 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
         ),
         PropertyKind::Relation { .. } => Value::Relation(strings()?.into_iter().map(Id).collect()),
     }))
+}
+
+/// date の値 `text` を保存する形に揃える。日付だけなら `2026-10-11`、日時なら RFC 3339 (区切りは大文字の `T`、UTC は `Z`)。
+/// どちらとしても読めなければ `None`。
+///
+/// 入力の書き方 (`2026-1-2`、小文字の `t` / `z` 等) を揃えるのは、SQLite の日時関数 (並べ替えに使う `julianday`) が
+/// ゼロ埋めした数字と大文字の区切りしか読まず、等価の絞り込みも保存した文字列と比べるため。
+pub(crate) fn normalize_date(text: &str) -> Option<String> {
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+        return Some(date.format("%Y-%m-%d").to_string());
+    }
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|date_time| date_time.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true))
 }
 
 /// select / multi_select のプロパティ `property` の選択肢 `options` から、name が `name` の選択肢の ID を引く。
@@ -355,6 +361,20 @@ mod tests {
                 parse_row_input(&database(), &json!({"id": "r1", "values": {"due": due}})).is_ok()
             );
         }
+    }
+
+    #[test]
+    fn date_is_normalized_to_the_form_sqlite_reads() {
+        assert_eq!(normalize_date("2026-1-2").as_deref(), Some("2026-01-02"));
+        assert_eq!(
+            normalize_date("2026-10-11T09:00:00+09:00").as_deref(),
+            Some("2026-10-11T09:00:00+09:00")
+        );
+        assert_eq!(
+            normalize_date("2026-10-11t00:00:00.5+00:00").as_deref(),
+            Some("2026-10-11T00:00:00.500Z")
+        );
+        assert_eq!(normalize_date("10/11"), None);
     }
 
     #[test]

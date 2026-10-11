@@ -384,10 +384,14 @@ async fn query_in(
                 r#"instr(json_extract("values", ?), ?) = 1"#,
                 libsql::Value::from(raw_value),
             ),
-            // date は保存時に区切りの t / z を大文字にしている (named_json) ため、検索の値も大文字にして比べる
+            // date は保存時に書き方を揃えている (named_json::normalize_date) ため、検索の値も同じく揃えて比べる。
+            // 前方一致の値 (`2026-10` 等) は日付として読めないので、区切りの大文字化だけを揃える
             (PropertyKind::Date, false) => (
                 r#"json_extract("values", ?) = ?"#,
-                libsql::Value::from(raw_value.to_ascii_uppercase()),
+                libsql::Value::from(
+                    named_json::normalize_date(raw_value)
+                        .unwrap_or_else(|| raw_value.to_ascii_uppercase()),
+                ),
             ),
             (PropertyKind::Date, true) => (
                 r#"instr(json_extract("values", ?), ?) = 1"#,
