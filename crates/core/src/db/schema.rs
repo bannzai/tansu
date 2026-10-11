@@ -348,8 +348,12 @@ async fn remove_property(
         .await?;
     connection
         .execute(
-            r#"UPDATE "row" SET "values" = json_remove("values", ?) WHERE database_id = ?"#,
-            (format!(r#"$."{}""#, property.id.0), database.id.0.as_str()),
+            r#"UPDATE "row" SET "values" = json_remove("values", ?1), updated_at = ?2 WHERE database_id = ?3 AND json_type("values", ?1) IS NOT NULL"#,
+            (
+                format!(r#"$."{}""#, property.id.0),
+                now(),
+                database.id.0.as_str(),
+            ),
         )
         .await?;
     Ok(())

@@ -184,11 +184,13 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
     fail(&sandbox, &["db", "schema", "tasks", "--add", "size:huge"]);
 
     // 外したプロパティは定義からも行の値からも消える
-    upsert(
+    let written = upsert(
         &sandbox,
         "tasks",
         json!({"id": "t1", "values": {"title": "a", "points": 1}}),
     );
+    // updated_at は秒の精度なので、同じ秒の中では変わったかを判別できない
+    std::thread::sleep(Duration::from_millis(1100));
     let removed = succeed_json(&sandbox, &["db", "schema", "tasks", "--remove", "points"]);
     assert!(
         removed["properties"]
@@ -197,10 +199,12 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
             .iter()
             .all(|property| property["name"] != "points")
     );
+    let after_remove = query(&sandbox, "tasks", &[])[0].clone();
     assert_eq!(
-        query(&sandbox, "tasks", &[])[0]["values"],
+        after_remove["values"],
         json!({"title": {"type": "text", "value": "a"}})
     );
+    assert_ne!(after_remove["updated_at"], written["updated_at"]);
     assert_eq!(
         succeed_json(&sandbox, &["db", "schema", "tasks", "--remove", "points"]),
         removed

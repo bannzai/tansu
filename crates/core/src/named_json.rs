@@ -193,7 +193,9 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
             {
                 return Err(invalid("日付 (2026-10-11 か RFC 3339)"));
             }
-            Value::Date(date)
+            // RFC 3339 は区切りの t / z を小文字でも許すが、SQLite の日時関数 (並べ替えに使う julianday) は大文字しか読まない。
+            // 受理した形の英字は T / Z だけなので、大文字にして保存する
+            Value::Date(date.to_ascii_uppercase())
         }
         PropertyKind::Number => Value::Number(json.as_f64().ok_or_else(|| invalid("数値"))?),
         PropertyKind::Checkbox => Value::Checkbox(json.as_bool().ok_or_else(|| invalid("真偽値"))?),
@@ -346,5 +348,18 @@ mod tests {
                 parse_row_input(&database(), &json!({"id": "r1", "values": {"due": due}})).is_ok()
             );
         }
+    }
+
+    #[test]
+    fn date_is_stored_with_uppercase_separators() {
+        let input = parse_row_input(
+            &database(),
+            &json!({"id": "r1", "values": {"due": "2026-10-11t00:00:00z"}}),
+        )
+        .unwrap();
+        assert_eq!(
+            input.values[&Id("p_due".into())],
+            Some(Value::Date("2026-10-11T00:00:00Z".into()))
+        );
     }
 }
