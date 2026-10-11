@@ -199,7 +199,8 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
         PropertyKind::Text => Value::Text(string()?),
         PropertyKind::Url => Value::Url(string()?),
         PropertyKind::Date => Value::Date(
-            normalize_date(&string()?).ok_or_else(|| invalid("日付 (2026-10-11 か、秒の小数がミリ秒までの RFC 3339)"))?,
+            normalize_date(&string()?)
+                .ok_or_else(|| invalid("日付 (2026-10-11 か、秒の小数がミリ秒までの RFC 3339)"))?,
         ),
         PropertyKind::Number => Value::Number(json.as_f64().ok_or_else(|| invalid("数値"))?),
         PropertyKind::Checkbox => Value::Checkbox(json.as_bool().ok_or_else(|| invalid("真偽値"))?),
