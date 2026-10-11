@@ -1,5 +1,5 @@
 ---
-status: evaluating
+status: building
 decision_date:
 cycle_days: 14
 veto_wait_hours: 12
@@ -33,7 +33,7 @@ launched_at:
 - [ ] Web 画面: データベースごとの表 / 一覧ビュー (プロパティと label での絞り込み・並べ替え)、行の詳細ページでの編集。QA の「1 項目ずつ OK / NG / あとで + メモを入力」のビュー、進捗フッター (入力済み / 全件、OK / NG / あとで の内訳)、「全部コピー」(未入力・NG を markdown にして agent に貼る)。同じ LAN の iPhone からも開ける
 - [ ] 複数の Mac の同期: DB の置き場所を Turso Cloud (libSQL) にした時は、各 Mac が同じクラウドの DB を開くので同期の処理を持たない (2026-10-11 の決定)。ローカルの SQLite ファイルを選んだ時は同期しない
 
-MVP に入れないもの: Notion との同期、他人への配布 (npm への公開)、QA.md への書き戻し。ログインとクラウドのホスティングは、サーバー (`tansu serve`) を各 Mac の localhost で動かすか、クラウドに置いてインターネットから開くかの決定に従う (関門 1 の未回答の項目。問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント)。
+MVP に入れないもの: Notion との同期、他人への配布 (npm への公開)、QA.md への書き戻し。ログインとクラウドのホスティングも入れない (サーバーは各 Mac の localhost で動かす。2026-10-11 の決定。クラウドに置く案は判定基準を通ってから検討する)。
 
 ## デザインの方向
 
@@ -55,6 +55,11 @@ MVP に入れないもの: Notion との同期、他人への配布 (npm への�
 | 2026-10-11 | 関門 1 (チャット) | 長期の構想は「Rust × Wasm でガリガリに最適化した Notion 風のサービス」で、tansu はその最初の実装。最初のユースケースは bannzai 自身の QA DB。bannzai の既存リポジトリ・IdeaMemo にこの構想の記録は無く (agent が 2026-10-11 に検索)、ここが初出 | bannzai |
 | 2026-10-11 | 関門 1 (チャット) | CLI は Rust。Web 画面は今は TypeScript × React で書き、将来 Wasm (Rust のコア) を組み込んで最適化する。コア (スキーマ・問い合わせ・QA.md のパーサ) は最初から Rust の crate にし、Wasm はその build target として後から足す (書き直しにしない)。立ち上げ PR #1 の Bun + TypeScript の雛形は作り直す | bannzai (構成の細部は agent) |
 | 2026-10-11 | 関門 1 (チャット) | DB の置き場所は、ローカルの SQLite ファイルと Turso Cloud (libSQL) の両方に対応し、利用者が起動時に選ぶ。クラウドを選んだ時はデータが Turso に載るので、2026-10-08 の「外部への送信を持たない」(上の法務ドキュメントの行と、`documents/PROJECT.md`「制約」の旧「マシンの外へ出さない」) はローカルを選んだ時だけに縮める | bannzai |
+| 2026-10-11 | 関門 1 (チャット) | bannzai が PR #3 のマージ後に「よろしく」と返し、未回答の項目は agent が可逆な方を選んで決めることになった (下の 4 行) | bannzai |
+| 2026-10-11 | 関門 1 (agent) | サーバー (`tansu serve`) は各 Mac の localhost で動かす。DB だけ Turso Cloud に置けるので複数の Mac の同期はそれで足りる。ログイン・ホスティング・CD・法務ドキュメントは不要のまま。クラウドにサーバーを置く案は追加で足せる (可逆) ため、判定基準を通ってから検討する | agent |
+| 2026-10-11 | 関門 1 (agent) | OSS としては扱わず、LICENSE は足さない (後から MIT を足すのは容易で、外すのは難しいため)。文書・コメントは日本語のまま | agent |
+| 2026-10-11 | 関門 1 (agent) | 必要な機能は 1〜7 のまま (同期の項目は Turso Cloud の接続に置き換え) | agent |
+| 2026-10-11 | 関門 1 (agent) | データモデルは `documents/data-model.md` のとおり: 行の値は JSON 1 列 (EAV にしない)、値は自身の型を持つ、relation は片方向、run は汎用の行、ID は短い文字列、QA の automation は select + text の 2 列、property に unique、select は保存 ID・CLI の入出力 name | agent |
 | 2026-10-11 | 関門 1 (チャット) の後 | 置き場所の指定は `TANSU_DB_URL` (未設定ならローカルのファイル。2026-10-08 の `TANSU_DB` はこれに置き換える)。Turso の embedded replica は CLI・MCP・serve が同じ DB を開く構成と合わないため使わず、ローカルのファイルかクラウド直結の 2 択にする (`documents/PROJECT.md`「DB の置き場所」) | agent |
 | 2026-10-11 | 関門 1 (チャット) | リポジトリ名は当面 tansu のまま。よりよい名前にいずれ変える (時期は未定) | bannzai |
 

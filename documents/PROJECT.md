@@ -6,7 +6,7 @@
 
 ## 構成
 
-コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Rust の crate: コア・CLI・MCP・サーバー (サーバーの言語はサーバーの置き場所の決定に従う。localhost なら Rust)、`web/` の Vite + React) に作り直す。サーバーの置き場所 (各 Mac の localhost か、クラウドか。関門 1 の未回答の項目で、問いと選択肢は https://github.com/bannzai/tansu/issues/2 の 2026-10-11 のコメント) に依存するのはサーバーの crate とホスティング・ログインの範囲だけで、作り直しの PR はその決定を待って出す。
+コア (スキーマ・問い合わせ・更新・QA.md のパーサ) は Rust の crate で、tansu の入口のプロセス (CLI・`tansu mcp`・`tansu serve`) が同じ crate を通して DB を開く (同時に開く前提の設定は `.claude/rules/sqlite-database.md`)。DB は libSQL (`libsql` crate) で、ローカルの SQLite ファイル (`Builder::new_local`) と Turso Cloud (`Builder::new_remote`) のどちらを開くかを起動時の設定で選ぶ (下の「DB の置き場所」)。Web 画面は TypeScript × React (Vite) で、将来はコアを Wasm に build してブラウザに組み込む (DIRECTION.md「決めたこと」2026-10-11)。Wasm に組み込むのは問い合わせの計算・整形・パースで、DB への接続はサーバーが持ち続ける (ブラウザに Turso のトークンを渡さないため)。立ち上げ PR #1 の TypeScript の雛形は、雛形の作り直し PR でこの構成 (Cargo workspace の crate: `core` / `cli` / `mcp` / `server`、`web/` の Vite + React) に作り直す。サーバーは各 Mac の localhost で動かす (DIRECTION.md「決めたこと」2026-10-11) ので、サーバーの crate は Rust (axum) で、ログイン・ホスティングは持たない。論理的な型と SQLite への持ち方は `documents/data-model.md`。
 
 | 入口 | 役割 |
 | --- | --- |
@@ -97,7 +97,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 
 ## 複数の Mac の同期
 
-「DB の置き場所」で Turso Cloud を選んだ時は各 Mac が同じ DB を開くので、同期の処理を持たない。ローカルのファイルを選んだ時は同期しない。サーバー (`tansu serve`) をどこで動かすか (各 Mac の `127.0.0.1` / クラウド) は関門 1 の未回答の項目で、クラウドに置く時はログイン・ホスティング・CD・法務ドキュメントが要件に加わる。
+「DB の置き場所」で Turso Cloud を選んだ時は各 Mac が同じ DB を開くので、同期の処理を持たない。ローカルのファイルを選んだ時は同期しない。サーバー (`tansu serve`) は各 Mac の `127.0.0.1` で動かす (DIRECTION.md「決めたこと」2026-10-11)。クラウドにサーバーを置く時はログイン・ホスティング・CD・法務ドキュメントが要件に加わるため、判定基準を通ってから検討する。
 
 ## 制約
 
@@ -113,7 +113,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 | 領域 | 決定 | 理由 |
 | --- | --- | --- |
 | DB・ストレージ | libSQL。利用者のマシンの SQLite 1 ファイル、または Turso Cloud の DB (起動時に選ぶ) | ローカルで完結する使い方と、複数の Mac で同じ DB を使う使い方の両方を、接続先の違いだけで実現できる |
-| ホスティング | (関門 1 の未回答の項目。各 Mac の localhost か、クラウドか) | クラウドに置く時はログイン・CD・法務ドキュメントが要る |
+| ホスティング | 持たない。各 Mac の localhost で `tansu serve` を動かす | クラウドに置く時はログイン・CD・法務ドキュメントが要るため、判定基準を通ってから検討する |
 | 認証 | サーバーを各 Mac の localhost で動かす間は持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
 | 計測 | 手元の利用記録と DB の行数 | 外部への計測・テレメトリを持たない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
