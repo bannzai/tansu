@@ -212,9 +212,9 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
                 .map(|name| option_id(property, options, name))
                 .collect::<Result<_, _>>()?,
         )),
-        PropertyKind::Relation { .. } => Value::Relation(without_duplicates(
-            strings()?.into_iter().map(Id).collect(),
-        )),
+        PropertyKind::Relation { .. } => {
+            Value::Relation(without_duplicates(strings()?.into_iter().map(Id).collect()))
+        }
     }))
 }
 
@@ -222,7 +222,9 @@ fn value_from_json(property: &Property, json: &serde_json::Value) -> Result<Opti
 /// 残すと unique の判定で `["p1", "p1"]` と `["p1"]` が別の値になるため。
 fn without_duplicates(ids: Vec<Id>) -> Vec<Id> {
     let mut seen = std::collections::BTreeSet::new();
-    ids.into_iter().filter(|id| seen.insert(id.clone())).collect()
+    ids.into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
 }
 
 /// date の値 `text` を保存する形に揃える。日付だけなら `2026-10-11`、日時なら RFC 3339 (区切りは大文字の `T`、UTC は `Z`)。

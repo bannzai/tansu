@@ -61,13 +61,11 @@ async fn upsert_in(
                 ));
             }
             rows.iter().find(|row| {
-                unique_values
-                    .iter()
-                    .any(|(property_id, value)| {
-                        row.values
-                            .get(*property_id)
-                            .is_some_and(|stored| same_unique_value(stored, value))
-                    })
+                unique_values.iter().any(|(property_id, value)| {
+                    row.values
+                        .get(*property_id)
+                        .is_some_and(|stored| same_unique_value(stored, value))
+                })
             })
         }
     };
@@ -192,16 +190,13 @@ fn check_unique(
         let Some(value) = values.get(&property.id) else {
             continue;
         };
-        if let Some(duplicate) = rows
-            .iter()
-            .find(|row| {
-                row.id != *row_id
-                    && row
-                        .values
-                        .get(&property.id)
-                        .is_some_and(|stored| same_unique_value(stored, value))
-            })
-        {
+        if let Some(duplicate) = rows.iter().find(|row| {
+            row.id != *row_id
+                && row
+                    .values
+                    .get(&property.id)
+                    .is_some_and(|stored| same_unique_value(stored, value))
+        }) {
             return Err(Error::UniqueViolation {
                 property: property.name.clone(),
                 row_id: duplicate.id.0.clone(),
@@ -238,7 +233,10 @@ async fn delete_in(
         .await?;
     if deleted == 0 {
         // 行が無いのは 2 回目の delete と同じ状態なので成功にする。別のデータベースに実在する ID は指定の誤りなのでエラーにする
-        if database_of_row(connection, &Id(row_id.into())).await?.is_some() {
+        if database_of_row(connection, &Id(row_id.into()))
+            .await?
+            .is_some()
+        {
             return Err(Error::InvalidInput(format!(
                 "行 `{row_id}` は別のデータベースの行です"
             )));
