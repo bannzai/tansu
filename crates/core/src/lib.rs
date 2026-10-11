@@ -8,5 +8,6 @@ pub mod error;
 pub mod export;
 pub mod model;
 pub mod named_json;
+pub mod qa;
 
 pub use error::Error;

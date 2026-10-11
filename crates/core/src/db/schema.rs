@@ -18,7 +18,10 @@ pub async fn create_database(connection: &Connection, name: &str) -> Result<Data
 }
 
 /// [`create_database`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn create_database_in(connection: &Connection, name: &str) -> Result<Database, Error> {
+pub(crate) async fn create_database_in(
+    connection: &Connection,
+    name: &str,
+) -> Result<Database, Error> {
     if let Some(database) = find_database(connection, name).await? {
         return Ok(database);
     }
@@ -133,7 +136,7 @@ pub async fn change_schema(
 }
 
 /// [`change_schema`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn change_schema_in(
+pub(crate) async fn change_schema_in(
     connection: &Connection,
     database_name: &str,
     add: &[String],
