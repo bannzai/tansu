@@ -105,13 +105,15 @@ impl Settings {
                 None if url
                     .strip_prefix("libsql://")
                     .is_some_and(|host| !host.is_empty()) =>
-                DbLocation::Remote {
-                    url,
-                    auth_token: env
-                        .db_auth_token
-                        .filter(|token| !token.expose().is_empty())
-                        .ok_or(Error::MissingAuthToken)?,
-                },
+                {
+                    DbLocation::Remote {
+                        url,
+                        auth_token: env
+                            .db_auth_token
+                            .filter(|token| !token.expose().is_empty())
+                            .ok_or(Error::MissingAuthToken)?,
+                    }
+                }
                 None => return Err(Error::UnsupportedDbUrl(url_scheme(&url))),
             },
         };

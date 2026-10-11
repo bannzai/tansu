@@ -158,17 +158,26 @@ async fn database_and_wal_files_are_private_even_in_a_shared_directory() {
 
     let connection = db::open(&settings).await.unwrap();
     connection
-        .execute("INSERT INTO \"database\" (id, name, created_at) VALUES ('d1', 'n', 't')", ())
+        .execute(
+            "INSERT INTO \"database\" (id, name, created_at) VALUES ('d1', 'n', 't')",
+            (),
+        )
         .await
         .unwrap();
 
     let mode = |path: &std::path::Path| path.metadata().unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&database), 0o600);
     let wal = shared_directory.path().join("a.sqlite-wal");
-    assert!(wal.exists(), "WAL モードでの書き込みの後は -wal ファイルがある");
+    assert!(
+        wal.exists(),
+        "WAL モードでの書き込みの後は -wal ファイルがある"
+    );
     assert_eq!(mode(&wal), 0o600);
     let shm = shared_directory.path().join("a.sqlite-shm");
-    assert!(shm.exists(), "WAL モードでの書き込みの後は -shm ファイルがある");
+    assert!(
+        shm.exists(),
+        "WAL モードでの書き込みの後は -shm ファイルがある"
+    );
     assert_eq!(mode(&shm), 0o600);
 }
 
@@ -189,4 +198,3 @@ async fn open_refuses_a_database_newer_than_the_binary() {
         Error::SchemaNewerThanBinary { db: 99, binary: 1 }
     ));
 }
-
