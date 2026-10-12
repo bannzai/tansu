@@ -47,7 +47,7 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
 /// DB を置くディレクトリを作る。DB に private リポジトリの QA の項目が入るため、unix では新しく作るディレクトリを
 /// 所有者だけが読み書きできる権限 (0o700) にして、同じ Mac の他のユーザーに読ませない。
 /// 既にあるディレクトリの権限は変えない。何度呼んでも同じ状態になる。
-fn create_private_dir_all(directory: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn create_private_dir_all(directory: &std::path::Path) -> std::io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -175,7 +175,7 @@ pub(crate) async fn finish<T>(
 
 /// 行・データベースに書く時刻。時差付き ISO 8601 (`documents/data-model.md`)。
 /// 秒より細かい精度は持たない (行の既定の並びは追加順の rowid で決め、時刻では並べないため)。
-fn now() -> String {
+pub(crate) fn now() -> String {
     chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
 }
 
