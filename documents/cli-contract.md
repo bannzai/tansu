@@ -81,12 +81,12 @@ commit を基準に、再テストが要る feature と未検証の item を返�
 判定の規則 (feature ごと):
 
 - `last_verified_commit`: その feature の item の run のうち、`result` が `ok` か `skip` で `commit` を持つ最後の run の `commit`。「最後」は `recorded_at` の時刻が後のもの、同じ時刻 (秒の精度) なら後に追加されたもの。`recorded_at` の無い run はどの時刻よりも前とみなす
-- `changed_files`: `git diff --name-only --relative <last_verified_commit> <commit> -- <feature のディレクトリ>` のファイルから `QA.md` を除いたもの。パスは project の checkout からの相対パス
+- `changed_files`: `git diff --name-only --relative --no-renames <last_verified_commit> <commit> -- <feature のディレクトリ>` のファイルから `QA.md` を除いたもの。パスは project の checkout からの相対パスで、日本語などを含むパスもエスケープせずにそのまま出す。リネームは削除と追加に分けるので、ほかのディレクトリへ移したファイルは移動元と移動先の両方の feature に入る
   - feature のディレクトリは、QA.md があったディレクトリ (feature の `path`)
   - `last_verified_commit` が無い (null)、またはリポジトリで解決できない (rebase で消えた・合成の SHA 等) feature は、確かめた時点が分からないので `<commit>` の時点のディレクトリの全ファイル (`QA.md` を除く) を入れる
   - ルート直下の QA.md の feature (`path` が空) と、item の無い feature は diff せず空にする
 - `unverified_items`: run が 1 つも無い item。NG / あとで の run だけがある item は含めない (未解消の NG は呼び出し側が `query run --json --where result=ng` 等で見る)
-- `--diff-base` を渡すと、`git diff --name-only --relative <diff-base> <commit>` (2 点の比較) で feature のディレクトリの下に変更 (`QA.md` を除く) がある feature だけを判定の対象にする。対象外の feature は `features` に出さず、`ok` にも数えない。ルート直下の feature は対象にならない。PR のゲートでは `git merge-base <base ブランチ> <head>` の commit を渡す (PR が触っていない feature の古い未検証で PR を止めないため)
+- `--diff-base` を渡すと、`git diff --name-only --relative --no-renames <diff-base> <commit>` (2 点の比較) で feature のディレクトリの下に変更 (`QA.md` を除く) がある feature だけを判定の対象にする。対象外の feature は `features` に出さず、`ok` にも数えない。ルート直下の feature は対象にならない。PR のゲートでは `git merge-base <base ブランチ> <head>` の commit を渡す (PR が触っていない feature の古い未検証で PR を止めないため)
 
 出力 (`--json` は必須):
 

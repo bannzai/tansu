@@ -311,11 +311,13 @@ pub(crate) fn resolve_commit(directory: &Path, rev: &str) -> Option<String> {
     .map(|sha| sha.trim().to_owned())
 }
 
-/// `git <args>` の出力の行 (ファイルのパスの一覧) から、QA.md を除いて返す。QA.md は記録と定義を持つファイルで、
-/// その変更は feature の実装の変更ではないため (castle の run-qa の `affected_features.sh` も除いている)。
+/// `git <args> -z` の出力 (NUL 区切りのファイルのパスの一覧) から、QA.md を除いて返す。QA.md は記録と定義を持つ
+/// ファイルで、その変更は feature の実装の変更ではないため (castle の run-qa の `affected_features.sh` も除いている)。
+/// NUL 区切りで受けるのは、改行区切りの出力では git が日本語などを含むパスを引用符付きでエスケープする
+/// (`core.quotePath` の既定) ため。
 pub(crate) fn files_without_qa_md(output: &str) -> Vec<String> {
     output
-        .lines()
+        .split('\0')
         .filter(|path| !path.is_empty() && *path != "QA.md" && !path.ends_with("/QA.md"))
         .map(str::to_owned)
         .collect()
@@ -348,8 +350,8 @@ mod tests {
     #[test]
     fn qa_md_files_are_not_changes_of_the_feature() {
         assert_eq!(
-            files_without_qa_md("features/a/QA.md\nfeatures/a/list.rs\nQA.md\n\n"),
-            ["features/a/list.rs"]
+            files_without_qa_md("features/a/QA.md\0features/a/画面.rs\0QA.md\0"),
+            ["features/a/画面.rs"]
         );
     }
 }

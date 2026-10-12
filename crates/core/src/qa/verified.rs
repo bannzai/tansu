@@ -18,6 +18,13 @@ use crate::model::{Id, Row};
 /// run の `result` のうち、その commit で feature を確かめたとみなす結果。NG / あとで は確かめ終えていない。
 const VERIFIED_RESULTS: [&str; 2] = ["ok", "skip"];
 
+/// 2 つの commit の間で変わったファイルのパスを出す `git diff` の引数 (後ろに commit と pathspec を足す)。
+/// - `--relative`: checkout が git のルートの下のディレクトリでも、パスを feature の `path` と同じ checkout 基準にする
+/// - `--no-renames`: リネームを削除と追加に分け、移動元の feature のディレクトリも変更に数える
+///   (リネームとして検出されると `--name-only` は移動先しか出さない)
+/// - `-z`: 日本語などを含むパスをエスケープせずに NUL 区切りで出す ([`files_without_qa_md`])
+const DIFF_NAMES: &[&str] = &["diff", "--name-only", "--relative", "--no-renames", "-z"];
+
 /// `qa verified` の結果 (`--json` の出力)。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VerifiedReport {
@@ -56,7 +63,7 @@ pub struct UnverifiedItem {
 
 /// project `repo` の feature ごとに、`commit` の時点で再テストが要るかを判定する。DB には書かない。
 ///
-/// `diff_base` を渡すと、`git diff --name-only <diff_base> <commit>` で feature のディレクトリに変更がある feature だけを
+/// `diff_base` を渡すと、`git diff --name-only --no-renames <diff_base> <commit>` で feature のディレクトリに変更がある feature だけを
 /// 判定の対象にする (対象外の feature は結果に含めず、`ok` にも数えない)。
 pub async fn verified(
     connection: &Connection,
@@ -86,7 +93,7 @@ pub async fn verified(
             })?;
             Some(files_without_qa_md(&git(
                 checkout,
-                &["diff", "--name-only", "--relative", &base, &commit],
+                &[DIFF_NAMES, &[base.as_str(), commit.as_str()]].concat(),
             )?))
         }
         None => None,
@@ -174,26 +181,17 @@ fn changed_files(
     if directory.is_empty() {
         return Ok(Vec::new());
     }
-    // パスは checkout からの相対パス (checkout が git のルートの下のディレクトリでも feature の `path` と揃うよう、
-    // diff は `--relative`、ls-tree は既定のカレントディレクトリ基準で出す)
+    // ls-tree は既定でカレントディレクトリ (checkout) 基準のパスを出すので、diff の `--relative` と揃う
     let output = match last_verified_commit
         .filter(|last| resolve_commit(checkout, last).as_deref() == Some(*last))
     {
         Some(last) => git(
             checkout,
-            &[
-                "diff",
-                "--name-only",
-                "--relative",
-                last,
-                commit,
-                "--",
-                directory,
-            ],
+            &[DIFF_NAMES, &[last, commit, "--", directory]].concat(),
         )?,
         None => git(
             checkout,
-            &["ls-tree", "-r", "--name-only", commit, "--", directory],
+            &["ls-tree", "-r", "-z", "--name-only", commit, "--", directory],
         )?,
     };
     Ok(files_without_qa_md(&output))

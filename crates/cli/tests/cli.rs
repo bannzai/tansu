@@ -1233,6 +1233,66 @@ fn qa_verified_returns_changed_features_and_unverified_items() {
 }
 
 #[test]
+fn qa_verified_sees_japanese_paths_and_both_sides_of_a_rename() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+    for item in query(&sandbox, "item", &[]) {
+        succeed(
+            &sandbox,
+            &[
+                "qa",
+                "record",
+                "--item",
+                item["id"].as_str().unwrap(),
+                "--result",
+                "ok",
+                "--commit",
+                &first,
+            ],
+        );
+    }
+
+    // 日本語のパスも、git がエスケープした形ではなくそのままのパスで返す
+    std::fs::write(root.join("features/note_list/画面.txt"), "一覧\n").unwrap();
+    let second = commit_all(&root, "second");
+    let (code, scoped) = verified(&sandbox, &second, &["--diff-base", &first]);
+    assert_eq!(code, Some(1), "{scoped}");
+    assert_eq!(scoped["features"].as_array().unwrap().len(), 1, "{scoped}");
+    assert_eq!(
+        feature_of(&scoped, "note_list")["changed_files"],
+        json!(["features/note_list/画面.txt"])
+    );
+
+    // ほかの feature のディレクトリへ移したファイルは、移動元と移動先の両方の feature の変更に数える
+    git(
+        &root,
+        &[
+            "mv",
+            "features/settings/theme.txt",
+            "features/note_editor/theme.txt",
+        ],
+    );
+    let third = commit_all(&root, "third");
+    let (code, scoped) = verified(&sandbox, &third, &["--diff-base", &second]);
+    assert_eq!(code, Some(1), "{scoped}");
+    let names: Vec<&str> = scoped["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|feature| feature["feature"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["note_editor", "settings"], "{scoped}");
+    assert_eq!(
+        feature_of(&scoped, "settings")["changed_files"],
+        json!(["features/settings/theme.txt"])
+    );
+    assert_eq!(
+        feature_of(&scoped, "note_editor")["changed_files"],
+        json!(["features/note_editor/theme.txt"])
+    );
+}
+
+#[test]
 fn qa_export_pr_summary_shows_the_latest_run_of_each_item() {
     let sandbox = sandbox();
     let (_directory, root, first) = imported_repository(&sandbox);
