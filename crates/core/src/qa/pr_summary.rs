@@ -102,10 +102,8 @@ pub async fn pr_summary(
                         markdown_link_destination(&image_url.replace('|', "%7C"))
                     )
                 ),
-                text_of(&tables.run_database, run, "commit").map_or_else(
-                    || EMPTY_CELL.to_owned(),
-                    |commit| format!("`{}`", commit.get(..SHORT_SHA_LENGTH).unwrap_or(commit))
-                ),
+                text_of(&tables.run_database, run, "commit")
+                    .map_or_else(|| EMPTY_CELL.to_owned(), commit_cell),
             ));
         }
         if table_rows.is_empty() {
@@ -122,6 +120,16 @@ pub async fn pr_summary(
         markdown.push_str("\n記録された run はありません\n");
     }
     Ok(markdown)
+}
+
+/// commit の列のセル。16 進の SHA は短縮 SHA のコードスパンにし、それ以外 (`qa import` が QA.md から取り込んだ
+/// 任意の文字列) は表を崩さないようエスケープしてそのまま出す。
+fn commit_cell(commit: &str) -> String {
+    if commit.chars().all(|character| character.is_ascii_hexdigit()) {
+        format!("`{}`", commit.get(..SHORT_SHA_LENGTH).unwrap_or(commit))
+    } else {
+        escape_cell(commit)
+    }
 }
 
 /// run の `result` の選択肢の name を、PR を読む人向けの表記にする。知らない選択肢はそのまま出す。

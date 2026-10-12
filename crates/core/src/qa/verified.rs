@@ -170,7 +170,7 @@ fn feature_path<'a>(tables: &'a RepoTables, feature: &'a Row) -> Result<&'a str,
 
 /// feature のディレクトリ `directory` の下で、`last_verified_commit` から `commit` までに変わったファイル (QA.md を除く)。
 /// ルート直下の feature (`directory` が空) は diff しない (どのファイルの変更もその feature の変更にしてしまうため)。
-/// `last_verified_commit` が無い・リポジトリで解決できない (rebase で消えた等) 時は、確かめた時点が分からないので
+/// `last_verified_commit` が無い・full SHA でない・リポジトリで解決できない (rebase で消えた等) 時は、確かめた時点が分からないので
 /// `commit` の時点のディレクトリの全ファイルを返す。
 fn changed_files(
     checkout: &Path,
@@ -182,12 +182,15 @@ fn changed_files(
         return Ok(Vec::new());
     }
     // ls-tree は既定でカレントディレクトリ (checkout) 基準のパスを出すので、diff の `--relative` と揃う
+    // full SHA (大文字も含む) だけを確かめた時点として使う。短縮 SHA は後で別の commit を指し得るため
+    // 解決できないものと同じに扱う (castle の run-qa と同じ)
     let output = match last_verified_commit
-        .filter(|last| resolve_commit(checkout, last).as_deref() == Some(*last))
+        .and_then(|last| full_sha(last).ok())
+        .filter(|last| resolve_commit(checkout, last).as_deref() == Some(last.as_str()))
     {
         Some(last) => git(
             checkout,
-            &[DIFF_NAMES, &[last, commit, "--", directory]].concat(),
+            &[DIFF_NAMES, &[last.as_str(), commit, "--", directory]].concat(),
         )?,
         None => git(
             checkout,

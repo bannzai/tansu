@@ -80,10 +80,10 @@ commit を基準に、再テストが要る feature と未検証の item を返�
 
 判定の規則 (feature ごと):
 
-- `last_verified_commit`: その feature の item の run のうち、`result` が `ok` か `skip` で `commit` を持つ最後の run の `commit`。「最後」は `recorded_at` の時刻が後のもの、同じ時刻 (秒の精度) なら後に追加されたもの。`recorded_at` の無い run はどの時刻よりも前とみなす
+- `last_verified_commit`: その feature の item の run のうち、`result` が `ok` か `skip` で `commit` を持つ最後の run の `commit`。「最後」は `recorded_at` が後のもの、同じ値 (秒の精度) なら後に追加されたもの。`recorded_at` はまず書かれた時差での日付で比べ、同じ日付なら日付だけの値 (`qa import` の run) を時刻付きの値 (`qa record` の run) より前にし、時刻付きどうしは UTC の時刻で比べる。`recorded_at` の無い run はどの値よりも前とみなす
 - `changed_files`: `git diff --name-only --relative --no-renames <last_verified_commit> <commit> -- <feature のディレクトリ>` のファイルから `QA.md` を除いたもの。パスは project の checkout からの相対パスで、日本語などを含むパスもエスケープせずにそのまま出す。リネームは削除と追加に分けるので、ほかのディレクトリへ移したファイルは移動元と移動先の両方の feature に入る
   - feature のディレクトリは、QA.md があったディレクトリ (feature の `path`)
-  - `last_verified_commit` が無い (null)、またはリポジトリで解決できない (rebase で消えた・合成の SHA 等) feature は、確かめた時点が分からないので `<commit>` の時点のディレクトリの全ファイル (`QA.md` を除く) を入れる
+  - `last_verified_commit` が無い (null)、full SHA でない (`qa import` が取り込んだ短縮 SHA 等。大文字の full SHA は使う)、またはリポジトリで解決できない (rebase で消えた・合成の SHA 等) feature は、確かめた時点が分からないので `<commit>` の時点のディレクトリの全ファイル (`QA.md` を除く) を入れる
   - ルート直下の QA.md の feature (`path` が空) と、item の無い feature は diff せず空にする
 - `unverified_items`: run が 1 つも無い item。NG / あとで の run だけがある item は含めない (未解消の NG は呼び出し側が `query run --json --where result=ng` 等で見る)
 - `--diff-base` を渡すと、`git diff --name-only --relative --no-renames <diff-base> <commit>` (2 点の比較) で feature のディレクトリの下に変更 (`QA.md` を除く) がある feature だけを判定の対象にする。対象外の feature は `features` に出さず、`ok` にも数えない。ルート直下の feature は対象にならない。PR のゲートでは `git merge-base <base ブランチ> <head>` の commit を渡す (PR が触っていない feature の古い未検証で PR を止めないため)
@@ -108,7 +108,7 @@ exit code: `ok` が true なら 0、false なら 1、エラー (project が無�
 PR body に貼る「何をどう確認したか」の markdown を stdout に出す。DB には書かない。表の markdown / JSON の書き出しは汎用の `tansu export run --format markdown|json` を使う (`--format` は `pr-summary` だけを受け付ける)。
 
 - 見出し `## QA の記録 (<owner/repo>)` の後に、feature ごと (取り込んだ順) に `### <feature 名>` と表を出す。見出しとセルの文字列は markdown の記号をエスケープする (`note_list` は `note\_list`。汎用の `export --format markdown` と同じ規則)。表の列は `| 項目 | 結果 | 確認日 | 画像 | commit |`
-- 行は item ごと (取り込んだ順) に、その item の最後の run (「最後」は `qa verified` と同じ) を 1 行。結果は `OK` / `NG` / `あとで` / `スキップ`、確認日は `recorded_at` の先頭の `YYYY-MM-DD`、画像は `image_url` へのリンク `[画像](<URL>)` (本文の 2 つ目以降の画像は出さない)、commit は 7 桁の短縮 SHA。値の無いセルは `—`
+- 行は item ごと (取り込んだ順) に、その item の最後の run (「最後」は `qa verified` と同じ) を 1 行。結果は `OK` / `NG` / `あとで` / `スキップ`、確認日は `recorded_at` の先頭の `YYYY-MM-DD`、画像は `image_url` へのリンク `[画像](<URL>)` (本文の 2 つ目以降の画像は出さない)、commit は 7 桁の短縮 SHA (16 進でない値はエスケープしてそのまま)。URL の中の `|` `\` `<` `>` 改行はパーセントエンコードする。値の無いセルは `—`
 - run の無い item と、行の無い feature は出さない。表が 1 つも無い時は `記録された run はありません` の 1 行
 - `--since` を渡すと、`commit` が `<since>` の子孫 (`git merge-base --is-ancestor <since> <commit>`。`<since>` 自身は含めない。run の `commit` は短縮 SHA でも full SHA に解決してから比べる) の run だけを見る。`commit` の無い run と、リポジトリで解決できない run は見ない。PR の base を渡すと、その PR で記録した run だけになる
 - exit code: 成功 0、失敗 1 (project が無い・`--since` を解決できない・`--since` を渡したのに project に checkout のパスが無い)、引数の誤り 2

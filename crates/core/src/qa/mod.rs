@@ -144,8 +144,8 @@ impl RepoTables {
             .filter(move |(_, run)| relation_of(&self.run_database, run, "item").contains(&item.id))
     }
 
-    /// `runs` のうち最後に記録された run。`recorded_at` の時刻が後のもの、同じ時刻 (`recorded_at` は秒の精度) なら
-    /// 後に追加されたもの。`recorded_at` が無い run はどの時刻よりも前とみなす。
+    /// `runs` のうち最後に記録された run。`recorded_at` が後のもの ([`recorded_instant`] の順)、同じ値
+    /// (`recorded_at` は秒の精度) なら後に追加されたもの。`recorded_at` が無い run はどの値よりも前とみなす。
     pub fn latest<'a>(&self, runs: impl Iterator<Item = (usize, &'a Row)>) -> Option<&'a Row> {
         runs.max_by_key(|(index, run)| {
             (
@@ -239,16 +239,19 @@ pub(crate) fn select_name_of(
         .map(str::to_owned)
 }
 
-/// run の `recorded_at` を比べるための UTC の時刻。日付だけの値はその日の 0 時 (UTC)。無い・読めない値は `None`
-/// (`Option` の順序で、どの時刻よりも前になる)。
-fn recorded_instant(recorded_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
+/// run の `recorded_at` を比べるための値。(書かれた時差での日付, 時刻付きなら UTC の時刻)。
+/// `qa import` の run は日付だけ (QA.md の確認日。時差が分からない) で、`qa record` の run は時差付きの時刻のため、
+/// まず日付で比べ、同じ日付なら日付だけの値を時刻付きの値より前にする (同じ日の朝に記録した run を、
+/// UTC の 0 時に置いた取り込みの run より前と取り違えないため)。無い・読めない値は `None` (どの値よりも前)。
+fn recorded_instant(
+    recorded_at: Option<&str>,
+) -> Option<(chrono::NaiveDate, Option<chrono::DateTime<chrono::Utc>>)> {
     let recorded_at = recorded_at?;
     if let Ok(date) = chrono::NaiveDate::parse_from_str(recorded_at, "%Y-%m-%d") {
-        return Some(date.and_hms_opt(0, 0, 0)?.and_utc());
+        return Some((date, None));
     }
-    chrono::DateTime::parse_from_rfc3339(recorded_at)
-        .ok()
-        .map(|date_time| date_time.with_timezone(&chrono::Utc))
+    let date_time = chrono::DateTime::parse_from_rfc3339(recorded_at).ok()?;
+    Some((date_time.date_naive(), Some(date_time.with_timezone(&chrono::Utc))))
 }
 
 /// SHA-1 の commit の full SHA の桁数。
@@ -314,10 +317,18 @@ pub(crate) fn resolve_commit(directory: &Path, rev: &str) -> Option<String> {
 }
 
 /// URL を markdown のリンク・画像の行き先 (`[..](ここ)`) に書く形にする。`)` などを含む URL でもリンクが途中で
-/// 終わらないよう `<...>` で囲み、その中で使えない `<` と `>` だけをパーセントエンコードする
-/// (CommonMark の link destination)。空白・改行を含む URL は `qa record` が受け付けない。
+/// 終わらないよう `<...>` で囲み、その中で使えない `<` `>` 改行と、`>` のエスケープと読まれる `\` を
+/// パーセントエンコードする (CommonMark の link destination)。`qa import` が取り込んだ URL も通るため、
+/// `qa record` の入力検査に頼らない。
 pub(crate) fn markdown_link_destination(url: &str) -> String {
-    format!("<{}>", url.replace('<', "%3C").replace('>', "%3E"))
+    format!(
+        "<{}>",
+        url.replace('\\', "%5C")
+            .replace('<', "%3C")
+            .replace('>', "%3E")
+            .replace('\r', "%0D")
+            .replace('\n', "%0A")
+    )
 }
 
 /// `git <args> -z` の出力 (NUL 区切りのファイルのパスの一覧) から、QA.md を除いて返す。QA.md は記録と定義を持つ
@@ -349,11 +360,27 @@ mod tests {
     #[test]
     fn recorded_instant_orders_dates_and_times_across_offsets() {
         let day = recorded_instant(Some("2026-10-11"));
+        // UTC では前日 (2026-10-10T23:00:00Z) だが、書かれた日付は同じ日なので日付だけの値より後
+        let tokyo_morning = recorded_instant(Some("2026-10-11T08:00:00+09:00"));
         let tokyo = recorded_instant(Some("2026-10-11T09:00:00+09:00"));
         let utc = recorded_instant(Some("2026-10-11T01:00:00Z"));
-        assert_eq!(day, tokyo);
+        assert!(day < tokyo_morning);
+        assert!(tokyo_morning < tokyo);
         assert!(tokyo < utc);
+        assert!(utc < recorded_instant(Some("2026-10-12")));
         assert!(recorded_instant(None) < day);
+    }
+
+    #[test]
+    fn link_destination_keeps_the_link_closed() {
+        assert_eq!(
+            markdown_link_destination("https://e.com/a).png"),
+            "<https://e.com/a).png>"
+        );
+        assert_eq!(
+            markdown_link_destination("https://e.com/<a>\\\n"),
+            "<https://e.com/%3Ca%3E%5C%0A>"
+        );
     }
 
     #[test]
