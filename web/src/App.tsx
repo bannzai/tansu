@@ -3,9 +3,9 @@ import { type Database, fetchDatabases } from "./api.ts";
 import { APP_NAME } from "./appName.ts";
 import { Link } from "./Link.tsx";
 import { QaInput } from "./QaInput.tsx";
+import { RowDetail } from "./RowDetail.tsx";
 import { errorText } from "./relations.ts";
 import { parseRoute, type Route, routePath } from "./route.ts";
-import { RowDetail } from "./RowDetail.tsx";
 import { TableView } from "./TableView.tsx";
 
 /** 今の URL が指す画面。 */

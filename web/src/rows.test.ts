@@ -69,8 +69,7 @@ test("select は一致、multi_select と relation は含む行、テキスト�
 });
 
 test("number は数で並べ、値の無い行は向きによらず最後に置く", () => {
-  const ids = (direction: "asc" | "desc") =>
-    sortRows(rows, { property: "points", direction }, titles).map((r) => r.id);
+  const ids = (direction: "asc" | "desc") => sortRows(rows, { property: "points", direction }, titles).map((r) => r.id);
   expect(ids("asc")).toEqual(["r2", "r1", "r3"]);
   expect(ids("desc")).toEqual(["r1", "r2", "r3"]);
 });

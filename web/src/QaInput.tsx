@@ -41,10 +41,10 @@ function storeEnv(env: string): void {
 /**
  * このページを開いている間の入力を見分ける ID。run の `run_id` (`web:<この ID>:<item の行 ID>`) に入れ、同じ項目を
  * 選び直した時は run を足さずに置き換える。`crypto.randomUUID` は secure context でしか使えない (LAN の IP を http で
- * 開いた iPhone では無い) ため、時刻と乱数から作る。
+ * 開いた iPhone では無い) ため、secure context でなくても使える `crypto.getRandomValues` の 128 bit (UUID と同じ長さ) から作る。
  */
 function newInputSessionId(): string {
-  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** QA の入力ビュー。project と feature で絞った item を 1 項目ずつ表示し、OK / NG / あとで + メモを run に記録する。 */
@@ -62,8 +62,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
   useEffect(() => {
     Promise.all([fetchRows("project"), fetchRows("feature")]).then(
       ([projects, features]) => setTables({ projects, features }),
-      (caught: unknown) =>
-        setError(`${errorText(caught)} (QA の表は tansu qa import で QA.md を取り込むと作られます)`),
+      (caught: unknown) => setError(`${errorText(caught)} (QA の表は tansu qa import で QA.md を取り込むと作られます)`),
     );
   }, []);
 
@@ -163,9 +162,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
         <select
           aria-label="project"
           value={repo ?? ""}
-          onChange={(event) =>
-            navigate(routePath({ page: "qa", repo: event.target.value || null, feature: null }))
-          }
+          onChange={(event) => navigate(routePath({ page: "qa", repo: event.target.value || null, feature: null }))}
         >
           <option value="">project を選ぶ</option>
           {tables?.projects.rows.map((row) => {
@@ -214,7 +211,9 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
         </p>
       )}
       {session === null || progress === null ? (
-        <p className="muted qa-empty">{repo === null || feature === null ? "project と feature を選んでください" : "読み込み中"}</p>
+        <p className="muted qa-empty">
+          {repo === null || feature === null ? "project と feature を選んでください" : "読み込み中"}
+        </p>
       ) : current === undefined ? (
         <p className="muted qa-empty">この feature に項目はありません</p>
       ) : (

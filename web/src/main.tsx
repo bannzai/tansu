@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { recordWebOpen } from "./api.ts";
 import { App } from "./App.tsx";
+import { recordWebOpen } from "./api.ts";
 import "./styles.css";
 
 const root = document.getElementById("root");

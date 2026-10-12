@@ -34,7 +34,10 @@ const session: QaSession = {
   head_commit: head,
   items: [
     { item: item("i1", "一覧の並び", "更新日時の新しい順に並ぶ"), latest_run: run("ok", head) },
-    { item: item("i2", "検索で絞り込める", "含むノートだけが残る"), latest_run: run("ng", head, "1 文字目で\n絞り込まれない") },
+    {
+      item: item("i2", "検索で絞り込める", "含むノートだけが残る"),
+      latest_run: run("ng", head, "1 文字目で\n絞り込まれない"),
+    },
     { item: item("i3", "空の案内", "案内文が出る"), latest_run: run("later", head) },
     // 別の commit で OK の項目は、今の HEAD では未入力
     { item: item("i4", "ピン留めの固定", "先頭に固定される"), latest_run: run("ok", "0".repeat(40)) },

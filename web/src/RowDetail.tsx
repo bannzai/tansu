@@ -113,9 +113,7 @@ export function RowDetail({
       await upsertRow(database.name, {
         id: row.id,
         body,
-        values: Object.fromEntries(
-          Object.entries(draft).map(([name, value]) => [name, value === "" ? null : value]),
-        ),
+        values: Object.fromEntries(Object.entries(draft).map(([name, value]) => [name, value === "" ? null : value])),
       });
       await load();
       setEditingBody(false);
@@ -134,9 +132,7 @@ export function RowDetail({
       setDraft({
         ...draft,
         [property.name]:
-          property.kind.type === "multi_select"
-            ? [...(Array.isArray(current) ? current : []), optionName]
-            : optionName,
+          property.kind.type === "multi_select" ? [...(Array.isArray(current) ? current : []), optionName] : optionName,
       });
     } catch (caught) {
       setError(errorText(caught));
@@ -280,7 +276,12 @@ function BacklinkCard({
           .map((other) => (
             <span key={other.id} className="card-value">
               <span className="muted small">{other.name}</span>{" "}
-              <ValueView propertyName={other.name} value={row.values[other.name]} titles={titles} targetDatabaseName={undefined} />
+              <ValueView
+                propertyName={other.name}
+                value={row.values[other.name]}
+                titles={titles}
+                targetDatabaseName={undefined}
+              />
             </span>
           ))}
       </div>
@@ -351,9 +352,7 @@ function PropertyEditor({
                 checked={selected.includes(option.name)}
                 onChange={(event) =>
                   onChange(
-                    event.target.checked
-                      ? [...selected, option.name]
-                      : selected.filter((name) => name !== option.name),
+                    event.target.checked ? [...selected, option.name] : selected.filter((name) => name !== option.name),
                   )
                 }
               />

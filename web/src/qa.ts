@@ -105,7 +105,9 @@ export function remainingMarkdown(session: QaSession): string {
           failed
             .map(({ number, item, latest_run }) => {
               const note = textValue(latest_run, "note");
-              return note ? `${itemLine(number, item)}\n  - メモ: ${note.replaceAll("\n", "\n    ")}` : itemLine(number, item);
+              return note
+                ? `${itemLine(number, item)}\n  - メモ: ${note.replaceAll("\n", "\n    ")}`
+                : itemLine(number, item);
             })
             .join("\n"),
         ]),

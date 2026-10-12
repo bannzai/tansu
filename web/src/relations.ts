@@ -23,7 +23,9 @@ export async function fetchRelationTargets(
 /** 相手のデータベースの行 ID → 行の名前。relation の値を名前で見せるために使う。 */
 export function relationTitles(targets: ReadonlyMap<string, DatabaseRows>): RowTitles {
   return new Map(
-    [...targets.values()].flatMap(({ database, rows }) => rows.map((row) => [row.id, rowTitle(database, row)] as const)),
+    [...targets.values()].flatMap(({ database, rows }) =>
+      rows.map((row) => [row.id, rowTitle(database, row)] as const),
+    ),
   );
 }
 

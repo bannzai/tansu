@@ -129,7 +129,9 @@ fn allowed_hosts(options: &ServeOptions, interface_ips: &[IpAddr]) -> BTreeSet<S
     LOOPBACK_HOSTS
         .iter()
         .map(|host| (*host).to_owned())
-        .chain(std::iter::once(host_name(&options.host).to_ascii_lowercase()))
+        .chain(std::iter::once(
+            host_name(&options.host).to_ascii_lowercase(),
+        ))
         .chain(
             options
                 .allow_hosts
@@ -416,7 +418,9 @@ async fn web_asset(method: Method, uri: Uri) -> Response {
 
 /// 埋め込んだファイルのうち、パスが `path` のもの。
 fn find_asset(path: &str) -> Option<&'static (&'static str, &'static [u8])> {
-    WEB_ASSETS.iter().find(|(asset_path, _)| *asset_path == path)
+    WEB_ASSETS
+        .iter()
+        .find(|(asset_path, _)| *asset_path == path)
 }
 
 /// 埋め込んだファイルの `Content-Type`。Vite の成果物に出る拡張子だけを見て、それ以外はバイナリとして返す。
@@ -447,10 +451,7 @@ mod tests {
     }
 
     fn lan_ips() -> Vec<IpAddr> {
-        vec![
-            "192.168.1.20".parse().unwrap(),
-            "fe80::1".parse().unwrap(),
-        ]
+        vec!["192.168.1.20".parse().unwrap(), "fe80::1".parse().unwrap()]
     }
 
     #[test]

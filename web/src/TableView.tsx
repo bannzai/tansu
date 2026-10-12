@@ -73,9 +73,7 @@ export function TableView({ databaseName, databases }: { databaseName: string; d
   );
   const shown = sort === null ? filtered : sortRows(filtered, sort, titles);
   const targetName = (property: Property) =>
-    property.kind.type === "relation"
-      ? loaded.targets.get(property.kind.target_database_id)?.database.name
-      : undefined;
+    property.kind.type === "relation" ? loaded.targets.get(property.kind.target_database_id)?.database.name : undefined;
   const toggleSort = (propertyName: string) =>
     setSort((current) =>
       current?.property === propertyName && current.direction === "asc"
@@ -85,9 +83,7 @@ export function TableView({ databaseName, databases }: { databaseName: string; d
   const sortHeader = (propertyName: string) => (
     <th
       key={propertyName}
-      aria-sort={
-        sort?.property !== propertyName ? "none" : sort.direction === "asc" ? "ascending" : "descending"
-      }
+      aria-sort={sort?.property !== propertyName ? "none" : sort.direction === "asc" ? "ascending" : "descending"}
     >
       <button type="button" className="sort-button" onClick={() => toggleSort(propertyName)}>
         {propertyName}
