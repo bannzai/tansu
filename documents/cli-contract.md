@@ -68,11 +68,11 @@ QA を実行した結果を run に 1 行足す。
 
 - 実行のたびに 1 行足す (同じ項目を 2 回確認すれば 2 行)。`--run-id` を渡した時は、同じ `run_id` の run を 1 行にし、2 回目以降はその行を今回の値で置き換える (渡さなかった値は消える)。再試行で同じ実行を二重に記録しないために使う。`--run-id` 無しの `run_id` は `record:<生成した ID>`
 - `--result` は大文字でもよい (`OK` / `NG`)。`--commit` は省略できない (exit 2)
-- `--image-url` は複数指定できる。最初の URL を `image_url` に、すべての URL を本文 (`body`) に 1 行 1 つの markdown の画像 (`![](URL)`) で書く
+- `--image-url` は複数指定できる。最初の URL を `image_url` に、すべての URL を本文 (`body`) に 1 行 1 つの markdown の画像 (`![](URL)`) で書く。空の値と、空白・改行・制御文字を含む値は受け付けない (本文と `qa export --format pr-summary` の markdown を崩すため)
 - `source` は `record`、`recorded_at` は実行した時刻 (時差付き ISO 8601、秒の精度)
-- QA 層の 4 つのデータベースが無ければ作る (`qa import` の前でも、項目が無いので失敗する)
+- QA 層の 4 つのデータベースが無ければ、記録と同じトランザクションで作る (失敗した時は何も作らない。`qa import` の前は項目が無いので失敗する)
 - 出力: `--json` なら書いた run の行の JSON (上の「行の JSON」)。無ければ `run <行 ID> を記録しました` の 1 行
-- exit code: 成功 0、失敗 1 (項目が無い・`--commit` が full SHA でない・`--result` が選択肢に無い・`--run-id` が空か `import:` で始まる)、引数の誤り 2
+- exit code: 成功 0、失敗 1 (項目が無い・`--commit` が full SHA でない・`--result` が選択肢に無い・`--run-id` が空か `import:` で始まる・`--image-url` が上の条件に合わない)、引数の誤り 2
 
 ## `tansu qa verified --repo <owner/repo> --commit <full SHA> [--diff-base <commit>] --json`
 
@@ -110,5 +110,5 @@ PR body に貼る「何をどう確認したか」の markdown を stdout に出
 - 見出し `## QA の記録 (<owner/repo>)` の後に、feature ごと (取り込んだ順) に `### <feature 名>` と表を出す。見出しとセルの文字列は markdown の記号をエスケープする (`note_list` は `note\_list`。汎用の `export --format markdown` と同じ規則)。表の列は `| 項目 | 結果 | 確認日 | 画像 | commit |`
 - 行は item ごと (取り込んだ順) に、その item の最後の run (「最後」は `qa verified` と同じ) を 1 行。結果は `OK` / `NG` / `あとで` / `スキップ`、確認日は `recorded_at` の先頭の `YYYY-MM-DD`、画像は `image_url` へのリンク `[画像](<URL>)` (本文の 2 つ目以降の画像は出さない)、commit は 7 桁の短縮 SHA。値の無いセルは `—`
 - run の無い item と、行の無い feature は出さない。表が 1 つも無い時は `記録された run はありません` の 1 行
-- `--since` を渡すと、`commit` が `<since>` の子孫 (`git merge-base --is-ancestor <since> <commit>`。`<since>` 自身は含めない) の run だけを見る。`commit` の無い run と、リポジトリで解決できない run は見ない。PR の base を渡すと、その PR で記録した run だけになる
+- `--since` を渡すと、`commit` が `<since>` の子孫 (`git merge-base --is-ancestor <since> <commit>`。`<since>` 自身は含めない。run の `commit` は短縮 SHA でも full SHA に解決してから比べる) の run だけを見る。`commit` の無い run と、リポジトリで解決できない run は見ない。PR の base を渡すと、その PR で記録した run だけになる
 - exit code: 成功 0、失敗 1 (project が無い・`--since` を解決できない・`--since` を渡したのに project に checkout のパスが無い)、引数の誤り 2

@@ -1043,6 +1043,16 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
         ],
         vec!["--item", &item_id, "--result", "done", "--commit", &first],
         vec![
+            "--item",
+            &item_id,
+            "--result",
+            "ok",
+            "--commit",
+            &first,
+            "--image-url",
+            "https://example.com/a.png\n## 見出し",
+        ],
+        vec![
             "--item", &item_id, "--result", "ok", "--commit", &first, "--run-id", "import:x",
         ],
     ] {
@@ -1052,13 +1062,13 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
     }
     assert_eq!(run_count(&sandbox), before + 3);
 
-    // 実行の種類と日時だけを利用記録に 1 行ずつ足す (成功した 4 回・失敗した 5 回の qa record と、間の query)
+    // 実行の種類と日時だけを利用記録に 1 行ずつ足す (成功した 4 回・失敗した 6 回の qa record と、間の query)
     let usage = usage_lines(&sandbox);
     let records: Vec<&Value> = usage[usage_before..]
         .iter()
         .filter(|line| line["event"] == "qa_record")
         .collect();
-    assert_eq!(records.len(), 4 + 5);
+    assert_eq!(records.len(), 4 + 6);
     assert_eq!(records[0].as_object().unwrap().len(), 2);
     assert!(is_date_time_with_offset(records[0]["at"].as_str().unwrap()));
     assert!(

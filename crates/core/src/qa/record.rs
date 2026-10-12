@@ -68,6 +68,12 @@ pub async fn record(
         }
         Some(run_id) => run_id.clone(),
     };
+    if let Some(image_url) = request.image_urls.iter().find(|url| !is_single_token(url)) {
+        return Err(Error::InvalidInput(format!(
+            "--image-url `{}` は使えません (空白・改行・制御文字を含まない URL を渡してください)",
+            image_url.escape_debug()
+        )));
+    }
     let transaction = begin(connection).await?;
     let result = async {
         ensure_schema(&transaction).await?;
@@ -98,6 +104,15 @@ pub async fn record(
     }
     .await;
     finish(transaction, result).await
+}
+
+/// `text` が空でなく、空白・改行・制御文字を含まないか。画像の URL は本文の markdown の画像と
+/// `qa export --format pr-summary` の表のセルに入るため、markdown を崩す文字を含む値を受け付けない。
+fn is_single_token(text: &str) -> bool {
+    !text.is_empty()
+        && !text
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
 }
 
 /// `selector` が指す item の行 ID。無ければ [`Error::InvalidInput`]。`connection` は書き込みのトランザクション。

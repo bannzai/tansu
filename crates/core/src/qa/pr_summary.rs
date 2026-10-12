@@ -57,14 +57,17 @@ pub async fn pr_summary(
         (Some(_), None) => false,
         (Some((checkout, since)), Some(commit)) => {
             *after_since.entry(commit.to_owned()).or_insert_with(|| {
-                // `merge-base --is-ancestor` は祖先なら exit 0、そうでなければ exit 1、解決できない commit はエラーで、
-                // どれも 0 以外は「子孫でない」として扱う
-                commit != since.as_str()
-                    && git(
-                        checkout,
-                        &["merge-base", "--is-ancestor", since.as_str(), commit],
-                    )
-                    .is_ok()
+                // `qa import` の run の commit は QA.md の値 (短縮 SHA・大文字もある) なので、full SHA に解決してから
+                // since 自身かを比べる。`merge-base --is-ancestor` は祖先なら exit 0、そうでなければ exit 1 で、
+                // 0 以外と解決できない commit は「子孫でない」として扱う
+                resolve_commit(checkout, commit).is_some_and(|commit| {
+                    commit != *since
+                        && git(
+                            checkout,
+                            &["merge-base", "--is-ancestor", since.as_str(), &commit],
+                        )
+                        .is_ok()
+                })
             })
         }
     };
