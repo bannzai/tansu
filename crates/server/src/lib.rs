@@ -65,10 +65,13 @@ pub async fn serve(settings: Settings, options: ServeOptions) -> Result<(), Erro
     };
     db::open(&settings).await?;
     let listener = tokio::net::TcpListener::bind((host_name(&options.host), options.port)).await?;
-    eprintln!(
-        "tansu: http://{}/ で待ち受けています",
-        listener.local_addr()?
-    );
+    let local_addr = listener.local_addr()?;
+    eprintln!("tansu: http://{local_addr}/ で待ち受けています");
+    // `--port 0` の時は OS が選んだポートで待ち受けるため、`Host` の検査には実際のポートを使う
+    let options = ServeOptions {
+        port: local_addr.port(),
+        ..options
+    };
     axum::serve(listener, router(settings, &options, &interface_ips)).await?;
     Ok(())
 }

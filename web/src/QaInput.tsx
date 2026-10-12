@@ -39,7 +39,7 @@ function storeEnv(env: string): void {
 }
 
 /**
- * このページを開いている間の入力を見分ける ID。run の `run_id` (`web:<この ID>:<item の行 ID>`) に入れ、同じ項目を
+ * このページを開いている間の入力を見分ける ID。run の `run_id` (`web:<この ID>:<commit>:<item の行 ID>`) に入れ、同じ項目を
  * 選び直した時は run を足さずに置き換える。`crypto.randomUUID` は secure context でしか使えない (LAN の IP を http で
  * 開いた iPhone では無い) ため、secure context でなくても使える `crypto.getRandomValues` の 128 bit (UUID と同じ長さ) から作る。
  */
@@ -138,7 +138,8 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
         commit: session.head_commit,
         note: note.trim() === "" ? null : note,
         env: env.trim() === "" ? null : env.trim(),
-        run_id: `web:${inputSessionId}:${current.item.id}`,
+        // 同じページでの選び直しは置き換え、別の commit での再検証は別の run にするため、commit も含める
+        run_id: `web:${inputSessionId}:${session.head_commit}:${current.item.id}`,
       });
       const reloaded = await fetchQaSession(session.repo, session.feature);
       setStatus(`${index + 1}. を ${RESULT_LABELS[picked]} で記録しました`);
