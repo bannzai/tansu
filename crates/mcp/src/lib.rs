@@ -17,7 +17,11 @@ use tansu_core::{Error, export, named_json, usage};
 
 /// stdio で MCP サーバーを動かし、クライアントが接続を閉じるまで待つ。stdout はプロトコルが使うため、ほかの出力は stderr に出す。
 pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
-    TansuServer.serve(rmcp::transport::stdio()).await?.waiting().await?;
+    TansuServer
+        .serve(rmcp::transport::stdio())
+        .await?
+        .waiting()
+        .await?;
     Ok(())
 }
 
