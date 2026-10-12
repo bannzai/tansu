@@ -435,8 +435,7 @@ pub(crate) async fn query_in(
             (PropertyKind::Date, operator) => (
                 format!(r#"julianday(json_extract("values", ?)) {operator} julianday(?)"#),
                 libsql::Value::from(
-                    named_json::normalize_date(raw_value)
-                        .ok_or_else(|| invalid_value("日付"))?,
+                    named_json::normalize_date(raw_value).ok_or_else(|| invalid_value("日付"))?,
                 ),
             ),
             (_, "^=") => {
