@@ -1,0 +1,66 @@
+name: browser-session
+# GitHub Actions の runner 上で tansu のサーバーと Chromium を起動し、ローカルの agent-browser から
+# Tailscale 経由で CDP 接続して動作確認・スクリーンショット撮影を行う (bannzai/webtunnel の caller workflow)。
+# 起動・操作・終了は webtunnel skill の CLI から行う。
+# run-name は webtunnel の CLI が run を特定するキーのため、この形式を変えない
+run-name: "session=${{ inputs.session }} duration=${{ inputs.duration_minutes }}m"
+
+on:
+  workflow_dispatch: # fork の PR に Secrets を渡さないため workflow_dispatch だけにする
+    # webtunnel の CLI が送る input。宣言していない input を送られると dispatch が拒否される
+    inputs:
+      session:
+        required: true
+        default: dev
+      duration_minutes:
+        required: true
+        default: "60"
+      start_url:
+        required: false
+        default: ""
+      record:
+        required: false
+        default: "true"
+      preview:
+        required: false
+        default: "true"
+      setup_script:
+        required: false
+        default: ".webtunnel/setup.sh"
+      software_webgl:
+        required: false
+        default: "false"
+
+jobs:
+  session:
+    permissions:
+      id-token: write
+      contents: read
+    uses: bannzai/webtunnel/.github/workflows/session.yml@7779e49fc4663f2c53a74ff4da55a9ca56b8ceda # main
+    with:
+      session: ${{ inputs.session }}
+      duration_minutes: ${{ inputs.duration_minutes }}
+      start_url: ${{ inputs.start_url }}
+      record: ${{ inputs.record }}
+      preview: ${{ inputs.preview }}
+      setup_script: ${{ inputs.setup_script }}
+      software_webgl: ${{ inputs.software_webgl }}
+      # tansu は web/dist をビルド時にバイナリへ埋め込む (crates/server/build.rs) ため、Rust より先に画面をビルドする
+      setup_command: >-
+        curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat web/.bun-version)" &&
+        export PATH="$HOME/.bun/bin:$PATH" &&
+        bun install --frozen-lockfile --cwd web &&
+        bun run --cwd web build &&
+        rustup toolchain install &&
+        cargo build --release --locked -p tansu-cli
+      # runner には本物の QA.md が無いため、fixtures/ の合成 QA.md を取り込んだ DB を表示する (.claude/rules/synthetic-fixtures.md)。
+      # 0.0.0.0 で待ち受けると tailnet へ露出するため loopback に束縛する。PORT は session.yml が渡す
+      start_command: >-
+        export TANSU_HOME="$RUNNER_TEMP/tansu-home" &&
+        ./target/release/tansu qa import fixtures/qa/sample-notes &&
+        exec ./target/release/tansu serve --host 127.0.0.1 --port "$PORT"
+      ready_path: /api/databases
+      port: "7979"
+    secrets:
+      TS_OIDC_CLIENT_ID: ${{ secrets.TS_OIDC_CLIENT_ID }}
+      TS_OIDC_AUDIENCE: ${{ secrets.TS_OIDC_AUDIENCE }}

@@ -10,15 +10,13 @@ export TANSU_PORT
 
 .PHONY: web build-web cli build-cli
 
-# serve サブコマンドは Web 画面の issue で実装する。それまでは、無いコマンドを呼んで黙って失敗する代わりに理由を出して止める。
-# 実装後はこの target を次の 2 行に置き換える (サーバーが前面で動くため、ブラウザは背面で少し待ってから開く):
-#   (sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
-#   cargo run -p tansu-cli -- serve --port $(TANSU_PORT)
-web:
-	@echo "tansu serve は未実装です (Web 画面の issue で実装する。進捗は documents/DIRECTION.md「必要な機能」)" >&2
-	@exit 1
+# サーバーが前面で動くため、ブラウザは背面で少し待ってから開く。
+# tansu は web/dist をビルド時に埋め込む (crates/server/build.rs) ため、先に画面をビルドする。
+web: build-web
+	(sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
+	cargo run -p tansu-cli -- serve --port $(TANSU_PORT)
 
-# Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ をサーバーが配信する構成は Web 画面の issue で作る。
+# Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ は tansu のビルドがバイナリに埋め込む。
 build-web:
 	bun install --frozen-lockfile --cwd web
 	bun run --cwd web build
@@ -29,5 +27,6 @@ cli: build-cli
 	mkdir -p $(HOME)/.local/bin
 	install -m 755 target/release/tansu $(HOME)/.local/bin/tansu
 
-build-cli:
+# ~/.local/bin/tansu 1 つで画面が出るように、web/dist を作ってから埋め込んでビルドする。
+build-cli: build-web
 	cargo build --release --locked -p tansu-cli
