@@ -245,7 +245,15 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
                 }),
             )
             .await?;
+            let run_id = format!("import:{}", item_id.0);
             let Some(result) = run_result(item) else {
+                // QA.md で記録が消えた項目は、前回の取り込みで作った run も消す (QA.md の現状と DB を合わせる)。
+                // `source=record` の run は run_id が `import:` で始まらないので消さない
+                if let Some(stale_run_id) =
+                    find_row_id(connection, RUN, &[format!("run_id={run_id}")]).await?
+                {
+                    rows::delete_in(connection, RUN, &stale_run_id.0).await?;
+                }
                 continue;
             };
             rows::upsert_in(
@@ -253,7 +261,7 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
                 RUN,
                 &json!({
                     "values": {
-                        "run_id": format!("import:{}", item_id.0),
+                        "run_id": run_id,
                         "item": [item_id],
                         "result": result,
                         "note": item.record.as_ref().map(|record| record.note.as_str()).filter(|note| !note.is_empty()),

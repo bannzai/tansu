@@ -219,7 +219,7 @@ pub async fn delete(
 }
 
 /// [`delete`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn delete_in(
+pub(crate) async fn delete_in(
     connection: &Connection,
     database_name: &str,
     row_id: &str,

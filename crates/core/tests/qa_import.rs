@@ -457,6 +457,48 @@ async fn a_second_file_with_the_same_feature_name_is_skipped_as_a_whole() {
 }
 
 #[tokio::test]
+async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    let write = |text: &str| std::fs::write(&file, text).unwrap();
+    write("## 1. 表示\n\n- [x] **一覧**: 出る\n- [x] **詳細**: 開く\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    assert_eq!(all_rows(&connection, "run").await.len(), 2);
+    // `qa record` が書く run (run_id が `import:` で始まらない) は取り込みで消さない
+    let detail = query_named(&connection, "item", &["name=詳細"]).await;
+    rows::upsert(
+        &connection,
+        "run",
+        &json!({"values": {"run_id": "record:1", "item": [detail[0]["id"]], "result": "ok", "source": "record"}}),
+    )
+    .await
+    .unwrap();
+
+    // 一覧のチェックを外す
+    write("## 1. 表示\n\n- [ ] **一覧**: 出る\n- [x] **詳細**: 開く\n");
+    let report = import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    assert_eq!(report.counts.run, 1);
+    let run_ids: Vec<String> = query_named(&connection, "run", &[])
+        .await
+        .iter()
+        .map(|run| run["values"]["run_id"]["value"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(run_ids.len(), 2);
+    assert!(run_ids.contains(&"record:1".to_owned()), "{run_ids:?}");
+    assert!(
+        run_ids.contains(&format!("import:{}", detail[0]["id"].as_str().unwrap())),
+        "{run_ids:?}"
+    );
+}
+
+#[tokio::test]
 async fn missing_path_is_an_error_and_writes_nothing() {
     let home = tempfile::tempdir().unwrap();
     let connection = open(&home).await;

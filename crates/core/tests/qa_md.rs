@@ -369,6 +369,17 @@ fn an_evidence_block_without_details_ends_at_the_next_heading() {
 }
 
 #[test]
+fn code_fences_close_only_by_the_commonmark_rule() {
+    let qa_md = parse(
+        "x/QA.md",
+        "## 1. 表示\n\n````md\n```sh\n- [x] **例 1**: 4 つのフェンスの中\n```\n````\n~~~\n- [x] **例 2**: チルダのフェンスの中\n~~~\n\n- [ ] **一覧**: 出る\n",
+    );
+    assert_eq!(qa_md.items.len(), 1);
+    assert_eq!(qa_md.items[0].name, "一覧");
+    assert!(qa_md.skipped.is_empty(), "{:?}", qa_md.skipped);
+}
+
+#[test]
 fn unreadable_last_verified_at_is_reported_and_dropped() {
     let qa_md = parse(
         "x/QA.md",

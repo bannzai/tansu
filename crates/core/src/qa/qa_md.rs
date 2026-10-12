@@ -149,7 +149,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     let mut qa_md = QaMd::default();
     let mut section = Section::None;
     let mut in_frontmatter = false;
-    let mut in_code_block = false;
+    // 開いている fenced code block のフェンスの (文字, 長さ)。閉じは CommonMark の規則 (同じ文字・開き以上の長さ・後ろは空白だけ)
+    let mut code_fence: Option<(char, usize)> = None;
     let mut current_item: Option<(usize, usize)> = None;
     let mut record_indent: Option<usize> = None;
     let mut evidence: Option<Evidence> = None;
@@ -212,11 +213,18 @@ pub fn parse(file: &str, text: &str) -> QaMd {
         }
 
         // fenced code block (記述例・コマンド) の中は構文として読まない
-        if trimmed.starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some((open_char, open_length)) = code_fence {
+            if let Some((close_char, close_length)) = code_fence_marker(trimmed)
+                && close_char == open_char
+                && close_length >= open_length
+                && trimmed[close_length..].trim().is_empty()
+            {
+                code_fence = None;
+            }
             continue;
         }
-        if in_code_block {
+        if let Some(marker) = code_fence_marker(trimmed) {
+            code_fence = Some(marker);
             continue;
         }
 
@@ -569,6 +577,13 @@ fn split_table_cells(row: &str) -> Vec<String> {
         .into_iter()
         .map(|cell| cell.trim().to_owned())
         .collect()
+}
+
+/// 行頭が fenced code block のフェンス (` ``` ` か `~~~` を 3 つ以上) なら (フェンスの文字, 長さ)。
+fn code_fence_marker(trimmed: &str) -> Option<(char, usize)> {
+    let fence_char = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let length = trimmed.chars().take_while(|c| *c == fence_char).count();
+    (length >= 3).then_some((fence_char, length))
 }
 
 /// `## ` の後ろが `N. 名前` (番号付きのセクション) か。
