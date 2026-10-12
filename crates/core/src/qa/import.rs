@@ -185,7 +185,13 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     }
 
     let mut project_ids: BTreeMap<&str, Id> = BTreeMap::new();
+    // 同じ project の同じ feature 名の 2 つ目以降のファイルは `parse_all` が読み飛ばした行として報告済み。
+    // 書くと空の値で 1 つ目のファイルの feature (verification) を消すため、書かない
+    let mut written_features: BTreeSet<(&str, &str)> = BTreeSet::new();
     for (root, repo, _, feature, qa_md) in parsed {
+        if !written_features.insert((repo.as_str(), feature.as_str())) {
+            continue;
+        }
         let project_id = match project_ids.get(repo.as_str()) {
             Some(project_id) => project_id.clone(),
             None => {
