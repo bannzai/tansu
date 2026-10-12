@@ -37,7 +37,9 @@ MVP に入れないもの: Notion との同期、他人への配布 (crates.io�
 
 ## デザインの方向
 
-(関門 2 で決める。参考: https://x.com/yuto_apps/status/2105243014352478550 の自作テストツール (1 項目 = 番号 + タイトル + タグ + 図解 + 「手で見ること」+ OK / NG / あとで + メモ、フッターに進捗と「全部コピー」。被テストアプリの画面と並べて使う))
+- 今の TypeScript × React の Web 画面は、`documents/design/mock-2026-10-11/` のモック (メイン・行の詳細・QA の結果入力・スマホ幅の 4 画面) のとおりに作る。bannzai がローカルで使う分にはこれで足りる (2026-10-12 の関門 2 の返答)
+- 将来の Rust × Wasm の画面は Notion のような見た目と操作感にする (同じ返答)
+- 参考: https://x.com/yuto_apps/status/2105243014352478550 の自作テストツール (1 項目 = 番号 + タイトル + タグ + 図解 + 「手で見ること」+ OK / NG / あとで + メモ、フッターに進捗と「全部コピー」。被テストアプリの画面と並べて使う)
 
 ## 決めたこと
 
@@ -64,7 +66,8 @@ MVP に入れないもの: Notion との同期、他人への配布 (crates.io�
 | 2026-10-11 | 関門 1 (チャット) | リポジトリ名は当面 tansu のまま。よりよい名前にいずれ変える (時期は未定) | bannzai |
 | 2026-10-11 | 汎用の DB と CLI の実装 (#6) | CLI の行の JSON は `values` をプロパティ名・選択肢の name で表す (`documents/data-model.md`「CLI の入出力」)。`upsert` は `id` か unique のプロパティの値で書く行を決め、どちらも無い入力はエラーにする (「すべての書き込みを冪等にする」に合わせた。後からキー無しの追加を許すのは呼び出し側を壊さないが、逆は壊すため厳しい方にした)。`delete` は行が無くても成功にする。生成する ID は `-` を含まない 21 文字 (CLI の引数でオプションと解釈されないように) | agent |
 | 2026-10-12 | QA 層のスキーマと `qa import` (#9) | QA 層専用の Rust の型は持たず、汎用層の `Row` をそのまま使う。取り込んだ run は `run_id = import:<item の行 ID>` で 1 項目 1 行にし、`recorded_at` はエビデンスの確認日 → frontmatter の `last_verified_at` → 値なし の順 (取り込んだ時刻は書かない。2 回目の取り込みで行が変わらないように)。`自動化:` の行が無い項目 (root QA.md の横断確認項目) の `automation` は値なし。project の `repo` は、取り込むルートが git のルートそのものの時だけ remote から取り、それ以外はディレクトリ名。root QA.md の既知の散文セクション (対象環境・起動方法・実行ナレッジ等) は読み飛ばした行として報告せず、`## N.` のセクションと仕様チェックリストと frontmatter の中の解釈できない行だけを報告する (規則は `documents/data-model.md`「QA 層」) | agent |
-| 2026-10-12 | 同上 | `TANSU_DB_URL=file::memory:` (インメモリ) は非対応のエラーにする (ファイルのパスではなく、WAL にも切り替えられない。#14 のレビューの指摘) | agent |
+| 2026-10-12 | 関門 2 (チャット) | 今の Web 画面は `documents/design/mock-2026-10-11/` のモックのままでよい (「とりあえず私のローカルで使う分にはそれでいい」)。将来の Rust × Wasm の画面は Notion のような見た目と操作感にする | bannzai |
+| 2026-10-12 | QA 層のスキーマと `qa import` (#9) | `TANSU_DB_URL=file::memory:` (インメモリ) は非対応のエラーにする (ファイルのパスではなく、WAL にも切り替えられない。#14 のレビューの指摘) | agent |
 | 2026-10-12 | QA 層の CLI (#10) | `qa record --image-url` は複数指定でき、最初の URL を run の `image_url` (url 型の 1 値。schema は変えない) に、すべてを run の本文に markdown の画像で書く (`qa import` も最初の画像だけを `image_url` に入れている)。`qa verified` の feature のディレクトリは、feature に足したプロパティ `path` (QA.md があったディレクトリ) で持つ。ルート直下の QA.md の feature は diff せず、`last_verified_commit` が無い・リポジトリに無い feature はディレクトリの全ファイルを再テストの対象にする (castle の run-qa の `affected_features.sh` の unverified / stale-commit と同じ扱い)。`unverified_items` は run が 1 つも無い item で、NG / あとで だけの item は含めない。`--diff-base` はその commit から変わった feature だけを判定の対象にする絞り込みにした (PR が触っていない feature の古い未検証で PR のゲートを止めないため)。`qa export --since` は since の子孫の commit の run だけを出す。利用記録は CLI のすべてのサブコマンドの実行で 1 行足し、書けなくても本来の操作は止めない (規則は `documents/cli-contract.md`) | agent |
 
 ## agent に任せること
