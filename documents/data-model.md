@@ -1,6 +1,6 @@
 # データモデル
 
-コア (Rust の crate) が扱う論理的な型と、その SQLite / libSQL への持ち方。`documents/PROJECT.md`「汎用のデータベース」「QA 層」の要件をこの型で固定する。JSON はこの型の serde の表現 (`snake_case` のキー、enum は `type` キーで判別) を基にし、CLI の行の入出力だけは ID を名前に置き換える (下の「CLI の入出力」)。castle 側が依存する範囲は `documents/cli-contract.md` (QA 層の CLI の issue で作る) に書く。決定の経緯は `documents/DIRECTION.md`「決めたこと」2026-10-11。
+コア (Rust の crate) が扱う論理的な型と、その SQLite / libSQL への持ち方。`documents/PROJECT.md`「汎用のデータベース」「QA 層」の要件をこの型で固定する。JSON はこの型の serde の表現 (`snake_case` のキー、enum は `type` キーで判別) を基にし、CLI の行の入出力だけは ID を名前に置き換える (下の「CLI の入出力」)。castle 側が依存する範囲は `documents/cli-contract.md` に書く。決定の経緯は `documents/DIRECTION.md`「決めたこと」2026-10-11。
 
 ## 汎用層
 
@@ -41,12 +41,14 @@
 
 ## QA 層
 
-`qa import` が最初に作る 4 つのデータベース (project / feature / item / run)。名前・プロパティ・unique の定義は `crates/core/src/qa/mod.rs` の `DATABASES` (汎用層の `db schema --add` と同じ指定) にあり、ここには写しを置かない。QA 層専用の Rust の型は持たず、汎用層の `Row` をそのまま使う (QA 層の CLI の issue で必要になった時に足す)。union のプロパティは汎用層に無いので、item の自動化ステータスは select `automation` (auto / manual / todo) + text `automation_detail` (auto の flow のパス、manual の理由) の 2 列に平たくする。run の `result` は select (ok / ng / later / skip)、`source` は select (record = `qa record` と Web 画面、import = `qa import`)、`recorded_at` は date (時差付き ISO 8601 か日付)、`commit` は text (full SHA)、`run_id` は text (unique。呼び出し側が渡す冪等キー)。
+`qa import` が最初に作る 4 つのデータベース (project / feature / item / run)。名前・プロパティ・unique の定義は `crates/core/src/qa/mod.rs` の `DATABASES` (汎用層の `db schema --add` と同じ指定) にあり、ここには写しを置かない。QA 層の行に専用の Rust の型は持たず、汎用層の `Row` をそのまま使う (QA 層の Rust の型は、`qa` サブコマンドの入力と JSON の出力の形だけ)。union のプロパティは汎用層に無いので、item の自動化ステータスは select `automation` (auto / manual / todo) + text `automation_detail` (auto の flow のパス、manual の理由) の 2 列に平たくする。run の `result` は select (ok / ng / later / skip)、`source` は select (record = `qa record` と Web 画面、import = `qa import`)、`recorded_at` は date (時差付き ISO 8601 か日付)、`commit` は text (full SHA)、`run_id` は text (unique。呼び出し側が渡す冪等キー)。
 
 `qa import` (`crates/core/src/qa/import.rs`) の読み替え:
 
 - project: `repo` (unique) は、取り込むルートが git リポジトリのルートそのものなら origin の URL の `owner/repo`、そうでなければディレクトリ名 (リポジトリの中の fixture のディレクトリを、囲むリポジトリの名前にしないため)。`path` はルートの絶対パス。QA.md のファイルを指定した時のルートは、それを含む git リポジトリのルート (git の外なら親ディレクトリ)
-- feature: frontmatter の `feature` (無ければルート直下の QA.md は `_root`、それ以外は親ディレクトリ名) と `verification`。project + 名前で行を決める。同じ project に同じ feature 名のファイルが 2 つ以上あれば、2 つ目以降はファイルごと読み飛ばして報告する (後のファイルが先のファイルの項目を黙って上書きしないため)
+- feature: frontmatter の `feature` (無ければルート直下の QA.md は `_root`、それ以外は親ディレクトリ名) と `verification`。`path` は QA.md があるディレクトリのルートからの相対パス (区切りは `/`。ルート直下は空文字)。project + 名前で行を決める。同じ project に同じ feature 名のファイルが 2 つ以上あれば、2 つ目以降はファイルごと読み飛ばして報告する (後のファイルが先のファイルの項目を黙って上書きしないため)
 - item: 項目名・期待動作・自動化 (`自動化:` の行が無い項目は値なし)・仕様チェックリストの対応 (`spec_ids`。multi_select の選択肢は取り込み時に足す)。feature + 名前で行を決め、同じファイルの同じ名前の 2 つ目以降は読み飛ばす。`labels` (multi_select) は QA.md に無いので触らない
 - run: チェック済み (`ok`)・⏭️ スキップ (`skip`)・❌ 失敗 (`ng`) の項目に 1 行 (記録が消えた項目は、前回の取り込みで作った run を消す。`qa record` の run は消さない)。`source` は `import`、`run_id` は `import:<item の行 ID>` (同じ項目の取り込みは 1 行にする)、`note` は ⏭️ / ❌ の本文とその下の併記事項、`recorded_at` はエビデンスの `**確認日: YYYY-MM-DD**` (無ければ frontmatter の `last_verified_at`、それも無ければ値なし。取り込んだ時刻は書かない: 2 回目の取り込みで行が変わらないように)、`image_url` はエビデンスの最初の `<img src>`、`commit` は frontmatter の `last_verified_commit`。`env` は触らない
-- `--dry-run`: DB を開かない (開くとファイルの作成とマイグレーションで書き込みが起きる)。QA.md を読むだけで、同じ件数と読み飛ばした行を返す
+- `--dry-run`: DB を開かない (開くとファイルの作成とマイグレーションで書き込みが起きる)。QA.md を読むだけで、同じ件数と読み飛ばした行を返す。利用記録 (`usage.jsonl`) にはほかのコマンドと同じく 1 行足す
+
+`qa record` (`crates/core/src/qa/record.rs`) が書く run: `source` は `record`、`recorded_at` は記録した時刻 (時差付き ISO 8601、秒の精度)、`run_id` は `--run-id` の値 (無ければ `record:<生成した ID>`)、`image_url` は最初の `--image-url`、本文はすべての `--image-url` を 1 行 1 つの markdown の画像にしたもの (`image_url` は url 型の 1 値で、`qa import` も最初の画像だけを入れているため、2 つ目以降は本文に持つ)。`qa verified` / `qa export --format pr-summary` が読む規則と出力の形は `documents/cli-contract.md`。

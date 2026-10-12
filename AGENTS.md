@@ -7,7 +7,7 @@
 - `documents/DIRECTION.md`: なぜ作るか・何で判定するか・MVP に必要な機能の正。ここで決まっていない事項は agent が決めて「決めたこと」の表に記録する
 - `documents/PROJECT.md`: 要件と制約の正 (構成・汎用の DB・CLI・QA 層・制約)。設計の決定を変える時は同じ変更の中で更新する
 - `documents/data-model.md`: 論理的な型と SQLite への持ち方の正 (汎用層の型の定義は `crates/core/src/model.rs`、QA 層の 4 つの表の定義は `crates/core/src/qa/mod.rs`)
-- `documents/cli-contract.md` (未作成。QA 層の CLI の issue で作る): castle の skill とゲートが依存する CLI の契約 (引数・JSON の形・exit code)。作った後は、契約を変える時に同じ変更の中で更新する
+- `documents/cli-contract.md`: castle の skill とゲートが依存する CLI の契約 (引数・JSON の形・exit code)。契約を変える時は同じ変更の中で更新する
 - `.claude/rules/sqlite-database.md`: SQLite のデータの持ち方。`.claude/rules/synthetic-fixtures.md`: 本物の QA.md をリポジトリに入れない
 
 ## 検証
