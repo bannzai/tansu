@@ -174,9 +174,7 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     // multi_select の値は定義にある選択肢しか書けないため、仕様 ID を選択肢として先に足す (無いものだけが足される)
     let spec_ids: BTreeSet<&str> = parsed
         .iter()
-        .flat_map(|(_, _, _, _, qa_md)| {
-            qa_md.spec_rows.iter().map(|row| row.id.as_str())
-        })
+        .flat_map(|(_, _, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))
         .collect();
     if !spec_ids.is_empty() {
         let spec = format!(

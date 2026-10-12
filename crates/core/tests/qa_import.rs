@@ -444,7 +444,10 @@ async fn a_second_file_with_the_same_feature_name_is_skipped_as_a_whole() {
         .unwrap();
     assert_eq!(skipped.line, 1);
     assert_eq!(skipped.content, "feature: note_list");
-    assert!(skipped.reason.contains("features/note_list/QA.md"), "{skipped:?}");
+    assert!(
+        skipped.reason.contains("features/note_list/QA.md"),
+        "{skipped:?}"
+    );
     let order = query_named(&connection, "item", &["name=一覧の並び"]).await;
     assert_eq!(order.len(), 1);
     assert_eq!(
