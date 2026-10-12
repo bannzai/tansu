@@ -125,7 +125,10 @@ pub async fn pr_summary(
 /// commit の列のセル。16 進の SHA は短縮 SHA のコードスパンにし、それ以外 (`qa import` が QA.md から取り込んだ
 /// 任意の文字列) は表を崩さないようエスケープしてそのまま出す。
 fn commit_cell(commit: &str) -> String {
-    if commit.chars().all(|character| character.is_ascii_hexdigit()) {
+    if commit
+        .chars()
+        .all(|character| character.is_ascii_hexdigit())
+    {
         format!("`{}`", commit.get(..SHORT_SHA_LENGTH).unwrap_or(commit))
     } else {
         escape_cell(commit)

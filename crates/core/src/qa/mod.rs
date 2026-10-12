@@ -251,7 +251,10 @@ fn recorded_instant(
         return Some((date, None));
     }
     let date_time = chrono::DateTime::parse_from_rfc3339(recorded_at).ok()?;
-    Some((date_time.date_naive(), Some(date_time.with_timezone(&chrono::Utc))))
+    Some((
+        date_time.date_naive(),
+        Some(date_time.with_timezone(&chrono::Utc)),
+    ))
 }
 
 /// SHA-1 の commit の full SHA の桁数。
