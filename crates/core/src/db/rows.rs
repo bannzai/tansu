@@ -31,7 +31,7 @@ pub async fn upsert(
 }
 
 /// [`upsert`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn upsert_in(
+pub(crate) async fn upsert_in(
     connection: &Connection,
     database_name: &str,
     input: &serde_json::Value,
@@ -219,7 +219,7 @@ pub async fn delete(
 }
 
 /// [`delete`] の本体。`connection` は書き込みロックを取ったトランザクション。
-async fn delete_in(
+pub(crate) async fn delete_in(
     connection: &Connection,
     database_name: &str,
     row_id: &str,
@@ -377,8 +377,8 @@ pub async fn query(
     finish(transaction, result).await
 }
 
-/// [`query`] の本体。`connection` は読み取りのトランザクション。
-async fn query_in(
+/// [`query`] の本体。`connection` は読み取りのトランザクション (書き込みのトランザクションの中から読んでもよい)。
+pub(crate) async fn query_in(
     connection: &Connection,
     database_name: &str,
     filters: &[String],

@@ -1,9 +1,11 @@
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use tansu_core::config::Settings;
 use tansu_core::db::{self, rows, schema};
+use tansu_core::qa::import::{self as qa_import, ImportReport};
 use tansu_core::{export, named_json};
 
 /// tansu のコマンドライン。DB の読み書きはすべて tansu_core の関数を呼ぶ。
@@ -62,10 +64,30 @@ enum Command {
         #[arg(long, value_enum)]
         format: ExportFormat,
     },
+    /// QA 層 (project / feature / item / run の表) の操作
+    #[command(subcommand)]
+    Qa(QaCommand),
     /// Web 画面と HTTP API のサーバーを起動する
     Serve,
     /// MCP サーバー (stdio) を起動する
     Mcp,
+}
+
+/// `tansu qa` のサブコマンド。
+#[derive(Debug, Subcommand)]
+enum QaCommand {
+    /// QA.md 群を取り込む。4 つの表が無ければ作る。同じファイルを 2 回取り込んでも行は増えない
+    Import {
+        /// リポジトリのルート (配下の QA.md をすべて探す) か QA.md のファイル
+        #[arg(required = true, value_name = "パス")]
+        paths: Vec<PathBuf>,
+        /// 取り込んだ件数と読み飛ばした行を JSON で出す
+        #[arg(long)]
+        json: bool,
+        /// 書き込まずに、取り込んだ時と同じ件数と読み飛ばした行を出す
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// `tansu db` のサブコマンド。
@@ -147,6 +169,15 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
         )
         .into());
     }
+    // dry-run は DB を開かない (開くとファイルの作成とマイグレーションで書き込みが起きる)
+    if let Command::Qa(QaCommand::Import {
+        paths,
+        json,
+        dry_run: true,
+    }) = &command
+    {
+        return Ok(Some(import_output(&qa_import::dry_run(paths)?, *json)?));
+    }
     let connection = db::open(&Settings::from_env()?).await?;
     let output = match command {
         Command::Db(DbCommand::Create { name }) => {
@@ -204,9 +235,44 @@ async fn run(command: Command) -> Result<Option<String>, Box<dyn std::error::Err
                 ExportFormat::Json => to_json(&export::to_json(&database, &rows))?,
             }
         }
+        Command::Qa(QaCommand::Import { paths, json, .. }) => {
+            import_output(&qa_import::import(&connection, &paths).await?, json)?
+        }
         Command::Serve | Command::Mcp => unreachable!("serve / mcp は DB を開く前に返している"),
     };
     Ok(Some(output))
+}
+
+/// `qa import` の出力。`json` なら結果をそのまま JSON に、そうでなければ [`import_summary`] に。
+fn import_output(report: &ImportReport, json: bool) -> Result<String, serde_json::Error> {
+    if json {
+        to_json(report)
+    } else {
+        Ok(import_summary(report))
+    }
+}
+
+/// `qa import` の `--json` 無しの出力。件数を 1 行と、読み飛ばした行を 1 行ずつ。
+fn import_summary(report: &ImportReport) -> String {
+    let mut summary = format!(
+        "{}project: {}, feature: {}, item: {}, run: {} ({} ファイル)",
+        if report.dry_run { "[dry-run] " } else { "" },
+        report.counts.project,
+        report.counts.feature,
+        report.counts.item,
+        report.counts.run,
+        report.files.len()
+    );
+    if !report.skipped.is_empty() {
+        summary.push_str(&format!("\n読み飛ばした行: {} 行", report.skipped.len()));
+        for skipped in &report.skipped {
+            summary.push_str(&format!(
+                "\n  {}:{}: {} ({})",
+                skipped.file, skipped.line, skipped.content, skipped.reason
+            ));
+        }
+    }
+    summary
 }
 
 /// stdout に出す整形した JSON。
@@ -223,6 +289,7 @@ impl Command {
             Command::Upsert { .. } => "upsert",
             Command::Delete { .. } => "delete",
             Command::Export { .. } => "export",
+            Command::Qa(_) => "qa",
             Command::Serve => "serve",
             Command::Mcp => "mcp",
         }
@@ -279,6 +346,32 @@ mod tests {
         assert_eq!(filters, ["status=done", "title^=W"]);
         assert_eq!(sort.as_deref(), Some("points:desc"));
         assert_eq!(limit, Some(2));
+    }
+
+    #[test]
+    fn qa_import_takes_paths_and_flags() {
+        let Command::Qa(QaCommand::Import {
+            paths,
+            json,
+            dry_run,
+        }) = Cli::try_parse_from([
+            "tansu",
+            "qa",
+            "import",
+            "--json",
+            "--dry-run",
+            "a",
+            "b/QA.md",
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("qa import として解釈されていない");
+        };
+        assert_eq!(paths, [PathBuf::from("a"), PathBuf::from("b/QA.md")]);
+        assert!(json);
+        assert!(dry_run);
+        assert!(Cli::try_parse_from(["tansu", "qa", "import"]).is_err());
     }
 
     #[test]

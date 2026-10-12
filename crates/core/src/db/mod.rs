@@ -149,14 +149,17 @@ fn ensure_not_newer(db: i64) -> Result<(), Error> {
 
 /// 書き込みを始める。読み取りの時点で書き込みロックを取り、読んでから書くまでの間に別プロセスが割り込まないようにする
 /// (unique の検査を読み取りと同じトランザクションで行うため)。
-async fn begin(connection: &Connection) -> Result<Transaction, Error> {
+pub(crate) async fn begin(connection: &Connection) -> Result<Transaction, Error> {
     Ok(connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .await?)
 }
 
 /// `result` が成功なら `transaction` を確定し、失敗なら巻き戻して `result` のエラーを返す。
-async fn finish<T>(transaction: Transaction, result: Result<T, Error>) -> Result<T, Error> {
+pub(crate) async fn finish<T>(
+    transaction: Transaction,
+    result: Result<T, Error>,
+) -> Result<T, Error> {
     match result {
         Ok(value) => {
             transaction.commit().await?;

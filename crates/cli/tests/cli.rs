@@ -728,6 +728,67 @@ async fn select_is_name_in_cli_and_option_id_in_db() {
 }
 
 #[test]
+fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
+    let sandbox = sandbox();
+    let fixtures = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/qa/sample-notes"
+    );
+
+    let dry = succeed_json(&sandbox, &["qa", "import", "--dry-run", "--json", fixtures]);
+    assert_eq!(dry["dry_run"], true);
+    assert_eq!(
+        dry["counts"],
+        json!({"project": 1, "feature": 4, "item": 12, "run": 8})
+    );
+    assert_eq!(dry["files"].as_array().unwrap().len(), 4);
+    assert_eq!(dry["skipped"].as_array().unwrap().len(), 8);
+    assert!(
+        dry["skipped"][0]["file"]
+            .as_str()
+            .unwrap()
+            .ends_with("features/note_list/QA.md"),
+        "{}",
+        dry["skipped"][0]
+    );
+    assert_eq!(dry["skipped"][0]["line"], 34);
+    assert_eq!(dry["skipped"][0]["content"], "  - 優先度: 高");
+    assert!(dry["skipped"][0]["reason"].is_string());
+    // --dry-run は DB を開かず、ファイルも作らない
+    assert!(!sandbox.tansu_home.path().join("tansu.sqlite").exists());
+    assert_eq!(succeed_json(&sandbox, &["db", "list"]), json!([]));
+
+    let imported = succeed_json(&sandbox, &["qa", "import", "--json", fixtures]);
+    assert_eq!(imported["dry_run"], false);
+    assert_eq!(imported["counts"], dry["counts"]);
+    assert_eq!(imported["skipped"], dry["skipped"]);
+    assert_eq!(
+        query(&sandbox, "run", &["--where", "source=import"]).len(),
+        8
+    );
+    assert_eq!(row_ids(&query(&sandbox, "project", &[])).len(), 1);
+
+    // 2 回目も同じ出力で、行は増えない
+    assert_eq!(
+        succeed_json(&sandbox, &["qa", "import", "--json", fixtures]),
+        imported
+    );
+    assert_eq!(query(&sandbox, "feature", &[]).len(), 4);
+    assert_eq!(query(&sandbox, "item", &[]).len(), 12);
+    assert_eq!(query(&sandbox, "run", &[]).len(), 8);
+
+    let text = succeed(&sandbox, &["qa", "import", fixtures]);
+    assert!(
+        text.starts_with(
+            "project: 1, feature: 4, item: 12, run: 8 (4 ファイル)\n読み飛ばした行: 8 行\n"
+        ),
+        "{text}"
+    );
+    let stderr = fail(&sandbox, &["qa", "import", "--json", "/nonexistent/QA.md"]);
+    assert!(stderr.contains("/nonexistent/QA.md"), "{stderr}");
+}
+
+#[test]
 fn closed_stdout_is_not_an_error() {
     let sandbox = sandbox();
     succeed(&sandbox, &["db", "create", "tasks"]);

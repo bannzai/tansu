@@ -101,6 +101,8 @@ impl Settings {
             None => DbLocation::Local(home.join(DEFAULT_DB_FILE_NAME)),
             Some(url) => match url.strip_prefix("file:") {
                 Some("") => return Err(Error::UnsupportedDbUrl(url_scheme(&url))),
+                // `:memory:` はファイルのパスとして扱えず、WAL にも切り替えられない (インメモリは非対応。`documents/PROJECT.md`「DB の置き場所」)
+                Some(":memory:") => return Err(Error::InMemoryDbNotSupported),
                 Some(path) => DbLocation::Local(PathBuf::from(path)),
                 None if url
                     .strip_prefix("libsql://")
@@ -208,6 +210,14 @@ mod tests {
         assert!(matches!(
             Settings::resolve(env_with_db_url(Some("file:"), None)),
             Err(Error::UnsupportedDbUrl(_))
+        ));
+    }
+
+    #[test]
+    fn in_memory_file_url_is_rejected() {
+        assert!(matches!(
+            Settings::resolve(env_with_db_url(Some("file::memory:"), None)),
+            Err(Error::InMemoryDbNotSupported)
         ));
     }
 

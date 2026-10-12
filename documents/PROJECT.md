@@ -30,7 +30,7 @@
 
 | 値 | 開き方 | 複数の Mac |
 | --- | --- | --- |
-| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`。`file:` の後ろは URI ではなくファイルのパスそのもので、`//` やクエリは解釈しない) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
+| 未設定、または `file:<パス>` (既定 `file:$TANSU_HOME/tansu.sqlite`。`file:` の後ろは URI ではなくファイルのパスそのもので、`//` やクエリは解釈しない。`file::memory:` (インメモリ) は非対応でエラーにする) | ローカルの SQLite ファイル | 同期しない (1 台で完結) |
 | `libsql://<host>` + `TANSU_DB_AUTH_TOKEN` | Turso Cloud の DB に直接接続する (接続・マイグレーション (`PRAGMA user_version`・`BEGIN IMMEDIATE`) は #13 で検証するまで未検証) | 各 Mac が同じ DB を開くので同期の処理を持たない |
 
 - Turso の embedded replica (ローカルに複製を持ち書き込みをクラウドへ送る) は使わない。ドキュメント ( https://docs.turso.tech/features/embedded-replicas/introduction ) は「Do not open the local database while the embedded replica is syncing. This can lead to data corruption.」と書いており、CLI・MCP・serve が別プロセスで同時に同じ DB を開く tansu の構成では同期中に開かないことを保証できないと判断した (別プロセスからの同時アクセスの可否はドキュメントに無く、ここは agent の推論)
@@ -68,7 +68,7 @@
 
 | コマンド | 役割 |
 | --- | --- |
-| `tansu qa import <QA.md のパスまたはリポジトリのルート>...` | QA.md 群を DB に取り込む。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む。同じファイルを 2 回取り込んでも行が増えない (冪等) |
+| `tansu qa import <QA.md のパスまたはリポジトリのルート>... [--json] [--dry-run]` | QA.md 群を DB に取り込む (4 つの表が無ければ作る)。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む。同じファイルを 2 回取り込んでも行が増えない (冪等)。`--json` は取り込んだ件数と読み飛ばした行を JSON で出し、`--dry-run` は書かずに同じ出力を出す。読み替えの規則は `documents/data-model.md`「QA 層」 |
 | `tansu qa record --item <ID> --result OK\|NG\|later\|skip --commit <sha> [--note ...] [--image-url ...] [--env ...] [--run-id <ID>]` | agent が実行結果を書く。実行のたびに run を 1 行足す (冪等性の扱いは「制約」) |
 | `tansu qa verified --repo <owner/repo> --commit <sha> --json` | その commit 以降に変更された feature と未検証の項目を返す。run の commit と `git diff` を突き合わせる。castle の release-app / auto-merge-pr のゲートがこれを呼ぶ |
 | `tansu qa export --repo <owner/repo> --format pr-summary` | PR body に貼る「何をどう確認したか」の要約 |
