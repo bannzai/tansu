@@ -12,7 +12,7 @@ castle の skill (setup-qa / run-qa) とゲート (release-app / auto-merge-pr) 
 | `--version` / `--help` | 0 | stdout に出す |
 
 - DB と利用記録は `TANSU_HOME` (既定 `~/.tansu`) の下に置く。DB だけは `TANSU_DB_URL` で別の場所にもできる (`documents/PROJECT.md`「DB の置き場所」)
-- 引数を解釈できた実行は、そのたびに利用記録 `$TANSU_HOME/usage.jsonl` に `{"event": <種類>, "at": <時差付き ISO 8601>}` を 1 行足す。`event` はサブコマンド名を `_` でつないだもの (`qa_record` / `qa_verified` / `qa_export` / `qa_import` / `query` / `db_create` 等)。データの内容は書かない。書けなかった時は stderr に警告を 1 行出し、exit code は変えない
+- 引数を解釈できた実行は、そのたびに利用記録 `$TANSU_HOME/usage.jsonl` に `{"event": <種類>, "at": <時差付き ISO 8601>}` を 1 行足す。`event` はサブコマンド名を `_` でつないだもの (`qa_record` / `qa_verified` / `qa_export` / `qa_import` / `query` / `db_create` 等)。MCP の tool の実行は、呼ぶたびに `mcp_<tool 名>` (`mcp_qa_record` 等) を足す (`tansu mcp` の起動そのものは `mcp`)。データの内容は書かない。書けなかった時は stderr に警告を 1 行出し、exit code は変えない
 - commit を受け取る引数のうち `--commit` は full SHA (40 桁か 64 桁の 16 進) だけを受け付ける (短縮 SHA や `HEAD` は記録した後に別の commit を指し得るため)。`--diff-base` / `--since` は project の checkout で解決できる任意の commit の指定 (ref・短縮 SHA を含む) を受け付ける
 
 ## 行の JSON
@@ -112,3 +112,12 @@ PR body に貼る「何をどう確認したか」の markdown を stdout に出
 - run の無い item と、行の無い feature は出さない。表が 1 つも無い時は `記録された run はありません` の 1 行
 - `--since` を渡すと、`commit` が `<since>` の子孫 (`git merge-base --is-ancestor <since> <commit>`。`<since>` 自身は含めない。run の `commit` は短縮 SHA でも full SHA に解決してから比べる) の run だけを見る。`commit` の無い run と、リポジトリで解決できない run は見ない。PR の base を渡すと、その PR で記録した run だけになる
 - exit code: 成功 0、失敗 1 (project が無い・`--since` を解決できない・`--since` を渡したのに project に checkout のパスが無い)、引数の誤り 2
+
+## MCP サーバー (`tansu mcp`)
+
+stdio の MCP サーバー。tool は CLI のサブコマンドと 1 対 1 で、名前は上の「全体」の `event` と同じ (`db_list` / `db_create` / `db_schema` / `query` / `upsert` / `delete` / `export` / `qa_import` / `qa_record` / `qa_verified` / `qa_export`)。処理は CLI と同じコアの関数を呼ぶ (実装は `crates/mcp/src/lib.rs`)。
+
+- 入力: CLI の引数と同じ名前を snake_case にした JSON の object (`--item-name` は `item_name`、`--where` は `where` の文字列の配列、繰り返せる引数は配列)。出力の形を選ぶだけの `--json` は無く、常に JSON で返す。`upsert` の `json` は行の JSON の object (JSON の文字列でもよい)。`qa_record` の項目は `item` か `repo` / `feature` / `item_name` の組のどちらか一方で指定する
+- 出力: 本文のテキストに、CLI の `--json` の出力と同じ JSON (`export` の markdown と `qa_export` は CLI と同じ markdown) を入れる。`delete` は本文が空
+- 失敗: CLI が exit 1 / 2 で終わる場面は、CLI の stderr の 1 行から `tansu: ` を除いた理由を本文にした `isError: true` の結果。入力の JSON の型が合わない時は MCP のプロトコルのエラー
+- `qa_verified` は exit code を持たないので、再テストが要る時も成功の結果で返し、呼び出し側は `ok` で判定する

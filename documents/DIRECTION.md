@@ -29,7 +29,7 @@ launched_at:
 - [ ] CLI (汎用): `db create` / `db schema` (表とプロパティの定義)、`query --json` (絞り込み)、`upsert` / `delete` (行の読み書き)、`export` (markdown / JSON)
 - [ ] QA 層のスキーマと `qa import`: project (= リポジトリ) → feature → item (項目名・期待動作・自動化ステータス `auto(flow パス) | manual(理由) | todo`・仕様 ID の紐付け) → run (結果 OK / NG / あとで / スキップ・メモ・確認日・画像 URL・検証環境・検証した commit SHA)。label は multi-select プロパティ。`qa import` は QA.md 群 (castle の `setup-qa/references/qa-md-format.md` の形式) をエビデンス・`last_verified_commit`・⏭️ / ❌ の記録ごと取り込む
 - [ ] QA 層の CLI: `qa record` (agent が結果・画像 URL・commit を書く)、`qa verified --repo <owner/repo> --commit <sha>` (その commit 以降に変更された feature と未検証項目を返す。castle の release-app / auto-merge-pr のゲートが呼ぶ)、`qa export --repo <owner/repo> --format pr-summary` (PR body に貼る要約)。castle 側 (#1357 / #1358 / #1359) が依存する契約はここまで
-- [ ] MCP サーバー (stdio): CLI と同じ操作を tool として公開する。Claude Code (`.mcp.json`) / Codex CLI / pi の 3 つに同じサーバーを登録する手順を README に書く
+- [x] MCP サーバー (stdio): CLI と同じ操作を tool として公開する。Claude Code (`.mcp.json`) / Codex CLI / pi の 3 つに同じサーバーを登録する手順を README に書く
 - [ ] Web 画面: データベースごとの表 / 一覧ビュー (プロパティと label での絞り込み・並べ替え)、行の詳細ページでの編集。QA の「1 項目ずつ OK / NG / あとで + メモを入力」のビュー、進捗フッター (入力済み / 全件、OK / NG / あとで の内訳)、「全部コピー」(未入力・NG を markdown にして agent に貼る)。同じ LAN の iPhone からも開ける
 - [ ] 複数の Mac の同期: DB の置き場所を Turso Cloud (libSQL) にした時は、各 Mac が同じクラウドの DB を開くので同期の処理を持たない (2026-10-11 の決定)。ローカルの SQLite ファイルを選んだ時は同期しない
 
@@ -69,6 +69,7 @@ MVP に入れないもの: Notion との同期、他人への配布 (crates.io�
 | 2026-10-12 | 関門 2 (チャット) | 今の Web 画面は `documents/design/mock-2026-10-11/` のモックのままでよい (「とりあえず私のローカルで使う分にはそれでいい」)。将来の Rust × Wasm の画面は Notion のような見た目と操作感にする | bannzai |
 | 2026-10-12 | QA 層のスキーマと `qa import` (#9) | `TANSU_DB_URL=file::memory:` (インメモリ) は非対応のエラーにする (ファイルのパスではなく、WAL にも切り替えられない。#14 のレビューの指摘) | agent |
 | 2026-10-12 | QA 層の CLI (#10) | `qa record --image-url` は複数指定でき、最初の URL を run の `image_url` (url 型の 1 値。schema は変えない) に、すべてを run の本文に markdown の画像で書く (`qa import` も最初の画像だけを `image_url` に入れている)。`qa verified` の feature のディレクトリは、feature に足したプロパティ `path` (QA.md があったディレクトリ) で持つ。ルート直下の QA.md の feature は diff せず、`last_verified_commit` が無い・リポジトリに無い feature はディレクトリの全ファイルを再テストの対象にする (castle の run-qa の `affected_features.sh` の unverified / stale-commit と同じ扱い)。`unverified_items` は run が 1 つも無い item で、NG / あとで だけの item は含めない。`--diff-base` はその commit から変わった feature だけを判定の対象にする絞り込みにした (PR が触っていない feature の古い未検証で PR のゲートを止めないため)。`qa export --since` は since の子孫の commit の run だけを出す。利用記録は CLI のすべてのサブコマンドの実行で 1 行足し、書けなくても本来の操作は止めない (規則は `documents/cli-contract.md`) | agent |
+| 2026-10-12 | MCP サーバー (#11) | MCP の tool の利用記録の `event` は `mcp_<tool 名>` にし、CLI の実行と見分けられるようにする (agent が MCP から記録した分を数えるため)。tool の失敗は CLI の stderr と同じ理由を本文にした `isError: true` の結果で返し、`qa_verified` は再テストが要る時も成功の結果で返して `ok` で判定させる (MCP には exit code が無いため)。サーバーは状態を持たず、tool の呼び出しのたびに設定を読んで DB を開く (CLI の 1 回の実行と同じにし、環境変数の誤りでサーバーごと落とさない)。入出力の規則は `documents/cli-contract.md`「MCP サーバー」 | agent |
 
 ## agent に任せること
 
