@@ -184,10 +184,10 @@ async fn add_property(
             "`{spec}` は解釈できません (`<プロパティ名>:<型>[:<選択肢,...>|:<相手の表>]` の形で指定してください)"
         )));
     };
-    // query の `--where <名前>=<値>` / `<名前>^=<値>` で名前を切り出せなくなるため
-    if property_name.contains('=') || property_name.ends_with('^') {
+    // query の `--where <名前><演算子><値>` で名前を切り出せなくなるため (演算子は最初の `<` `>` `=` から読む)
+    if property_name.contains(['=', '<', '>']) || property_name.ends_with('^') {
         return Err(Error::InvalidInput(format!(
-            "プロパティ名 `{property_name}` は使えません (`=` を含む名前と、末尾が `^` の名前は絞り込みで指定できないため)"
+            "プロパティ名 `{property_name}` は使えません (`=` `<` `>` を含む名前と、末尾が `^` の名前は絞り込みで指定できないため)"
         )));
     }
     let kind = match (type_name, parts.next()) {

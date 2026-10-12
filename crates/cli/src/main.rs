@@ -35,7 +35,8 @@ enum Command {
         /// 出力を JSON にする (今は JSON だけを出す)
         #[arg(long)]
         json: bool,
-        /// `<プロパティ名>=<値>` (等価。multi_select / relation は含む) か `<プロパティ名>^=<値>` (前方一致。text / url / date)
+        /// `<プロパティ名>=<値>` (等価。multi_select / relation は含む)、`<プロパティ名>^=<値>` (前方一致。text / url / date)、
+        /// `<プロパティ名>>=<値>` / `<=` / `>` / `<` (比較。number / date。date は時刻で比べる)
         #[arg(long = "where", value_name = "プロパティ=値")]
         filters: Vec<String>,
         /// `<プロパティ名>[:asc|:desc]` (text / number / checkbox / url / date)
