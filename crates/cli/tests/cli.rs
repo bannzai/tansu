@@ -190,6 +190,8 @@ fn schema_with_all_eight_kinds_persists_across_processes() {
     // --where で名前を切り出せない名前は作れない
     fail(&sandbox, &["db", "schema", "tasks", "--add", "a=b:text"]);
     fail(&sandbox, &["db", "schema", "tasks", "--add", "a^:text"]);
+    fail(&sandbox, &["db", "schema", "tasks", "--add", "a<b:text"]);
+    fail(&sandbox, &["db", "schema", "tasks", "--add", "a>b:text"]);
 
     // 外したプロパティは定義からも行の値からも消える
     let written = upsert(
@@ -665,6 +667,126 @@ fn date_sort_compares_instants_across_offsets() {
         )),
         ["lower"]
     );
+}
+
+#[test]
+fn number_comparisons_include_or_exclude_the_boundary() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "tasks"]);
+    succeed(
+        &sandbox,
+        &[
+            "db",
+            "schema",
+            "tasks",
+            "--add",
+            "points:number",
+            "--add",
+            "title:text",
+            "--add",
+            "done:checkbox",
+            "--add",
+            "status:select:todo,done",
+        ],
+    );
+    for (id, values) in [
+        ("one", json!({"points": 1})),
+        ("two", json!({"points": 2})),
+        ("half", json!({"points": 2.5})),
+        ("none", json!({"title": "値なし"})),
+    ] {
+        upsert(&sandbox, "tasks", json!({"id": id, "values": values}));
+    }
+    // 値の無い none はどの比較にも一致しない
+    for (filter, expected) in [
+        ("points>=2", vec!["two", "half"]),
+        ("points<=2", vec!["one", "two"]),
+        ("points>2", vec!["half"]),
+        ("points<2", vec!["one"]),
+        ("points>=2.5", vec!["half"]),
+        ("points<1", vec![]),
+        ("points<100", vec!["one", "two", "half"]),
+    ] {
+        assert_eq!(
+            row_ids(&query(&sandbox, "tasks", &["--where", filter])),
+            expected,
+            "{filter}"
+        );
+    }
+    // 複数の比較は AND
+    assert_eq!(
+        row_ids(&query(
+            &sandbox,
+            "tasks",
+            &["--where", "points>1", "--where", "points<2.5"]
+        )),
+        ["two"]
+    );
+    // number / date 以外の型の比較と、数値でない値はエラー
+    for filter in ["title>=a", "done>true", "status<done"] {
+        let stderr = fail(&sandbox, &["query", "tasks", "--json", "--where", filter]);
+        assert!(stderr.contains("number / date"), "{stderr}");
+    }
+    let stderr = fail(
+        &sandbox,
+        &["query", "tasks", "--json", "--where", "points>=abc"],
+    );
+    assert!(stderr.contains("数値"), "{stderr}");
+}
+
+#[test]
+fn recorded_at_comparison_counts_runs_since_a_date() {
+    let sandbox = sandbox();
+    let fixtures = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/qa/sample-notes"
+    );
+    // qa import の run (source=import、日付だけの recorded_at) は 2026-10-05 〜 08 にある
+    succeed(&sandbox, &["qa", "import", fixtures]);
+    // 日付だけの値はその日の 0 時 UTC、時差付きの値は UTC に直した時刻で比べる
+    for (id, at) in [
+        ("day-before", json!("2026-10-06")),
+        ("day", json!("2026-10-07")),
+        ("tokyo-before", json!("2026-10-07T08:59:59+09:00")),
+        ("tokyo-at", json!("2026-10-07T09:00:00+09:00")),
+        ("utc-after", json!("2026-10-08T12:00:00Z")),
+        ("no-date", Value::Null),
+    ] {
+        upsert(
+            &sandbox,
+            "run",
+            json!({"id": id, "values": {"run_id": id, "source": "record", "recorded_at": at}}),
+        );
+    }
+    // documents/DIRECTION.md の判定基準の計測コマンド (`--where "recorded_at>=<日付>" --where source=record`) の形。
+    // source=record で qa import の run を除く
+    for (condition, expected) in [
+        (">=2026-10-07", vec!["day", "tokyo-at", "utc-after"]),
+        (">2026-10-07", vec!["utc-after"]),
+        ("<2026-10-07", vec!["day-before", "tokyo-before"]),
+        (
+            "<=2026-10-07T00:00:00Z",
+            vec!["day-before", "day", "tokyo-before", "tokyo-at"],
+        ),
+        (">=2026-10-07T00:00:00.001Z", vec!["utc-after"]),
+    ] {
+        let filter = format!("recorded_at{condition}");
+        assert_eq!(
+            row_ids(&query(
+                &sandbox,
+                "run",
+                &["--where", &filter, "--where", "source=record"]
+            )),
+            expected,
+            "{filter}"
+        );
+    }
+    // 日付として読めない値は比べる時刻が決まらないのでエラー
+    let stderr = fail(
+        &sandbox,
+        &["query", "run", "--json", "--where", "recorded_at>=2026-10"],
+    );
+    assert!(stderr.contains("日付"), "{stderr}");
 }
 
 #[tokio::test]

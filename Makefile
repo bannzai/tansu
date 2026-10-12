@@ -10,15 +10,15 @@ export TANSU_PORT
 
 .PHONY: web build-web cli build-cli
 
-# serve サブコマンドは Web 画面の issue で実装する。それまでは、無いコマンドを呼んで黙って失敗する代わりに理由を出して止める。
-# 実装後はこの target を次の 2 行に置き換える (サーバーが前面で動くため、ブラウザは背面で少し待ってから開く):
-#   (sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
-#   cargo run -p tansu-cli -- serve --port $(TANSU_PORT)
-web:
-	@echo "tansu serve は未実装です (Web 画面の issue で実装する。進捗は documents/DIRECTION.md「必要な機能」)" >&2
-	@exit 1
+# tansu は web/dist をビルド時に埋め込む (crates/server/build.rs) ため、先に画面をビルドする。
+# サーバーが前面で動くため、ブラウザは背面で API が応答するまで待ってから開く (Rust のビルドを先に終えておき、待つのは起動だけにする)。
+# 起動に失敗した時に待ち続けないよう、待つのは 0.2 秒 × 150 回 (30 秒。DB を開いてマイグレーションを当てる起動に十分な長さ) まで。
+web: build-web
+	cargo build -p tansu-cli
+	(for _ in $$(seq 150); do curl -fs -o /dev/null http://127.0.0.1:$(TANSU_PORT)/api/databases && exec open http://127.0.0.1:$(TANSU_PORT); sleep 0.2; done) &
+	./target/debug/tansu serve --port $(TANSU_PORT)
 
-# Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ をサーバーが配信する構成は Web 画面の issue で作る。
+# Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ は tansu のビルドがバイナリに埋め込む。
 build-web:
 	bun install --frozen-lockfile --cwd web
 	bun run --cwd web build
@@ -29,5 +29,6 @@ cli: build-cli
 	mkdir -p $(HOME)/.local/bin
 	install -m 755 target/release/tansu $(HOME)/.local/bin/tansu
 
-build-cli:
+# ~/.local/bin/tansu 1 つで画面が出るように、web/dist を作ってから埋め込んでビルドする。
+build-cli: build-web
 	cargo build --release --locked -p tansu-cli

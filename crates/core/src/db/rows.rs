@@ -359,8 +359,10 @@ fn same_unique_value(left: &Value, right: &Value) -> bool {
 
 /// データベース `database_name` の行を絞り込んで返す。行の解釈に使った定義も返す。
 ///
-/// - `filters`: `<プロパティ名>=<値>` (等価) か `<プロパティ名>^=<値>` (前方一致。text / url / date だけ)。複数は AND。
-///   select は選択肢の name、checkbox は `true` / `false` で書く。multi_select と relation は、その選択肢の name・行 ID を含む行に一致する
+/// - `filters`: `<プロパティ名>=<値>` (等価)、`<プロパティ名>^=<値>` (前方一致。text / url / date だけ)、
+///   `<プロパティ名>>=<値>` / `<=` / `>` / `<` (比較。number / date だけ。date は並べ替えと同じく時刻で比べる)。複数は AND。
+///   select は選択肢の name、checkbox は `true` / `false` で書く。multi_select と relation は、その選択肢の name・行 ID を含む行に一致する。
+///   値の無い行は比較に一致しない
 /// - `sort`: `<プロパティ名>[:asc|:desc]`。text / number / checkbox / url / date だけ。無ければ追加した順
 /// - `limit`: 返す行の上限。無ければすべて
 pub async fn query(
@@ -389,14 +391,14 @@ pub(crate) async fn query_in(
     let mut sql = format!(r#"SELECT {ROW_COLUMNS} FROM "row" WHERE database_id = ?"#);
     let mut params = vec![libsql::Value::from(database.id.0.clone())];
     for filter in filters {
-        let (left, raw_value) = filter.split_once('=').ok_or_else(|| {
+        let (left, operator, raw_value) = split_filter(filter).ok_or_else(|| {
             Error::InvalidInput(format!(
-                "`{filter}` は解釈できません (`<プロパティ名>=<値>` か `<プロパティ名>^=<値>` の形で指定してください)"
+                "`{filter}` は解釈できません (`<プロパティ名><演算子><値>` の形で指定してください。演算子は `=` / `^=` / `>=` / `<=` / `>` / `<`)"
             ))
         })?;
-        let (property_name, prefix) = match left.strip_suffix('^') {
-            Some(property_name) => (property_name, true),
-            None => (left, false),
+        let (property_name, operator) = match (operator, left.strip_suffix('^')) {
+            ("=", Some(property_name)) => (property_name, "^="),
+            _ => (left, operator),
         };
         let property = property_of(&database, property_name)?;
         let path = value_path(&property.id);
@@ -406,65 +408,81 @@ pub(crate) async fn query_in(
                 property.kind.type_name()
             ))
         };
-        let (condition, value) = match (&property.kind, prefix) {
-            (PropertyKind::Text | PropertyKind::Url, false) => (
-                r#"json_extract("values", ?) = ?"#,
+        let (condition, value) = match (&property.kind, operator) {
+            (PropertyKind::Text | PropertyKind::Url, "=") => (
+                r#"json_extract("values", ?) = ?"#.to_owned(),
                 libsql::Value::from(raw_value),
             ),
-            (PropertyKind::Text | PropertyKind::Url, true) => (
-                r#"instr(json_extract("values", ?), ?) = 1"#,
+            (PropertyKind::Text | PropertyKind::Url, "^=") => (
+                r#"instr(json_extract("values", ?), ?) = 1"#.to_owned(),
                 libsql::Value::from(raw_value),
             ),
             // date は保存時に書き方を揃えている (named_json::normalize_date) ため、検索の値も同じく揃えて比べる。
             // 前方一致の値 (`2026-10` 等) は日付として読めないので、区切りの大文字化だけを揃える
-            (PropertyKind::Date, false) => (
-                r#"json_extract("values", ?) = ?"#,
+            (PropertyKind::Date, "=") => (
+                r#"json_extract("values", ?) = ?"#.to_owned(),
                 libsql::Value::from(
                     named_json::normalize_date(raw_value)
                         .unwrap_or_else(|| raw_value.to_ascii_uppercase()),
                 ),
             ),
-            (PropertyKind::Date, true) => (
-                r#"instr(json_extract("values", ?), ?) = 1"#,
+            (PropertyKind::Date, "^=") => (
+                r#"instr(json_extract("values", ?), ?) = 1"#.to_owned(),
                 libsql::Value::from(raw_value.to_ascii_uppercase()),
             ),
-            (PropertyKind::Number, false) => (
-                r#"json_extract("values", ?) = ?"#,
+            // 大小は並べ替えと同じく時差を UTC に直した時刻で比べる。日付として読めない値は比べる時刻が決まらないので、
+            // `=` のように文字列の一致へ倒さずエラーにする
+            (PropertyKind::Date, operator) => (
+                format!(r#"julianday(json_extract("values", ?)) {operator} julianday(?)"#),
+                libsql::Value::from(
+                    named_json::normalize_date(raw_value).ok_or_else(|| invalid_value("日付"))?,
+                ),
+            ),
+            (_, "^=") => {
+                return Err(Error::InvalidInput(format!(
+                    "前方一致 (^=) は text / url / date のプロパティだけに使えます (`{property_name}` は {})",
+                    property.kind.type_name()
+                )));
+            }
+            (PropertyKind::Number, operator) => (
+                format!(r#"json_extract("values", ?) {operator} ?"#),
                 libsql::Value::from(
                     raw_value
                         .parse::<f64>()
                         .map_err(|_| invalid_value("数値"))?,
                 ),
             ),
-            (PropertyKind::Checkbox, false) => (
-                r#"json_extract("values", ?) = ?"#,
+            (PropertyKind::Checkbox, "=") => (
+                r#"json_extract("values", ?) = ?"#.to_owned(),
                 libsql::Value::from(
                     raw_value
                         .parse::<bool>()
                         .map_err(|_| invalid_value("true / false"))?,
                 ),
             ),
-            (PropertyKind::Select { options }, false) => (
-                r#"json_extract("values", ?) = ?"#,
+            (PropertyKind::Select { options }, "=") => (
+                r#"json_extract("values", ?) = ?"#.to_owned(),
                 libsql::Value::from(named_json::option_id(property, options, raw_value)?.0),
             ),
-            (PropertyKind::MultiSelect { options }, false) => (
-                r#"EXISTS (SELECT 1 FROM json_each("row"."values", ?) WHERE json_each.value = ?)"#,
+            (PropertyKind::MultiSelect { options }, "=") => (
+                r#"EXISTS (SELECT 1 FROM json_each("row"."values", ?) WHERE json_each.value = ?)"#
+                    .to_owned(),
                 libsql::Value::from(named_json::option_id(property, options, raw_value)?.0),
             ),
-            (PropertyKind::Relation { .. }, false) => (
-                r#"EXISTS (SELECT 1 FROM json_each("row"."values", ?) WHERE json_each.value = ?)"#,
+            (PropertyKind::Relation { .. }, "=") => (
+                r#"EXISTS (SELECT 1 FROM json_each("row"."values", ?) WHERE json_each.value = ?)"#
+                    .to_owned(),
                 libsql::Value::from(raw_value),
             ),
-            (_, true) => {
+            (_, operator) => {
                 return Err(Error::InvalidInput(format!(
-                    "前方一致 (^=) は text / url / date のプロパティだけに使えます (`{property_name}` は {})",
+                    "比較 ({operator}) は number / date のプロパティだけに使えます (`{property_name}` は {})",
                     property.kind.type_name()
                 )));
             }
         };
         sql.push_str(" AND ");
-        sql.push_str(condition);
+        sql.push_str(&condition);
         params.push(libsql::Value::from(path));
         params.push(value);
     }
@@ -526,6 +544,15 @@ pub(crate) async fn query_in(
         found.push(row_from_sql(&row)?);
     }
     Ok((database, found))
+}
+
+/// [`query`] の絞り込み `filter` を (演算子の前, 演算子, 値) に分ける。演算子は `<` `>` `=` のうち最初に出た文字の位置から読み、
+/// `>=` / `<=` を `>` / `<` より先に見る。`^=` の `^` は演算子の前の末尾に残す (呼び出し側が読む)。どの文字も無ければ `None`。
+fn split_filter(filter: &str) -> Option<(&str, &'static str, &str)> {
+    let (left, rest) = filter.split_at(filter.find(['<', '>', '='])?);
+    [">=", "<=", ">", "<", "="]
+        .into_iter()
+        .find_map(|operator| Some((left, operator, rest.strip_prefix(operator)?)))
 }
 
 /// `database` の名前が `property_name` のプロパティ。無ければ [`Error::PropertyNotFound`]。
