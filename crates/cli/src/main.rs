@@ -260,7 +260,11 @@ fn main() -> ExitCode {
 /// サブコマンドを実行し、stdout に出す文字列 (出すものが無ければ `None`) と exit code を返す。
 /// exit code は、判定の結果を exit code で返す `qa verified` 以外は成功の 0。
 async fn run(command: Command) -> Result<(Option<String>, ExitCode), Box<dyn std::error::Error>> {
-    if matches!(command, Command::Serve | Command::Mcp) {
+    if let Command::Mcp = command {
+        tansu_mcp::serve().await?;
+        return Ok((None, ExitCode::SUCCESS));
+    }
+    if let Command::Serve = command {
         return Err(format!(
             "{} は未実装です (進捗は documents/DIRECTION.md「必要な機能」)",
             command.name()

@@ -21,6 +21,8 @@ tansu-server.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+# `tansu mcp` を子プロセスとして起動し、MCP のクライアントとして tool を呼ぶテストに使う
+rmcp = { workspace = true, features = ["client", "transport-child-process"] }
 tempfile.workspace = true
 # 統合テストの #[tokio::test] (current_thread) に要る
 tokio = { workspace = true, features = ["macros", "rt"] }
