@@ -263,7 +263,7 @@ impl TansuServer {
     #[tool]
     async fn delete(&self, Parameters(params): Parameters<DeleteParams>) -> Result<(), String> {
         respond("delete", async {
-            Ok(rows::delete(&open().await?, &params.database, &params.row_id).await?)
+            rows::delete(&open().await?, &params.database, &params.row_id).await
         })
         .await
     }
