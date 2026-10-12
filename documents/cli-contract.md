@@ -8,7 +8,7 @@ castle の skill (setup-qa / run-qa) とゲート (release-app / auto-merge-pr) 
 | --- | --- | --- |
 | 成功 | 0 | 結果を stdout に出す (JSON は整形した 1 つの値) |
 | 失敗 (下の `qa verified` を除く) | 1 | stdout は空。stderr に `tansu: <理由>` の 1 行 |
-| 引数の誤り (必須の引数が無い・未知のサブコマンド・選べない値)、引数なし | 2 | clap のエラーかヘルプを stderr に出す |
+| 引数の誤り (必須の引数が無い・未知のサブコマンド・clap が選択肢を持つ引数 (`qa export --format` 等) の選べない値)、引数なし | 2 | clap のエラーかヘルプを stderr に出す。値の中身をコアが検証して拒否するもの (`qa record --result` の選択肢・`--commit` の形等) は「失敗」の exit 1 (`qa verified` は 2) |
 | `--version` / `--help` | 0 | stdout に出す |
 
 - DB と利用記録は `TANSU_HOME` (既定 `~/.tansu`) の下に置く。DB だけは `TANSU_DB_URL` で別の場所にもできる (`documents/PROJECT.md`「DB の置き場所」)
@@ -80,7 +80,7 @@ commit を基準に、再テストが要る feature と未検証の item を返�
 
 判定の規則 (feature ごと):
 
-- `last_verified_commit`: その feature の item の run のうち、`result` が `ok` か `skip` で `commit` を持つ最後の run の `commit`。「最後」は `recorded_at` が後のもの、同じ値 (秒の精度) なら後に追加されたもの。`recorded_at` はまず書かれた時差での日付で比べ、同じ日付なら日付だけの値 (`qa import` の run) を時刻付きの値 (`qa record` の run) より前にし、時刻付きどうしは UTC の時刻で比べる。`recorded_at` の無い run はどの値よりも前とみなす
+- `last_verified_commit`: その feature の item の run のうち、`result` が `ok` か `skip` で `commit` を持つ最後の run の `commit`。「最後」は `recorded_at` が後のもの、同じ値 (秒の精度) なら後に追加されたもの。`recorded_at` は UTC の時刻で比べる。日付だけの値 (`qa import` の run) は、どの時差で書かれた同じ日付の時刻付きの値 (`qa record` の run) よりも前になるよう、その日付が UTC+14 で始まる時刻 (前日の 10:00Z) として比べる。`recorded_at` の無い run はどの値よりも前とみなす
 - `changed_files`: `git diff --name-only --relative --no-renames <last_verified_commit> <commit> -- <feature のディレクトリ>` のファイルから `QA.md` を除いたもの。パスは project の checkout からの相対パスで、日本語などを含むパスもエスケープせずにそのまま出す。リネームは削除と追加に分けるので、ほかのディレクトリへ移したファイルは移動元と移動先の両方の feature に入る
   - feature のディレクトリは、QA.md があったディレクトリ (feature の `path`)
   - `last_verified_commit` が無い (null)、full SHA でない (`qa import` が取り込んだ短縮 SHA 等。大文字の full SHA は使う)、またはリポジトリで解決できない (rebase で消えた・合成の SHA 等) feature は、確かめた時点が分からないので `<commit>` の時点のディレクトリの全ファイル (`QA.md` を除く) を入れる

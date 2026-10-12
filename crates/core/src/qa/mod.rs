@@ -239,22 +239,26 @@ pub(crate) fn select_name_of(
         .map(str::to_owned)
 }
 
-/// run の `recorded_at` を比べるための値。(書かれた時差での日付, 時刻付きなら UTC の時刻)。
-/// `qa import` の run は日付だけ (QA.md の確認日。時差が分からない) で、`qa record` の run は時差付きの時刻のため、
-/// まず日付で比べ、同じ日付なら日付だけの値を時刻付きの値より前にする (同じ日の朝に記録した run を、
-/// UTC の 0 時に置いた取り込みの run より前と取り違えないため)。無い・読めない値は `None` (どの値よりも前)。
-fn recorded_instant(
-    recorded_at: Option<&str>,
-) -> Option<(chrono::NaiveDate, Option<chrono::DateTime<chrono::Utc>>)> {
+/// 使われている中で最も東の時差 (UTC+14。キリバスのライン諸島)。日付だけの `recorded_at` を、その日付が始まる
+/// 最も早い時刻に置くために使う。
+const EARLIEST_UTC_OFFSET_SECONDS: i32 = 14 * 60 * 60;
+
+/// run の `recorded_at` を比べるための UTC の時刻。時刻付きの値 (`qa record` の run) はその時刻。
+/// 日付だけの値 (`qa import` の run。QA.md の確認日で時差が分からない) は、どの時差で書かれた同じ日付の時刻よりも
+/// 前になるよう、その日付が UTC+14 で始まる時刻に置く (同じ日の朝に記録した run を、取り込みの run より前と
+/// 取り違えないため)。無い・読めない値は `None` (どの値よりも前)。
+fn recorded_instant(recorded_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
     let recorded_at = recorded_at?;
     if let Ok(date) = chrono::NaiveDate::parse_from_str(recorded_at, "%Y-%m-%d") {
-        return Some((date, None));
+        return date
+            .and_hms_opt(0, 0, 0)?
+            .and_local_timezone(chrono::FixedOffset::east_opt(EARLIEST_UTC_OFFSET_SECONDS)?)
+            .single()
+            .map(|date_time| date_time.with_timezone(&chrono::Utc));
     }
-    let date_time = chrono::DateTime::parse_from_rfc3339(recorded_at).ok()?;
-    Some((
-        date_time.date_naive(),
-        Some(date_time.with_timezone(&chrono::Utc)),
-    ))
+    chrono::DateTime::parse_from_rfc3339(recorded_at)
+        .ok()
+        .map(|date_time| date_time.with_timezone(&chrono::Utc))
 }
 
 /// SHA-1 の commit の full SHA の桁数。
@@ -372,6 +376,11 @@ mod tests {
         assert!(tokyo < utc);
         assert!(utc < recorded_instant(Some("2026-10-12")));
         assert!(recorded_instant(None) < day);
+        // 時刻付きどうしは、書かれた日付ではなく UTC の時刻で比べる (2026-10-11T15:30:00Z < 2026-10-11T23:00:00Z)
+        assert!(
+            recorded_instant(Some("2026-10-12T00:30:00+09:00"))
+                < recorded_instant(Some("2026-10-11T23:00:00+00:00"))
+        );
     }
 
     #[test]
