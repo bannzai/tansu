@@ -191,7 +191,15 @@ fn changed_files(
         )?,
         None => git(
             checkout,
-            &["ls-tree", "-r", "-z", "--name-only", commit, "--", directory],
+            &[
+                "ls-tree",
+                "-r",
+                "-z",
+                "--name-only",
+                commit,
+                "--",
+                directory,
+            ],
         )?,
     };
     Ok(files_without_qa_md(&output))
