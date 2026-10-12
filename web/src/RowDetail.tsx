@@ -44,6 +44,9 @@ export function RowDetail({
   const [editingBody, setEditingBody] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 保存・選択肢の追加の応答を待つ間は編集欄を無効にする。応答の後に読み直した値で編集欄を置き換えるため、
+  // 待つ間の入力を受け付けると消えてしまう
+  const [writing, setWriting] = useState(false);
 
   const load = useCallback(async () => {
     const { database, rows } = await fetchRows(databaseName);
@@ -103,6 +106,7 @@ export function RowDetail({
   const save = async () => {
     setError(null);
     setStatus(null);
+    setWriting(true);
     try {
       // 開いた後に CLI や別のタブが書いた値を消さないよう、この画面で変えた値と本文だけを送る
       await upsertRow(database.name, {
@@ -115,11 +119,14 @@ export function RowDetail({
       setStatus("保存しました");
     } catch (caught) {
       setError(errorText(caught));
+    } finally {
+      setWriting(false);
     }
   };
 
   const addOption = async (property: Property, optionName: string) => {
     setError(null);
+    setWriting(true);
     try {
       const updated = await addProperties(database.name, [`${property.name}:${property.kind.type}:${optionName}`]);
       setLoaded({ ...loaded, database: updated });
@@ -131,6 +138,8 @@ export function RowDetail({
       });
     } catch (caught) {
       setError(errorText(caught));
+    } finally {
+      setWriting(false);
     }
   };
 
@@ -146,66 +155,68 @@ export function RowDetail({
       <main className="detail-main">
         <section className="detail-body">
           <h1>{rowTitle(database, row)}</h1>
-          <div className="properties">
-            {database.properties.map((property) => (
-              <div key={property.id} className="property-row">
-                <span className="property-name">{property.name}</span>
-                <div className="property-value">
-                  {property.kind.type === "relation" ? (
-                    <ValueView
-                      propertyName={property.name}
-                      value={row.values[property.name]}
-                      titles={titles}
-                      targetDatabaseName={loaded.targets.get(property.kind.target_database_id)?.database.name}
-                    />
-                  ) : (
-                    <PropertyEditor
-                      property={property}
-                      value={draft[property.name] ?? null}
-                      onChange={(value) => setDraft({ ...draft, [property.name]: value })}
-                      onAddOption={(optionName) => addOption(property, optionName)}
-                    />
-                  )}
+          <fieldset className="editor" disabled={writing}>
+            <div className="properties">
+              {database.properties.map((property) => (
+                <div key={property.id} className="property-row">
+                  <span className="property-name">{property.name}</span>
+                  <div className="property-value">
+                    {property.kind.type === "relation" ? (
+                      <ValueView
+                        propertyName={property.name}
+                        value={row.values[property.name]}
+                        titles={titles}
+                        targetDatabaseName={loaded.targets.get(property.kind.target_database_id)?.database.name}
+                      />
+                    ) : (
+                      <PropertyEditor
+                        property={property}
+                        value={draft[property.name] ?? null}
+                        onChange={(value) => setDraft({ ...draft, [property.name]: value })}
+                        onAddOption={(optionName) => addOption(property, optionName)}
+                      />
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="body-section">
-            <div className="section-header">
-              <span className="section-title">本文</span>
-              <button type="button" className="link-button" onClick={() => setEditingBody(!editingBody)}>
-                {editingBody ? "プレビュー" : "本文を編集"}
-              </button>
+              ))}
             </div>
-            {editingBody ? (
-              <textarea
-                aria-label="本文"
-                className="body-editor"
-                rows={10}
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-              />
-            ) : (
-              <div className="markdown" data-testid="row-body">
-                {body === "" ? <p className="muted">本文はありません</p> : <MarkdownBody markdown={body} />}
+            <div className="body-section">
+              <div className="section-header">
+                <span className="section-title">本文</span>
+                <button type="button" className="link-button" onClick={() => setEditingBody(!editingBody)}>
+                  {editingBody ? "プレビュー" : "本文を編集"}
+                </button>
               </div>
-            )}
-          </div>
-          <div className="actions">
-            <button type="button" className="primary" onClick={save}>
-              保存
-            </button>
-            {status !== null && (
-              <span role="status" className="muted">
-                {status}
-              </span>
-            )}
-            {error !== null && (
-              <span role="alert" className="error">
-                {error}
-              </span>
-            )}
-          </div>
+              {editingBody ? (
+                <textarea
+                  aria-label="本文"
+                  className="body-editor"
+                  rows={10}
+                  value={body}
+                  onChange={(event) => setBody(event.target.value)}
+                />
+              ) : (
+                <div className="markdown" data-testid="row-body">
+                  {body === "" ? <p className="muted">本文はありません</p> : <MarkdownBody markdown={body} />}
+                </div>
+              )}
+            </div>
+            <div className="actions">
+              <button type="button" className="primary" onClick={save}>
+                保存
+              </button>
+              {status !== null && (
+                <span role="status" className="muted">
+                  {status}
+                </span>
+              )}
+              {error !== null && (
+                <span role="alert" className="error">
+                  {error}
+                </span>
+              )}
+            </div>
+          </fieldset>
         </section>
         <aside className="backlinks">
           {loaded.backlinks.map(({ database: other, property, rows }) => (

@@ -101,4 +101,6 @@ test("保存には読み込んだ行から変えた値だけを渡し、空の�
     }),
   ).toEqual({ automation: "auto" });
   expect(changedValues(loaded, { name: "", labels: [] })).toEqual({ name: null, labels: [] });
+  // 読み込んだ値が空の text は、編集していなければ送らない
+  expect(changedValues(row("r8", { note: { type: "text", value: "" } }), { note: "" })).toEqual({});
 });

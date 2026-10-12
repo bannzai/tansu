@@ -5,6 +5,11 @@ export function inputValue(value: NamedValue | undefined): RowValueInput {
   return value === undefined ? null : value.value;
 }
 
+/** 編集欄の空の文字列を、値を消す null にする (空の text と値の無いプロパティを同じものとして扱う)。 */
+function emptyToNull(value: RowValueInput): RowValueInput {
+  return value === "" ? null : value;
+}
+
 /**
  * 編集欄の値 `draft` のうち、読み込んだ行 `row` の値から変わったものだけ (upsert に渡す形。空の文字列は値を消す null)。
  * 変えていないプロパティを送らないことで、読み込んだ後に CLI や別のタブが書いた値を上書きしない。
@@ -12,8 +17,8 @@ export function inputValue(value: NamedValue | undefined): RowValueInput {
 export function changedValues(row: Row, draft: Record<string, RowValueInput>): Record<string, RowValueInput> {
   return Object.fromEntries(
     Object.entries(draft)
-      .map(([name, value]) => [name, value === "" ? null : value] as const)
-      .filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(inputValue(row.values[name]))),
+      .map(([name, value]) => [name, emptyToNull(value)] as const)
+      .filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(emptyToNull(inputValue(row.values[name])))),
   );
 }
 

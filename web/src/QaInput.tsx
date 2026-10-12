@@ -62,6 +62,8 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
   // 今選んでいる project / feature を応答と照合するために持つ
   const selection = useRef({ repo, feature });
   selection.current = { repo, feature };
+  // 記録の応答を待つ間は、項目の移動・結果とメモの入力・project と feature の切り替えを無効にする。応答の後に次の項目へ移り、
+  // その項目の結果とメモで入力欄を置き換えるため、待つ間の操作を受け付けると消えてしまう
   const [recording, setRecording] = useState(false);
 
   useEffect(() => {
@@ -276,6 +278,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
                     type="button"
                     className={`result-button result-button-${result}`}
                     aria-pressed={picked === result}
+                    disabled={recording}
                     onClick={() => setPicked(result)}
                   >
                     {RESULT_LABELS[result]}
@@ -288,11 +291,12 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
                   rows={4}
                   placeholder="気づいたことや NG の再現手順"
                   value={note}
+                  disabled={recording}
                   onChange={(event) => setNote(event.target.value)}
                 />
               </label>
               <div className="qa-nav">
-                <button type="button" disabled={index === 0} onClick={() => setIndex(index - 1)}>
+                <button type="button" disabled={index === 0 || recording} onClick={() => setIndex(index - 1)}>
                   ← 前
                 </button>
                 <button
@@ -315,6 +319,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
                     type="button"
                     className={itemIndex === index ? "qa-list-item qa-list-item-current" : "qa-list-item"}
                     aria-current={itemIndex === index ? "step" : undefined}
+                    disabled={recording}
                     onClick={() => setIndex(itemIndex)}
                   >
                     <span className="qa-list-number">{itemIndex + 1}</span>

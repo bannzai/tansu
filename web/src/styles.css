@@ -373,6 +373,16 @@ td {
   gap: 20px;
 }
 
+.editor {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
 .properties {
   border: 1px solid var(--border);
   border-radius: 8px;
