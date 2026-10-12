@@ -1684,9 +1684,10 @@ async fn mcp_writes_and_reads_rows_in_the_same_shape_as_the_cli() {
     )
     .await;
     assert!(!is_error, "{markdown}");
+    // CLI は結果の後ろに改行を 1 つ足して出力する
     assert_eq!(
-        markdown,
-        succeed(&sandbox, &["export", "tasks", "--format", "markdown"]).trim_end()
+        Some(markdown.as_str()),
+        succeed(&sandbox, &["export", "tasks", "--format", "markdown"]).strip_suffix('\n')
     );
 
     assert_eq!(
