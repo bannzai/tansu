@@ -221,9 +221,10 @@ fn main() -> ExitCode {
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(1));
         }
     };
-    // 利用記録は計測のためのもので、書けないことを理由に本来の操作を止めない。書けなかったことは警告で知らせる
-    if let Err(error) = Settings::from_env()
-        .and_then(|settings| usage::record(&settings.home, &cli.command.event_name()))
+    // 利用記録は計測のためのもので、書けないことを理由に本来の操作を止めない。書けなかったことは警告で知らせる。
+    // 設定 (`TANSU_HOME`) を読めない時は、同じエラーを本来の操作が出すので警告を重ねない
+    if let Ok(settings) = Settings::from_env()
+        && let Err(error) = usage::record(&settings.home, &cli.command.event_name())
     {
         eprintln!("tansu: 警告: 利用記録を書けませんでした: {error}");
     }

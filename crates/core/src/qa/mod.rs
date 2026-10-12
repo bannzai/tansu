@@ -274,7 +274,9 @@ pub(crate) fn full_sha(commit: &str) -> Result<String, Error> {
 
 /// `directory` で `git <args>` を実行し、stdout を返す。git を起動できない時と失敗した時は [`Error::Git`]。
 pub(crate) fn git(directory: &Path, args: &[&str]) -> Result<String, Error> {
+    // `--literal-pathspecs`: feature のディレクトリ名に `*` `[` などがあっても、glob ではなくそのままのパスとして扱う
     let output = Command::new("git")
+        .arg("--literal-pathspecs")
         .arg("-C")
         .arg(directory)
         .args(args)
