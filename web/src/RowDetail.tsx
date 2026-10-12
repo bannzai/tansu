@@ -28,7 +28,6 @@ type Loaded = {
   backlinks: { database: Database; property: Property; rows: Row[] }[];
 };
 
-
 /** データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。 */
 export function RowDetail({
   databaseName,
