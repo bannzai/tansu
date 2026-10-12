@@ -1788,11 +1788,7 @@ async fn mcp_records_a_run_and_reports_verified() {
     assert_eq!(recorded["values"]["source"]["value"], "record");
     assert_eq!(recorded["values"]["run_id"]["value"], "mcp-test-1");
     assert_eq!(run_count(&sandbox), before + 1);
-    assert!(
-        query(&sandbox, "run", &["--where", "run_id=mcp-test-1"])
-            .iter()
-            .any(|run| *run == recorded)
-    );
+    assert!(query(&sandbox, "run", &["--where", "run_id=mcp-test-1"]).contains(&recorded));
 
     let verified_after = call_mcp_json(
         &client,
