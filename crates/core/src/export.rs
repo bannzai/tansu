@@ -90,7 +90,7 @@ fn id_text(id: &str) -> String {
 
 /// 保存した文字列をそのまま読めるよう、HTML の `<` `>` `&` を文字参照に、markdown の記号を `\` 付きにする。
 /// 改行 (markdown は CR も改行として読むため CRLF・CR・LF のどれも) は、エスケープの後で `<br>` にする。
-fn escape_cell(text: &str) -> String {
+pub(crate) fn escape_cell(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(character) = chars.next() {

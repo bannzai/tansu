@@ -2,6 +2,7 @@
 //! どのテストも `TANSU_HOME` と `HOME` をテストごとの一時ディレクトリにし、実際のホームディレクトリには書かない。
 
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
@@ -786,6 +787,693 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
     );
     let stderr = fail(&sandbox, &["qa", "import", "--json", "/nonexistent/QA.md"]);
     assert!(stderr.contains("/nonexistent/QA.md"), "{stderr}");
+}
+
+/// `directory` の下を `destination` へ再帰的に複製する。
+fn copy_dir(directory: &Path, destination: &Path) {
+    std::fs::create_dir_all(destination).unwrap();
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let target = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+/// `repository` で `git <args>` を成功させ、stdout の前後の空白を除いて返す。開発者・CI の git の設定
+/// (署名・ユーザー名) に左右されないよう、commit に要る設定をここで渡す。
+fn git(repository: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repository)
+        .args([
+            "-c",
+            "user.name=tansu-test",
+            "-c",
+            "user.email=tansu-test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+/// `repository` の作業ツリーをすべて commit し、その full SHA を返す。
+fn commit_all(repository: &Path, message: &str) -> String {
+    git(repository, &["add", "-A"]);
+    git(repository, &["commit", "-q", "-m", message]);
+    git(repository, &["rev-parse", "HEAD"])
+}
+
+/// `tansu <args>` を実行し、(exit code, stdout, stderr) を返す。
+fn run(sandbox: &Sandbox, args: &[&str]) -> (Option<i32>, String, String) {
+    let output = command(sandbox, args).output().unwrap();
+    (
+        output.status.code(),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+/// `tansu qa verified --repo acme/notes --commit <commit> --json <options>` を実行し、(exit code, 出力の JSON) を返す。
+fn verified(sandbox: &Sandbox, commit: &str, options: &[&str]) -> (Option<i32>, Value) {
+    let mut args = vec![
+        "qa",
+        "verified",
+        "--repo",
+        "acme/notes",
+        "--commit",
+        commit,
+        "--json",
+    ];
+    args.extend(options);
+    let (code, stdout, stderr) = run(sandbox, &args);
+    (
+        code,
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("{error}: {stdout} {stderr}")),
+    )
+}
+
+/// `verified` の出力から、feature 名が `name` の要素。
+fn feature_of<'a>(report: &'a Value, name: &str) -> &'a Value {
+    report["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|feature| feature["feature"] == name)
+        .unwrap_or_else(|| panic!("feature `{name}` が無い: {report}"))
+}
+
+/// データベース `run` の行の数。
+fn run_count(sandbox: &Sandbox) -> usize {
+    query(sandbox, "run", &[]).len()
+}
+
+/// `usage.jsonl` の行を JSON にして返す (ファイルが無ければ空)。
+fn usage_lines(sandbox: &Sandbox) -> Vec<Value> {
+    std::fs::read_to_string(sandbox.tansu_home.path().join("usage.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// JSON の中のオブジェクトのキーを、入れ子 (配列の要素を含む) まで再帰的に `keys` に集める。
+fn collect_keys(value: &Value, keys: &mut std::collections::BTreeSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                keys.insert(key.clone());
+                collect_keys(value, keys);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| collect_keys(item, keys)),
+        _ => {}
+    }
+}
+
+/// `fixtures/qa/sample-notes` を git の合成リポジトリ (origin は `acme/notes`) に複製して 1 つ目の commit を作り、
+/// `qa import` で取り込む。(リポジトリを置いた一時ディレクトリ, ルート, 1 つ目の commit) を返す。
+fn imported_repository(sandbox: &Sandbox) -> (TempDir, PathBuf, String) {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("notes");
+    copy_dir(
+        Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/qa/sample-notes"
+        )),
+        &root,
+    );
+    // feature の実装に当たる、QA.md 以外のファイル
+    std::fs::write(root.join("features/settings/theme.txt"), "dark\n").unwrap();
+    git(&root, &["init", "-q"]);
+    git(
+        &root,
+        &["remote", "add", "origin", "git@github.com:acme/notes.git"],
+    );
+    let first = commit_all(&root, "first");
+    succeed(sandbox, &["qa", "import", "--json", root.to_str().unwrap()]);
+    (directory, root, first)
+}
+
+#[test]
+fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
+    let sandbox = sandbox();
+    let (_directory, _root, first) = imported_repository(&sandbox);
+    let before = run_count(&sandbox);
+    let usage_before = usage_lines(&sandbox).len();
+
+    let recorded = succeed_json(
+        &sandbox,
+        &[
+            "qa",
+            "record",
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "一覧の並び",
+            "--result",
+            "OK",
+            "--commit",
+            &first,
+            "--note",
+            "並びを確認した",
+            "--image-url",
+            "https://example.com/sample-notes/note_list/order-1.png",
+            "--image-url",
+            "https://example.com/sample-notes/note_list/order-(2).png",
+            "--env",
+            "iPhone 17 (iOS 27.0)",
+            "--json",
+        ],
+    );
+    let values = &recorded["values"];
+    assert_eq!(values["result"]["value"], "ok");
+    assert_eq!(values["source"]["value"], "record");
+    assert_eq!(values["commit"]["value"], first);
+    assert_eq!(values["note"]["value"], "並びを確認した");
+    assert_eq!(values["env"]["value"], "iPhone 17 (iOS 27.0)");
+    assert_eq!(
+        values["image_url"]["value"],
+        "https://example.com/sample-notes/note_list/order-1.png"
+    );
+    assert_eq!(
+        recorded["body"],
+        "![](<https://example.com/sample-notes/note_list/order-1.png>)\n![](<https://example.com/sample-notes/note_list/order-(2).png>)\n"
+    );
+    assert!(
+        values["run_id"]["value"]
+            .as_str()
+            .unwrap()
+            .starts_with("record:")
+    );
+    let recorded_at = values["recorded_at"]["value"].as_str().unwrap();
+    assert!(
+        is_date_time_with_offset(recorded_at),
+        "recorded_at: {recorded_at}"
+    );
+    assert_eq!(run_count(&sandbox), before + 1);
+    let item_id = values["item"]["value"][0].as_str().unwrap().to_owned();
+
+    // 実行のたびに 1 行足す
+    let text = succeed(
+        &sandbox,
+        &[
+            "qa", "record", "--item", &item_id, "--result", "ng", "--commit", &first,
+        ],
+    );
+    assert!(text.starts_with("run "), "{text}");
+    assert_eq!(run_count(&sandbox), before + 2);
+
+    // 同じ --run-id の 2 回目は行を増やさず、その行を置き換える
+    for result in ["later", "ok"] {
+        succeed(
+            &sandbox,
+            &[
+                "qa", "record", "--item", &item_id, "--result", result, "--commit", &first,
+                "--run-id", "retry-1",
+            ],
+        );
+    }
+    assert_eq!(run_count(&sandbox), before + 3);
+    let retried = query(&sandbox, "run", &["--where", "run_id=retry-1"]);
+    assert_eq!(retried.len(), 1);
+    assert_eq!(retried[0]["values"]["result"]["value"], "ok");
+
+    // --commit が無い・full SHA でない・項目が無い・結果が選択肢に無い・取り込みの run_id は書かない
+    let (code, _, stderr) = run(
+        &sandbox,
+        &["qa", "record", "--item", &item_id, "--result", "ok"],
+    );
+    assert_ne!(code, Some(0));
+    assert!(stderr.contains("--commit"), "{stderr}");
+    for args in [
+        vec![
+            "--item",
+            &item_id,
+            "--result",
+            "ok",
+            "--commit",
+            &first[..7],
+        ],
+        vec!["--item", "missing", "--result", "ok", "--commit", &first],
+        vec![
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "無い項目",
+            "--result",
+            "ok",
+            "--commit",
+            &first,
+        ],
+        vec!["--item", &item_id, "--result", "done", "--commit", &first],
+        vec![
+            "--item",
+            &item_id,
+            "--result",
+            "ok",
+            "--commit",
+            &first,
+            "--image-url",
+            "https://example.com/a.png\n## 見出し",
+        ],
+        vec![
+            "--item", &item_id, "--result", "ok", "--commit", &first, "--run-id", "import:x",
+        ],
+    ] {
+        let mut full = vec!["qa", "record"];
+        full.extend(args);
+        fail(&sandbox, &full);
+    }
+    assert_eq!(run_count(&sandbox), before + 3);
+
+    // 実行の種類と日時だけを利用記録に 1 行ずつ足す (成功した 4 回・失敗した 6 回の qa record と、間の query)
+    let usage = usage_lines(&sandbox);
+    let records: Vec<&Value> = usage[usage_before..]
+        .iter()
+        .filter(|line| line["event"] == "qa_record")
+        .collect();
+    assert_eq!(records.len(), 4 + 6);
+    assert_eq!(records[0].as_object().unwrap().len(), 2);
+    assert!(is_date_time_with_offset(records[0]["at"].as_str().unwrap()));
+    assert!(
+        usage[usage_before..]
+            .iter()
+            .any(|line| line["event"] == "query")
+    );
+}
+
+/// `text` が秒までの時差付きの日時 (`2026-10-12T09:00:00+09:00` か `2026-10-12T00:00:00Z`) の形か。
+fn is_date_time_with_offset(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let offset = text.get("2026-10-12T09:00:00".len()..).unwrap_or_default();
+    bytes.len() > 10
+        && bytes[4] == b'-'
+        && bytes[10] == b'T'
+        && (offset == "Z" || (offset.len() == "+09:00".len() && offset.starts_with(['+', '-'])))
+}
+
+#[test]
+fn qa_verified_returns_changed_features_and_unverified_items() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+
+    // 取り込んだ run の commit は合成の SHA でリポジトリに無く、run の無い item もあるので再テストが要る
+    let (code, report) = verified(&sandbox, &first, &[]);
+    assert_eq!(code, Some(1), "{report}");
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["repo"], "acme/notes");
+    assert_eq!(report["commit"], first);
+    let note_list = feature_of(&report, "note_list");
+    // last_verified_commit (合成の SHA) がリポジトリに無いので、ディレクトリの全ファイル (QA.md を除く) を返す。
+    // fixture のディレクトリには QA.md しか無いので空
+    assert_eq!(
+        note_list["last_verified_commit"],
+        "3f2a9c1e5b7d4a6f8c0e2b4d6f8a1c3e5b7d9f0a"
+    );
+    assert_eq!(note_list["changed_files"], json!([]));
+    let unverified: Vec<&str> = note_list["unverified_items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(unverified, ["空の案内", "ピン留めの固定", "スワイプで削除"]);
+    // frontmatter の last_verified_commit が null の feature は、確かめた commit が無いのでディレクトリの全ファイルを返す
+    let settings = feature_of(&report, "settings");
+    assert_eq!(settings["last_verified_commit"], Value::Null);
+    assert_eq!(
+        settings["changed_files"],
+        json!(["features/settings/theme.txt"])
+    );
+    // ルート直下の feature は diff しない
+    assert_eq!(feature_of(&report, "_root")["changed_files"], json!([]));
+
+    // すべての item を 1 つ目の commit で ok にすると、再テストは要らない
+    for item in query(&sandbox, "item", &[]) {
+        succeed(
+            &sandbox,
+            &[
+                "qa",
+                "record",
+                "--item",
+                item["id"].as_str().unwrap(),
+                "--result",
+                "ok",
+                "--commit",
+                &first,
+            ],
+        );
+    }
+    let (code, report) = verified(&sandbox, &first, &[]);
+    assert_eq!(code, Some(0), "{report}");
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["features"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        feature_of(&report, "note_list")["last_verified_commit"],
+        first
+    );
+
+    // note_list のディレクトリを変えた commit では、その feature が changed_files 付きで返る
+    std::fs::write(root.join("features/note_list/list.txt"), "並び替え\n").unwrap();
+    // QA.md の変更は feature の実装の変更に数えない
+    let qa_md = root.join("features/note_editor/QA.md");
+    let mut text = std::fs::read_to_string(&qa_md).unwrap();
+    text.push_str("\n<!-- 追記 -->\n");
+    std::fs::write(&qa_md, text).unwrap();
+    let second = commit_all(&root, "second");
+    let (code, report) = verified(&sandbox, &second, &[]);
+    assert_eq!(code, Some(1), "{report}");
+    assert_eq!(report["ok"], false);
+    assert_eq!(
+        feature_of(&report, "note_list")["changed_files"],
+        json!(["features/note_list/list.txt"])
+    );
+    for name in ["_root", "note_editor", "settings"] {
+        assert_eq!(
+            feature_of(&report, name)["changed_files"],
+            json!([]),
+            "{name}"
+        );
+    }
+    // --diff-base を渡すと、そこからディレクトリが変わった feature だけを判定する
+    let (code, scoped) = verified(&sandbox, &second, &["--diff-base", &first]);
+    assert_eq!(code, Some(1), "{scoped}");
+    assert_eq!(scoped["features"].as_array().unwrap().len(), 1);
+    assert_eq!(scoped["features"][0]["feature"], "note_list");
+
+    // その feature の項目を新しい commit で記録すると、再テストは要らない (同じ秒の記録でも、後に足した run を最後とみなす)
+    succeed(
+        &sandbox,
+        &[
+            "qa",
+            "record",
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "検索で絞り込める",
+            "--result",
+            "skip",
+            "--commit",
+            &second,
+        ],
+    );
+    let (code, report) = verified(&sandbox, &second, &[]);
+    assert_eq!(code, Some(0), "{report}");
+    assert_eq!(
+        feature_of(&report, "note_list")["last_verified_commit"],
+        second
+    );
+
+    // run の無い item があると unverified_items に入り、exit 1
+    let note_list_id = query(&sandbox, "feature", &["--where", "name=note_list"])[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    upsert(
+        &sandbox,
+        "item",
+        json!({"id": "new-item", "values": {"feature": [note_list_id], "name": "新しい項目"}}),
+    );
+    let (code, report) = verified(&sandbox, &second, &[]);
+    assert_eq!(code, Some(1), "{report}");
+    assert_eq!(
+        feature_of(&report, "note_list")["unverified_items"],
+        json!([{"id": "new-item", "name": "新しい項目"}])
+    );
+    assert_eq!(feature_of(&report, "note_list")["changed_files"], json!([]));
+
+    // エラーは exit 2 (無い project・full SHA でない commit・リポジトリに無い commit・--json 無し)
+    for args in [
+        vec!["--repo", "acme/missing", "--commit", &second, "--json"],
+        vec!["--repo", "acme/notes", "--commit", &second[..7], "--json"],
+        vec![
+            "--repo",
+            "acme/notes",
+            "--commit",
+            &"0".repeat(40),
+            "--json",
+        ],
+        vec!["--repo", "acme/notes", "--commit", &second],
+    ] {
+        let mut full = vec!["qa", "verified"];
+        full.extend(args.iter().copied());
+        let (code, stdout, stderr) = run(&sandbox, &full);
+        assert_eq!(code, Some(2), "{args:?}: {stderr}");
+        assert!(stdout.is_empty());
+        assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    }
+}
+
+#[test]
+fn qa_verified_sees_japanese_paths_and_both_sides_of_a_rename() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+    for item in query(&sandbox, "item", &[]) {
+        succeed(
+            &sandbox,
+            &[
+                "qa",
+                "record",
+                "--item",
+                item["id"].as_str().unwrap(),
+                "--result",
+                "ok",
+                "--commit",
+                &first,
+            ],
+        );
+    }
+
+    // 日本語のパスも、git がエスケープした形ではなくそのままのパスで返す
+    std::fs::write(root.join("features/note_list/画面.txt"), "一覧\n").unwrap();
+    let second = commit_all(&root, "second");
+    let (code, scoped) = verified(&sandbox, &second, &["--diff-base", &first]);
+    assert_eq!(code, Some(1), "{scoped}");
+    assert_eq!(scoped["features"].as_array().unwrap().len(), 1, "{scoped}");
+    assert_eq!(
+        feature_of(&scoped, "note_list")["changed_files"],
+        json!(["features/note_list/画面.txt"])
+    );
+
+    // ほかの feature のディレクトリへ移したファイルは、移動元と移動先の両方の feature の変更に数える
+    git(
+        &root,
+        &[
+            "mv",
+            "features/settings/theme.txt",
+            "features/note_editor/theme.txt",
+        ],
+    );
+    let third = commit_all(&root, "third");
+    let (code, scoped) = verified(&sandbox, &third, &["--diff-base", &second]);
+    assert_eq!(code, Some(1), "{scoped}");
+    let names: Vec<&str> = scoped["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|feature| feature["feature"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["note_editor", "settings"], "{scoped}");
+    assert_eq!(
+        feature_of(&scoped, "settings")["changed_files"],
+        json!(["features/settings/theme.txt"])
+    );
+    assert_eq!(
+        feature_of(&scoped, "note_editor")["changed_files"],
+        json!(["features/note_editor/theme.txt"])
+    );
+}
+
+#[test]
+fn qa_export_pr_summary_shows_the_latest_run_of_each_item() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+    let recorded = succeed_json(
+        &sandbox,
+        &[
+            "qa",
+            "record",
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "一覧の並び",
+            "--result",
+            "ok",
+            "--commit",
+            &first,
+            "--image-url",
+            "https://example.com/sample-notes/note_list/order-new.png",
+            "--json",
+        ],
+    );
+    let recorded_date = &recorded["values"]["recorded_at"]["value"].as_str().unwrap()[..10];
+    std::fs::write(root.join("features/note_list/list.txt"), "並び替え\n").unwrap();
+    let second = commit_all(&root, "second");
+    succeed(
+        &sandbox,
+        &[
+            "qa",
+            "record",
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "検索で絞り込める",
+            "--result",
+            "ng",
+            "--commit",
+            &second,
+        ],
+    );
+
+    let summary = succeed(
+        &sandbox,
+        &[
+            "qa",
+            "export",
+            "--repo",
+            "acme/notes",
+            "--format",
+            "pr-summary",
+        ],
+    );
+    assert!(
+        summary.starts_with("## QA の記録 (acme/notes)\n"),
+        "{summary}"
+    );
+    // 見出しの feature 名は markdown の記号 (`_` 等) をエスケープして出す
+    assert!(summary.contains("### note\\_list\n"), "{summary}");
+    assert!(
+        summary.contains("| 項目 | 結果 | 確認日 | 画像 | commit |"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains(&format!(
+            "| 一覧の並び | OK | {recorded_date} | [画像](<https://example.com/sample-notes/note_list/order-new.png>) | `{}` |",
+            &first[..7]
+        )),
+        "{summary}"
+    );
+    assert!(
+        summary.contains(&format!(
+            "| 検索で絞り込める | NG | {recorded_date} | — | `{}` |",
+            &second[..7]
+        )),
+        "{summary}"
+    );
+    // 取り込んだ run も最後の run として出る (確認日は QA.md の確認日、commit は frontmatter の合成の SHA)
+    assert!(
+        summary.contains("| 画像を貼れる | NG | 2026-10-07 |"),
+        "{summary}"
+    );
+    // run の無い item は出さない
+    assert!(!summary.contains("空の案内"), "{summary}");
+
+    // --since はその commit の子孫で記録した run だけを出す (その commit 自身の run は出さない)
+    let since = succeed(
+        &sandbox,
+        &[
+            "qa",
+            "export",
+            "--repo",
+            "acme/notes",
+            "--format",
+            "pr-summary",
+            "--since",
+            &first,
+        ],
+    );
+    assert!(since.contains("検索で絞り込める"), "{since}");
+    assert!(!since.contains("一覧の並び"), "{since}");
+    assert!(since.contains("### note\\_list\n"), "{since}");
+    assert!(!since.contains("### note\\_editor"), "{since}");
+
+    fail(
+        &sandbox,
+        &[
+            "qa",
+            "export",
+            "--repo",
+            "acme/missing",
+            "--format",
+            "pr-summary",
+        ],
+    );
+}
+
+#[test]
+fn cli_contract_lists_every_json_key_the_qa_commands_print() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+    let mut keys = std::collections::BTreeSet::new();
+    collect_keys(
+        &succeed_json(
+            &sandbox,
+            &["qa", "import", "--json", root.to_str().unwrap()],
+        ),
+        &mut keys,
+    );
+    let recorded = succeed_json(
+        &sandbox,
+        &[
+            "qa",
+            "record",
+            "--repo",
+            "acme/notes",
+            "--feature",
+            "note_list",
+            "--item-name",
+            "一覧の並び",
+            "--result",
+            "ok",
+            "--commit",
+            &first,
+            "--note",
+            "メモ",
+            "--image-url",
+            "https://example.com/a.png",
+            "--env",
+            "env",
+            "--json",
+        ],
+    );
+    collect_keys(&recorded, &mut keys);
+    collect_keys(&verified(&sandbox, &first, &[]).1, &mut keys);
+
+    let contract = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../documents/cli-contract.md"
+    ))
+    .unwrap();
+    let missing: Vec<&String> = keys
+        .iter()
+        .filter(|key| !contract.contains(&format!("`{key}`")))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "documents/cli-contract.md に無いキー: {missing:?}"
+    );
 }
 
 #[test]

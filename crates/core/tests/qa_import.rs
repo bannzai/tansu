@@ -158,8 +158,14 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
     );
     assert_eq!(
         plain_values(&features[1]),
-        json!({"project": [project_id], "name": "note_editor", "verification": "agent-browser, manual"})
+        json!({
+            "project": [project_id],
+            "name": "note_editor",
+            "verification": "agent-browser, manual",
+            "path": "features/note_editor",
+        })
     );
+    assert_eq!(features[0]["values"]["path"]["value"], "");
     let note_editor_id = features[1]["id"].as_str().unwrap();
 
     // item: 自動化の 2 列と仕様 ID

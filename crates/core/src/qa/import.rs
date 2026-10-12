@@ -12,7 +12,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::qa_md::{self, QaMd, QaMdItem, QaMdRecordKind, SkippedLine};
-use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema};
+use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema, find_row_id};
 use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
 use crate::model::Id;
@@ -55,7 +55,8 @@ pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
 /// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。
 ///
 /// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
-/// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)
+/// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)。
+///   `path` は QA.md のディレクトリ ([`feature_directory`])
 /// - item: 項目名・期待動作・自動化・仕様 ID。`labels` は QA.md に無いため触らない
 /// - run: チェック済み (`ok`)・⏭️ (`skip`)・❌ (`ng`) の項目に 1 行。`source` は `import`、`run_id` は `import:<item の行 ID>`、
 ///   `recorded_at` はエビデンスの確認日 (無ければ frontmatter の `last_verified_at`、それも無ければ値なし)、
@@ -188,7 +189,7 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     // 同じ project の同じ feature 名の 2 つ目以降のファイルは `parse_all` が読み飛ばした行として報告済み。
     // 書くと空の値で 1 つ目のファイルの feature (verification) を消すため、書かない
     let mut written_features: BTreeSet<(&str, &str)> = BTreeSet::new();
-    for (root, repo, _, feature, qa_md) in parsed {
+    for (root, repo, file, feature, qa_md) in parsed {
         if !written_features.insert((repo.as_str(), feature.as_str())) {
             continue;
         }
@@ -220,7 +221,12 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
             FEATURE,
             &json!({
                 "id": feature_id,
-                "values": {"project": [project_id], "name": feature, "verification": qa_md.verification},
+                "values": {
+                    "project": [project_id],
+                    "name": feature,
+                    "verification": qa_md.verification,
+                    "path": feature_directory(root, file),
+                },
             }),
         )
         .await?;
@@ -296,16 +302,6 @@ fn run_result(item: &QaMdItem) -> Option<&'static str> {
     }
 }
 
-/// データベース `database_name` で `filters` に一致する最初の行の ID。無ければ `None`。
-async fn find_row_id(
-    connection: &Connection,
-    database_name: &str,
-    filters: &[String],
-) -> Result<Option<Id>, Error> {
-    let (_, rows) = rows::query_in(connection, database_name, filters, None, Some(1)).await?;
-    Ok(rows.into_iter().next().map(|row| row.id))
-}
-
 /// `directory` の下の `QA.md` を再帰的に探してパス順で `files` に足す。`.git` / `node_modules` / `target` の下は見ず、
 /// symlink は辿らない (リポジトリの外へ出ないように)。
 fn find_qa_md(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), Error> {
@@ -336,6 +332,23 @@ fn default_feature_name(root: &Path, file: &Path) -> String {
         || parent.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
+}
+
+/// feature の `path`: QA.md があるディレクトリの、ルートからの相対パス (区切りは `/`)。ルート直下の QA.md は空文字
+/// (`qa verified` はルート直下の feature のディレクトリを diff しない)。
+fn feature_directory(root: &Path, file: &Path) -> String {
+    file.parent()
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .map(|relative| {
+            relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/")
+        })
+        // `parse_all` はルートの下のファイルと、親ディレクトリか git のルートをルートにしたファイルだけを集めるため、
+        // ルートの外のファイルは来ない
+        .unwrap_or_default()
 }
 
 /// `directory` を含む git リポジトリのルート (`git rev-parse --show-toplevel`)。git の外なら `None`。
@@ -421,6 +434,16 @@ mod tests {
         let root = directory.path().join("my-app");
         std::fs::create_dir(&root).unwrap();
         assert_eq!(repo_name(&root), "my-app");
+    }
+
+    #[test]
+    fn feature_directory_is_relative_to_the_root() {
+        let root = Path::new("/r");
+        assert_eq!(feature_directory(root, Path::new("/r/QA.md")), "");
+        assert_eq!(
+            feature_directory(root, Path::new("/r/features/notes/QA.md")),
+            "features/notes"
+        );
     }
 
     #[test]

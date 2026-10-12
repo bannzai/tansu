@@ -49,7 +49,7 @@
 | `tansu serve [--host 127.0.0.1] [--port 7979] [--allow-host <ホスト名>]...` | Web 画面と HTTP API のサーバーを起動する。ポートの既定は 7979 (開発マシンで同時に動く他の dev サーバーの既定と重ならない番号。環境変数 `TANSU_PORT` でも指定でき、`--port` が優先)。`--allow-host` は「制約」の `Host` の許可リストに足す |
 | `tansu mcp` | MCP サーバー (stdio) を起動する |
 
-引数の形・JSON の形・exit code は、castle 側が依存する範囲を `documents/cli-contract.md` に書いて固定する (QA 層の CLI の issue で作る)。契約を変える時は同じ変更の中で更新する。
+引数の形・JSON の形・exit code は、castle 側が依存する範囲を `documents/cli-contract.md` に書いて固定する。契約を変える時は同じ変更の中で更新する。
 
 ## QA 層 (汎用の上に載せる)
 
@@ -60,7 +60,7 @@
 | データベース | 内容 |
 | --- | --- |
 | project | リポジトリ (`owner/repo`)、ローカルの checkout のパス |
-| feature | project への relation、feature 名、QA.md の `verification` (動作確認手段) |
+| feature | project への relation、feature 名、QA.md の `verification` (動作確認手段)、QA.md があったディレクトリ `path` (project の checkout からの相対パス。`qa verified` が変更を見る範囲) |
 | item | feature への relation、項目名、期待動作、自動化ステータス (`auto(<flow のパス>)` / `manual(<理由>)` / `todo`)、仕様 ID (S1, S2, ...) の紐付け、label (multi-select) |
 | run | item への relation、結果 (OK / NG / あとで / スキップ)、メモ、記録日時 `recorded_at` (時差付きの ISO 8601。QA.md から取り込んだ記録は `**確認日:**` の日付)、記録の経路 `source` (select: `record` = `qa record` / Web 画面で記録、`import` = `qa import` で取り込み)、画像 URL、検証環境、検証した commit SHA (full) |
 
@@ -69,9 +69,9 @@
 | コマンド | 役割 |
 | --- | --- |
 | `tansu qa import <QA.md のパスまたはリポジトリのルート>... [--json] [--dry-run]` | QA.md 群を DB に取り込む (4 つの表が無ければ作る)。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む。同じファイルを 2 回取り込んでも行が増えない (冪等)。`--json` は取り込んだ件数と読み飛ばした行を JSON で出し、`--dry-run` は書かずに同じ出力を出す。読み替えの規則は `documents/data-model.md`「QA 層」 |
-| `tansu qa record --item <ID> --result OK\|NG\|later\|skip --commit <sha> [--note ...] [--image-url ...] [--env ...] [--run-id <ID>]` | agent が実行結果を書く。実行のたびに run を 1 行足す (冪等性の扱いは「制約」) |
-| `tansu qa verified --repo <owner/repo> --commit <sha> --json` | その commit 以降に変更された feature と未検証の項目を返す。run の commit と `git diff` を突き合わせる。castle の release-app / auto-merge-pr のゲートがこれを呼ぶ |
-| `tansu qa export --repo <owner/repo> --format pr-summary` | PR body に貼る「何をどう確認したか」の要約 |
+| `tansu qa record (--item <ID> \| --repo <owner/repo> --feature <名前> --item-name <項目名>) --result ok\|ng\|later\|skip --commit <full SHA> [--note ...] [--image-url ...]... [--env ...] [--run-id <ID>] [--json]` | agent が実行結果を書く。実行のたびに run を 1 行足す (冪等性の扱いは「制約」) |
+| `tansu qa verified --repo <owner/repo> --commit <full SHA> [--diff-base <commit>] --json` | その commit 以降に変更された feature と未検証の項目を返す。run の commit と `git diff` を突き合わせる。exit code は判定が通れば 0、再テストが要れば 1、エラーは 2。castle の release-app / auto-merge-pr のゲートがこれを呼ぶ |
+| `tansu qa export --repo <owner/repo> --format pr-summary [--since <commit>]` | PR body に貼る「何をどう確認したか」の要約 |
 
 ### QA.md の形式
 

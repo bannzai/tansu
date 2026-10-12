@@ -49,6 +49,9 @@ pub enum Error {
     /// 必ず 1 行返すはずの問い合わせが行を返さなかった。
     #[error("{0} が結果を返しませんでした")]
     EmptyResult(&'static str),
+    /// git (`qa verified` / `qa export` が project の checkout で実行する) を起動できなかった、または失敗した。
+    #[error("git の実行に失敗しました: {0}")]
+    Git(String),
     /// DB ファイルを置くディレクトリを作れなかった、などのファイル操作の失敗。
     #[error("ファイル操作に失敗しました: {0}")]
     Io(#[from] std::io::Error),
