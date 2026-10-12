@@ -41,6 +41,15 @@ run の `values` のプロパティ (`type` と `value` の型):
 | `commit` | `text` | string (full SHA) |
 | `run_id` | `text` | string |
 
+## `tansu query <データベース> --json [--where <条件>]... [--sort <プロパティ名>[:asc|:desc]] [--limit <N>]`
+
+行を絞り込み、上の「行の JSON」の配列を stdout に出す。DB には書かない。
+
+- `--where` は `<プロパティ名><演算子><値>`。演算子は `=` (等価)、`^=` (前方一致。text / url / date)、`>=` / `<=` / `>` / `<` (比較。number / date。date は UTC に直した時刻で比べる)。複数指定はすべてに一致する行 (AND)。値の無い行は比較に一致しない。型ごとの値の書き方と比べ方の規則は `documents/data-model.md`「CLI の入出力」
+- 例: `tansu query run --json --where "recorded_at>=2026-10-01" --where source=record` は、2026-10-01 0 時 (UTC) 以降に `qa record` が記録した run
+- `--sort` が無ければ追加した順。値の無い行は昇順でも降順でも最後
+- exit code: 成功 0 (一致する行が無ければ `[]`)、失敗 1 (データベース・プロパティが無い・`--where` を解釈できない・型に使えない演算子・型に合わない値・`--json` が無い)、引数の誤り 2
+
 ## `tansu qa import <パス>... [--json] [--dry-run]`
 
 QA.md 群を QA 層の 4 つのデータベース (project / feature / item / run) に取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。同じ入力を 2 回取り込んでも行は増えない。読み替えの規則は `documents/data-model.md`「QA 層」。
