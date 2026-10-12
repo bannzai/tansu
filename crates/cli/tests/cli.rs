@@ -1020,7 +1020,14 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
     assert_ne!(code, Some(0));
     assert!(stderr.contains("--commit"), "{stderr}");
     for args in [
-        vec!["--item", &item_id, "--result", "ok", "--commit", &first[..7]],
+        vec![
+            "--item",
+            &item_id,
+            "--result",
+            "ok",
+            "--commit",
+            &first[..7],
+        ],
         vec!["--item", "missing", "--result", "ok", "--commit", &first],
         vec![
             "--repo",
@@ -1036,14 +1043,7 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
         ],
         vec!["--item", &item_id, "--result", "done", "--commit", &first],
         vec![
-            "--item",
-            &item_id,
-            "--result",
-            "ok",
-            "--commit",
-            &first,
-            "--run-id",
-            "import:x",
+            "--item", &item_id, "--result", "ok", "--commit", &first, "--run-id", "import:x",
         ],
     ] {
         let mut full = vec!["qa", "record"];
@@ -1214,7 +1214,13 @@ fn qa_verified_returns_changed_features_and_unverified_items() {
     for args in [
         vec!["--repo", "acme/missing", "--commit", &second, "--json"],
         vec!["--repo", "acme/notes", "--commit", &second[..7], "--json"],
-        vec!["--repo", "acme/notes", "--commit", &"0".repeat(40), "--json"],
+        vec![
+            "--repo",
+            "acme/notes",
+            "--commit",
+            &"0".repeat(40),
+            "--json",
+        ],
         vec!["--repo", "acme/notes", "--commit", &second],
     ] {
         let mut full = vec!["qa", "verified"];
@@ -1282,7 +1288,10 @@ fn qa_export_pr_summary_shows_the_latest_run_of_each_item() {
             "pr-summary",
         ],
     );
-    assert!(summary.starts_with("## QA の記録 (acme/notes)\n"), "{summary}");
+    assert!(
+        summary.starts_with("## QA の記録 (acme/notes)\n"),
+        "{summary}"
+    );
     assert!(summary.contains("### note_list\n"), "{summary}");
     assert!(
         summary.contains("| 項目 | 結果 | 確認日 | 画像 | commit |"),

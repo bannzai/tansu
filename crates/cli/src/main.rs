@@ -595,10 +595,9 @@ mod tests {
         ] {
             assert!(parse(args).is_err(), "{args:?}");
         }
-        let missing_commit = Cli::try_parse_from([
-            "tansu", "qa", "record", "--item", "i1", "--result", "ok",
-        ])
-        .unwrap_err();
+        let missing_commit =
+            Cli::try_parse_from(["tansu", "qa", "record", "--item", "i1", "--result", "ok"])
+                .unwrap_err();
         assert_eq!(missing_commit.kind(), ErrorKind::MissingRequiredArgument);
     }
 

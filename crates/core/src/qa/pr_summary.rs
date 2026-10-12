@@ -60,7 +60,11 @@ pub async fn pr_summary(
                 // `merge-base --is-ancestor` は祖先なら exit 0、そうでなければ exit 1、解決できない commit はエラーで、
                 // どれも 0 以外は「子孫でない」として扱う
                 commit != since.as_str()
-                    && git(checkout, &["merge-base", "--is-ancestor", since.as_str(), commit]).is_ok()
+                    && git(
+                        checkout,
+                        &["merge-base", "--is-ancestor", since.as_str(), commit],
+                    )
+                    .is_ok()
             })
         }
     };
@@ -70,9 +74,11 @@ pub async fn pr_summary(
     for feature in &tables.features {
         let mut table_rows = Vec::new();
         for item in tables.items_of(feature) {
-            let Some(run) = tables.latest(tables.runs_of(item).filter(|(_, run)| {
-                is_after_since(text_of(&tables.run_database, run, "commit"))
-            })) else {
+            let Some(run) =
+                tables.latest(tables.runs_of(item).filter(|(_, run)| {
+                    is_after_since(text_of(&tables.run_database, run, "commit"))
+                }))
+            else {
                 continue;
             };
             let result = select_name_of(&tables.run_database, run, "result");

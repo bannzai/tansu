@@ -104,11 +104,16 @@ pub async fn verified(
         }
         let items = tables.items_of(feature);
         let last_verified_commit = tables
-            .latest(items.iter().flat_map(|item| tables.runs_of(item)).filter(|(_, run)| {
-                text_of(&tables.run_database, run, "commit").is_some()
-                    && select_name_of(&tables.run_database, run, "result")
-                        .is_some_and(|result| VERIFIED_RESULTS.contains(&result.as_str()))
-            }))
+            .latest(
+                items
+                    .iter()
+                    .flat_map(|item| tables.runs_of(item))
+                    .filter(|(_, run)| {
+                        text_of(&tables.run_database, run, "commit").is_some()
+                            && select_name_of(&tables.run_database, run, "result")
+                                .is_some_and(|result| VERIFIED_RESULTS.contains(&result.as_str()))
+                    }),
+            )
             .and_then(|run| text_of(&tables.run_database, run, "commit"))
             .map(str::to_owned);
         features.push(FeatureVerification {
@@ -117,7 +122,12 @@ pub async fn verified(
                 // 項目の無い feature には確かめるものが無い (再テストを求めると、記録できないまま判定が通らなくなる)
                 Vec::new()
             } else {
-                changed_files(checkout, directory, last_verified_commit.as_deref(), &commit)?
+                changed_files(
+                    checkout,
+                    directory,
+                    last_verified_commit.as_deref(),
+                    &commit,
+                )?
             },
             unverified_items: items
                 .iter()
@@ -171,7 +181,15 @@ fn changed_files(
     {
         Some(last) => git(
             checkout,
-            &["diff", "--name-only", "--relative", last, commit, "--", directory],
+            &[
+                "diff",
+                "--name-only",
+                "--relative",
+                last,
+                commit,
+                "--",
+                directory,
+            ],
         )?,
         None => git(
             checkout,

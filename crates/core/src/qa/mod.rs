@@ -160,8 +160,14 @@ impl RepoTables {
 /// `repo` の project と、feature / item / run の表を読む。`connection` は読み取りのトランザクション。
 /// project が無ければ [`Error::InvalidInput`]。
 pub(crate) async fn load_repo(connection: &Connection, repo: &str) -> Result<RepoTables, Error> {
-    let (project_database, projects) =
-        rows::query_in(connection, PROJECT, &[format!("repo={repo}")], None, Some(1)).await?;
+    let (project_database, projects) = rows::query_in(
+        connection,
+        PROJECT,
+        &[format!("repo={repo}")],
+        None,
+        Some(1),
+    )
+    .await?;
     let project = projects.into_iter().next().ok_or_else(|| {
         Error::InvalidInput(format!(
             "project `{repo}` はありません (qa import で取り込んだリポジトリの owner/repo を指定してください)"
@@ -195,7 +201,11 @@ fn property_value<'a>(database: &Database, row: &'a Row, property_name: &str) ->
 }
 
 /// text / url / date のプロパティ `property_name` の値。無ければ `None`。
-pub(crate) fn text_of<'a>(database: &Database, row: &'a Row, property_name: &str) -> Option<&'a str> {
+pub(crate) fn text_of<'a>(
+    database: &Database,
+    row: &'a Row,
+    property_name: &str,
+) -> Option<&'a str> {
     match property_value(database, row, property_name)? {
         Value::Text(text) | Value::Url(text) | Value::Date(text) => Some(text),
         _ => None,
@@ -212,11 +222,17 @@ pub(crate) fn relation_of<'a>(database: &Database, row: &'a Row, property_name: 
 
 /// feature / item の行の `name`。無ければ行 ID (`upsert` で名前を付けずに足した行も、どの行かを示せるように)。
 pub(crate) fn row_name(database: &Database, row: &Row) -> String {
-    text_of(database, row, "name").unwrap_or(&row.id.0).to_owned()
+    text_of(database, row, "name")
+        .unwrap_or(&row.id.0)
+        .to_owned()
 }
 
 /// select のプロパティ `property_name` で選んだ選択肢の name。無ければ `None`。
-pub(crate) fn select_name_of(database: &Database, row: &Row, property_name: &str) -> Option<String> {
+pub(crate) fn select_name_of(
+    database: &Database,
+    row: &Row,
+    property_name: &str,
+) -> Option<String> {
     let property = database.property(property_name)?;
     named_json::value_to_json(&property.kind, row.values.get(&property.id)?)
         .as_str()
@@ -245,7 +261,9 @@ const SHA256_HEX_LENGTH: usize = 64;
 /// (castle の run-qa も記録が full SHA でない時は検証済みとみなさない)。
 pub(crate) fn full_sha(commit: &str) -> Result<String, Error> {
     if matches!(commit.len(), SHA1_HEX_LENGTH | SHA256_HEX_LENGTH)
-        && commit.chars().all(|character| character.is_ascii_hexdigit())
+        && commit
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
     {
         return Ok(commit.to_ascii_lowercase());
     }
@@ -270,15 +288,24 @@ pub(crate) fn git(directory: &Path, args: &[&str]) -> Result<String, Error> {
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
-    String::from_utf8(output.stdout)
-        .map_err(|error| Error::Git(format!("git {} の出力が UTF-8 ではありません: {error}", args.join(" "))))
+    String::from_utf8(output.stdout).map_err(|error| {
+        Error::Git(format!(
+            "git {} の出力が UTF-8 ではありません: {error}",
+            args.join(" ")
+        ))
+    })
 }
 
 /// `directory` のリポジトリで `rev` が指す commit の full SHA。解決できなければ `None`。
 pub(crate) fn resolve_commit(directory: &Path, rev: &str) -> Option<String> {
     git(
         directory,
-        &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ],
     )
     .ok()
     .map(|sha| sha.trim().to_owned())

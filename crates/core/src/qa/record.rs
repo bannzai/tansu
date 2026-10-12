@@ -54,7 +54,10 @@ pub struct RecordRequest {
 /// run の値: `item` は指定した項目、`source` は `record`、`recorded_at` は今の時刻 (時差付き ISO 8601)、
 /// `image_url` は最初の画像、本文は画像を 1 行 1 つの markdown の画像。同じ `run_id` の run があれば、その行を
 /// `request` の内容で置き換える (渡さなかった値は消す)。
-pub async fn record(connection: &Connection, request: &RecordRequest) -> Result<(Database, Row), Error> {
+pub async fn record(
+    connection: &Connection,
+    request: &RecordRequest,
+) -> Result<(Database, Row), Error> {
     let commit = full_sha(&request.commit)?;
     let run_id = match &request.run_id {
         None => format!("record:{}", Id::generate().0),
@@ -119,16 +122,24 @@ async fn item_id(connection: &Connection, selector: &ItemSelector) -> Result<Id,
             let feature_id = find_row_id(
                 connection,
                 FEATURE,
-                &[format!("project={}", project_id.0), format!("name={feature}")],
+                &[
+                    format!("project={}", project_id.0),
+                    format!("name={feature}"),
+                ],
             )
             .await?
             .ok_or_else(|| {
-                Error::InvalidInput(format!("project `{repo}` に feature `{feature}` はありません"))
+                Error::InvalidInput(format!(
+                    "project `{repo}` に feature `{feature}` はありません"
+                ))
             })?;
             find_row_id(
                 connection,
                 ITEM,
-                &[format!("feature={}", feature_id.0), format!("name={item_name}")],
+                &[
+                    format!("feature={}", feature_id.0),
+                    format!("name={item_name}"),
+                ],
             )
             .await?
             .ok_or_else(|| {
