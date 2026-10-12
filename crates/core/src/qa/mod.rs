@@ -313,6 +313,13 @@ pub(crate) fn resolve_commit(directory: &Path, rev: &str) -> Option<String> {
     .map(|sha| sha.trim().to_owned())
 }
 
+/// URL を markdown のリンク・画像の行き先 (`[..](ここ)`) に書く形にする。`)` などを含む URL でもリンクが途中で
+/// 終わらないよう `<...>` で囲み、その中で使えない `<` と `>` だけをパーセントエンコードする
+/// (CommonMark の link destination)。空白・改行を含む URL は `qa record` が受け付けない。
+pub(crate) fn markdown_link_destination(url: &str) -> String {
+    format!("<{}>", url.replace('<', "%3C").replace('>', "%3E"))
+}
+
 /// `git <args> -z` の出力 (NUL 区切りのファイルのパスの一覧) から、QA.md を除いて返す。QA.md は記録と定義を持つ
 /// ファイルで、その変更は feature の実装の変更ではないため (castle の run-qa の `affected_features.sh` も除いている)。
 /// NUL 区切りで受けるのは、改行区切りの出力では git が日本語などを含むパスを引用符付きでエスケープする

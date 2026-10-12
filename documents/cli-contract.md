@@ -68,7 +68,7 @@ QA を実行した結果を run に 1 行足す。
 
 - 実行のたびに 1 行足す (同じ項目を 2 回確認すれば 2 行)。`--run-id` を渡した時は、同じ `run_id` の run を 1 行にし、2 回目以降はその行を今回の値で置き換える (渡さなかった値は消える)。再試行で同じ実行を二重に記録しないために使う。`--run-id` 無しの `run_id` は `record:<生成した ID>`
 - `--result` は大文字でもよい (`OK` / `NG`)。`--commit` は省略できない (exit 2)
-- `--image-url` は複数指定できる。最初の URL を `image_url` に、すべての URL を本文 (`body`) に 1 行 1 つの markdown の画像 (`![](URL)`) で書く。空の値と、空白・改行・制御文字を含む値は受け付けない (本文と `qa export --format pr-summary` の markdown を崩すため)
+- `--image-url` は複数指定できる。最初の URL を `image_url` に、すべての URL を本文 (`body`) に 1 行 1 つの markdown の画像 (`![](<URL>)`。URL の中の `<` `>` は `%3C` `%3E` にする) で書く。空の値と、空白・改行・制御文字を含む値は受け付けない (本文と `qa export --format pr-summary` の markdown を崩すため)
 - `source` は `record`、`recorded_at` は実行した時刻 (時差付き ISO 8601、秒の精度)
 - QA 層の 4 つのデータベースが無ければ、記録と同じトランザクションで作る (失敗した時は何も作らない。`qa import` の前は項目が無いので失敗する)
 - 出力: `--json` なら書いた run の行の JSON (上の「行の JSON」)。無ければ `run <行 ID> を記録しました` の 1 行

@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 
 use libsql::Connection;
 
-use super::{git, load_repo, resolve_commit, row_name, select_name_of, text_of};
+use super::{
+    git, load_repo, markdown_link_destination, resolve_commit, row_name, select_name_of, text_of,
+};
 use crate::db::finish;
 use crate::error::Error;
 use crate::export::escape_cell;
@@ -94,10 +96,10 @@ pub async fn pr_summary(
                     .unwrap_or(EMPTY_CELL),
                 text_of(&tables.run_database, run, "image_url").map_or_else(
                     || EMPTY_CELL.to_owned(),
-                    // 表の区切りの `|` と、リンクの終わりと読まれる `>` を URL の中で使わない形にする
+                    // 表の区切りの `|` を URL の中で使わない形にする
                     |image_url| format!(
-                        "[画像](<{}>)",
-                        image_url.replace('|', "%7C").replace('>', "%3E")
+                        "[画像]({})",
+                        markdown_link_destination(&image_url.replace('|', "%7C"))
                     )
                 ),
                 text_of(&tables.run_database, run, "commit").map_or_else(

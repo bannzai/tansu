@@ -953,7 +953,7 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
             "--image-url",
             "https://example.com/sample-notes/note_list/order-1.png",
             "--image-url",
-            "https://example.com/sample-notes/note_list/order-2.png",
+            "https://example.com/sample-notes/note_list/order-(2).png",
             "--env",
             "iPhone 17 (iOS 27.0)",
             "--json",
@@ -971,7 +971,7 @@ fn qa_record_adds_a_run_each_time_and_once_per_run_id() {
     );
     assert_eq!(
         recorded["body"],
-        "![](https://example.com/sample-notes/note_list/order-1.png)\n![](https://example.com/sample-notes/note_list/order-2.png)\n"
+        "![](<https://example.com/sample-notes/note_list/order-1.png>)\n![](<https://example.com/sample-notes/note_list/order-(2).png>)\n"
     );
     assert!(
         values["run_id"]["value"]

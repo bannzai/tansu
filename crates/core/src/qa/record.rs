@@ -5,7 +5,9 @@
 use libsql::Connection;
 use serde_json::json;
 
-use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema, find_row_id, full_sha};
+use super::{
+    FEATURE, ITEM, PROJECT, RUN, ensure_schema, find_row_id, full_sha, markdown_link_destination,
+};
 use crate::db::{begin, finish, now, rows};
 use crate::error::Error;
 use crate::model::{Database, Id, Row};
@@ -85,7 +87,7 @@ pub async fn record(
                 "body": request
                     .image_urls
                     .iter()
-                    .map(|image_url| format!("![]({image_url})\n"))
+                    .map(|image_url| format!("![]({})\n", markdown_link_destination(image_url)))
                     .collect::<String>(),
                 "values": {
                     "run_id": run_id,
