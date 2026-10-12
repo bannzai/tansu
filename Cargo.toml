@@ -15,7 +15,9 @@ tansu-server = { path = "crates/server" }
 axum = "0.8.9"
 # 行の created_at / updated_at に時差付き ISO 8601 を書くための現在時刻だけに使う (clock 以外の機能は要らない)
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-clap = { version = "4.6.7", features = ["derive"] }
+# `env`: `tansu serve --port` の既定を環境変数 TANSU_PORT から読む (documents/PROJECT.md「CLI (汎用)」)
+clap = { version = "4.6.7", features = ["derive", "env"] }
+if-addrs = "0.15.0"
 # core は ローカルの SQLite ファイル (core) と Turso Cloud への直接接続 (remote + tls) だけを使う。
 # 既定の replication / sync は embedded replica 用で、使わない (documents/PROJECT.md「DB の置き場所」)
 libsql = { version = "0.9.30", default-features = false, features = ["core", "remote", "tls"] }
@@ -30,3 +32,4 @@ thiserror = "2"
 # features は crate ごとに要るものだけを足す (core は `time`、テストは `macros` と `rt-multi-thread`)。
 # Wasm 化の時に core からランタイムを外しやすくするため、ここでは `full` にしない
 tokio = { version = "1", default-features = false }
+tower = { version = "0.5.3", default-features = false }

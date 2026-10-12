@@ -3,6 +3,7 @@
 //! CLI の引数・JSON の形・exit code の契約は `documents/cli-contract.md`。
 
 pub mod import;
+pub mod input;
 pub mod pr_summary;
 pub mod qa_md;
 pub mod record;

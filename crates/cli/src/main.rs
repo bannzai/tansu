@@ -72,8 +72,18 @@ enum Command {
     /// QA 層 (project / feature / item / run の表) の操作
     #[command(subcommand)]
     Qa(QaCommand),
-    /// Web 画面と HTTP API のサーバーを起動する
-    Serve,
+    /// Web 画面と HTTP API のサーバーを起動する。既定はこのマシン (127.0.0.1) からだけ開ける
+    Serve {
+        /// 待ち受けるアドレス。同じ LAN の端末から開く時だけ 0.0.0.0 にする (ログインが無いため)
+        #[arg(long, default_value = tansu_server::DEFAULT_HOST)]
+        host: String,
+        /// 待ち受けるポート
+        #[arg(long, env = "TANSU_PORT", default_value_t = tansu_server::DEFAULT_PORT)]
+        port: u16,
+        /// `Host` の許可リストに足すホスト名 (Tailscale の MagicDNS 名など。複数指定できる)
+        #[arg(long = "allow-host", value_name = "ホスト名")]
+        allow_hosts: Vec<String>,
+    },
     /// MCP サーバー (stdio) を起動する
     Mcp,
 }
@@ -261,12 +271,29 @@ fn main() -> ExitCode {
 /// サブコマンドを実行し、stdout に出す文字列 (出すものが無ければ `None`) と exit code を返す。
 /// exit code は、判定の結果を exit code で返す `qa verified` 以外は成功の 0。
 async fn run(command: Command) -> Result<(Option<String>, ExitCode), Box<dyn std::error::Error>> {
-    if matches!(command, Command::Serve | Command::Mcp) {
+    if matches!(command, Command::Mcp) {
         return Err(format!(
             "{} は未実装です (進捗は documents/DIRECTION.md「必要な機能」)",
             command.name()
         )
         .into());
+    }
+    if let Command::Serve {
+        host,
+        port,
+        allow_hosts,
+    } = command
+    {
+        tansu_server::serve(
+            Settings::from_env()?,
+            tansu_server::ServeOptions {
+                host,
+                port,
+                allow_hosts,
+            },
+        )
+        .await?;
+        return Ok((None, ExitCode::SUCCESS));
     }
     // dry-run は DB を開かない (開くとファイルの作成とマイグレーションで書き込みが起きる)
     if let Command::Qa(QaCommand::Import {
@@ -409,7 +436,9 @@ async fn run(command: Command) -> Result<(Option<String>, ExitCode), Box<dyn std
             .await?
             .trim_end()
             .to_owned(),
-        Command::Serve | Command::Mcp => unreachable!("serve / mcp は DB を開く前に返している"),
+        Command::Serve { .. } | Command::Mcp => {
+            unreachable!("serve / mcp は DB を開く前に返している")
+        }
     };
     Ok((Some(output), ExitCode::SUCCESS))
 }
@@ -475,7 +504,7 @@ impl Command {
             Command::Delete { .. } => "delete",
             Command::Export { .. } => "export",
             Command::Qa(_) => "qa",
-            Command::Serve => "serve",
+            Command::Serve { .. } => "serve",
             Command::Mcp => "mcp",
         }
     }
@@ -496,10 +525,6 @@ mod tests {
 
     #[test]
     fn subcommands_parse() {
-        assert!(matches!(
-            Cli::try_parse_from(["tansu", "serve"]).unwrap().command,
-            Command::Serve
-        ));
         assert!(matches!(
             Cli::try_parse_from(["tansu", "mcp"]).unwrap().command,
             Command::Mcp
@@ -531,6 +556,50 @@ mod tests {
         assert_eq!(filters, ["status=done", "title^=W"]);
         assert_eq!(sort.as_deref(), Some("points:desc"));
         assert_eq!(limit, Some(2));
+    }
+
+    /// 既定のポートは環境変数 `TANSU_PORT` で変わるため、その変数がある環境では既定のポートの確認を飛ばす
+    /// (テストの中で環境変数を書き換えると、並列に動く他のテストに効くため)。
+    #[test]
+    fn serve_listens_only_on_this_machine_by_default() {
+        let Command::Serve {
+            host,
+            port,
+            allow_hosts,
+        } = Cli::try_parse_from(["tansu", "serve"]).unwrap().command
+        else {
+            panic!("serve として解釈されていない");
+        };
+        assert_eq!(host, "127.0.0.1");
+        if std::env::var_os("TANSU_PORT").is_none() {
+            assert_eq!(port, 7979);
+        }
+        assert!(allow_hosts.is_empty());
+
+        let Command::Serve {
+            host,
+            port,
+            allow_hosts,
+        } = Cli::try_parse_from([
+            "tansu",
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8000",
+            "--allow-host",
+            "mac.tailnet.ts.net",
+            "--allow-host",
+            "mac.local",
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("serve として解釈されていない");
+        };
+        assert_eq!(host, "0.0.0.0");
+        assert_eq!(port, 8000);
+        assert_eq!(allow_hosts, ["mac.tailnet.ts.net", "mac.local"]);
     }
 
     #[test]

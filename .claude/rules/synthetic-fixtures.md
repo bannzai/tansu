@@ -1,7 +1,7 @@
 ---
 paths:
   - "fixtures/**"
-  - "e2e/**"
+  - "web/e2e/**"
   - "web/**/*.test.{ts,tsx}"
   - "crates/**"
   - "documents/design/**"
