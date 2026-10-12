@@ -396,14 +396,18 @@ async fn record_web_open(State(state): State<AppState>) -> Result<StatusCode, Ap
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// API 以外の GET: 埋め込んだ `web/dist` のファイル。拡張子の無いパス (画面の URL) は `index.html` を返す。
+/// API 以外の GET: 埋め込んだ `web/dist` のファイル。画面の URL ([`is_page_path`]) は `index.html` を返す。
 async fn web_asset(method: Method, uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     if !matches!(method, Method::GET | Method::HEAD) || path.starts_with("api/") {
         return error_response(StatusCode::NOT_FOUND, "この URL はありません");
     }
-    let is_page = !path.rsplit('/').next().unwrap_or_default().contains('.');
-    match find_asset(path).or_else(|| if is_page { find_asset(INDEX_HTML) } else { None }) {
+    let asset = if is_page_path(path) {
+        find_asset(INDEX_HTML)
+    } else {
+        find_asset(path)
+    };
+    match asset {
         Some((asset_path, contents)) => {
             ([(header::CONTENT_TYPE, content_type(asset_path))], *contents).into_response()
         }
@@ -414,6 +418,12 @@ async fn web_asset(method: Method, uri: Uri) -> Response {
             .into_response(),
         None => error_response(StatusCode::NOT_FOUND, "この URL はありません"),
     }
+}
+
+/// 先頭の `/` を除いたパス `path` が画面の URL (`web/src/route.ts` の `parseRoute` が読むもの) か。データベース名は
+/// `.` を含めるため、拡張子の有無ではなく画面のルートで見分ける。
+fn is_page_path(path: &str) -> bool {
+    path.is_empty() || path == "qa" || path == "db" || path.starts_with("db/")
 }
 
 /// 埋め込んだファイルのうち、パスが `path` のもの。
@@ -503,6 +513,16 @@ mod tests {
         assert!(!guard.allows("127.0.0.1:8080"));
         assert!(!guard.allows("127.0.0.1"));
         assert!(!guard.allows("evil.example:7979"));
+    }
+
+    #[test]
+    fn page_paths_include_database_names_with_dots() {
+        for page in ["", "qa", "db/item", "db/tasks.v2", "db/tasks.v2/row_id"] {
+            assert!(is_page_path(page), "{page}");
+        }
+        for asset in ["index.html", "assets/index-abc.js", "favicon.svg"] {
+            assert!(!is_page_path(asset), "{asset}");
+        }
     }
 
     #[test]

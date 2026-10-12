@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Database, Row } from "./api.ts";
-import { filterRows, rowTitle, sortRows, valueText } from "./rows.ts";
+import { changedValues, filterRows, rowTitle, sortRows, valueText } from "./rows.ts";
 
 const item: Database = {
   id: "db_item",
@@ -86,4 +86,19 @@ test("relation は相手の行の名前で並べる", () => {
 test("行の名前は name の値、無ければ行 ID", () => {
   expect(rowTitle(item, rows[0] as Row)).toBe("Premium の購入");
   expect(rowTitle(item, row("r9", {}))).toBe("r9");
+});
+
+test("保存には読み込んだ行から変えた値だけを渡し、空の文字列は値を消す null にする", () => {
+  const loaded = rows[0] as Row;
+  expect(
+    changedValues(loaded, {
+      name: "Premium の購入",
+      automation: "auto",
+      labels: ["課金"],
+      points: 10,
+      expected: "",
+      note: "",
+    }),
+  ).toEqual({ automation: "auto" });
+  expect(changedValues(loaded, { name: "", labels: [] })).toEqual({ name: null, labels: [] });
 });

@@ -1,4 +1,21 @@
-import type { Database, NamedValue, Property, Row } from "./api.ts";
+import type { Database, NamedValue, Property, Row, RowValueInput } from "./api.ts";
+
+/** 行の値を、編集欄が持つ形 (upsert に渡す値) にする。値が無ければ null。 */
+export function inputValue(value: NamedValue | undefined): RowValueInput {
+  return value === undefined ? null : value.value;
+}
+
+/**
+ * 編集欄の値 `draft` のうち、読み込んだ行 `row` の値から変わったものだけ (upsert に渡す形。空の文字列は値を消す null)。
+ * 変えていないプロパティを送らないことで、読み込んだ後に CLI や別のタブが書いた値を上書きしない。
+ */
+export function changedValues(row: Row, draft: Record<string, RowValueInput>): Record<string, RowValueInput> {
+  return Object.fromEntries(
+    Object.entries(draft)
+      .map(([name, value]) => [name, value === "" ? null : value] as const)
+      .filter(([name, value]) => JSON.stringify(value) !== JSON.stringify(inputValue(row.values[name]))),
+  );
+}
 
 /** relation の行 ID → 相手の行の名前 ([`rowTitle`])。 */
 export type RowTitles = ReadonlyMap<string, string>;

@@ -5,7 +5,6 @@ import {
   type Database,
   type DatabaseRows,
   fetchRows,
-  type NamedValue,
   type Property,
   type Row,
   type RowValueInput,
@@ -14,7 +13,7 @@ import {
 import { Link } from "./Link.tsx";
 import { errorText, fetchRelationTargets, relationTitles } from "./relations.ts";
 import { routePath } from "./route.ts";
-import { type RowTitles, rowTitle } from "./rows.ts";
+import { changedValues, inputValue, type RowTitles, rowTitle } from "./rows.ts";
 import { ValueView } from "./ValueView.tsx";
 
 /** 詳細ページが読み込んだ内容。 */
@@ -29,10 +28,6 @@ type Loaded = {
   backlinks: { database: Database; property: Property; rows: Row[] }[];
 };
 
-/** 行の値を、編集欄が持つ形 (upsert に渡す値) にする。relation は詳細ページでは編集しないので扱わない。 */
-function inputValue(value: NamedValue | undefined): RowValueInput {
-  return value === undefined ? null : value.value;
-}
 
 /** データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。 */
 export function RowDetail({
@@ -110,10 +105,11 @@ export function RowDetail({
     setError(null);
     setStatus(null);
     try {
+      // 開いた後に CLI や別のタブが書いた値を消さないよう、この画面で変えた値と本文だけを送る
       await upsertRow(database.name, {
         id: row.id,
-        body,
-        values: Object.fromEntries(Object.entries(draft).map(([name, value]) => [name, value === "" ? null : value])),
+        ...(body === row.body ? {} : { body }),
+        values: changedValues(row, draft),
       });
       await load();
       setEditingBody(false);

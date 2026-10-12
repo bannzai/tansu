@@ -10,11 +10,13 @@ export TANSU_PORT
 
 .PHONY: web build-web cli build-cli
 
-# サーバーが前面で動くため、ブラウザは背面で少し待ってから開く。
 # tansu は web/dist をビルド時に埋め込む (crates/server/build.rs) ため、先に画面をビルドする。
+# サーバーが前面で動くため、ブラウザは背面で API が応答するまで待ってから開く (Rust のビルドを先に終えておき、待つのは起動だけにする)。
+# 起動に失敗した時に待ち続けないよう、待つのは 0.2 秒 × 150 回 (30 秒。DB を開いてマイグレーションを当てる起動に十分な長さ) まで。
 web: build-web
-	(sleep 1 && open http://127.0.0.1:$(TANSU_PORT)) &
-	cargo run -p tansu-cli -- serve --port $(TANSU_PORT)
+	cargo build -p tansu-cli
+	(for _ in $$(seq 150); do curl -fs -o /dev/null http://127.0.0.1:$(TANSU_PORT)/api/databases && exec open http://127.0.0.1:$(TANSU_PORT); sleep 0.2; done) &
+	./target/debug/tansu serve --port $(TANSU_PORT)
 
 # Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ は tansu のビルドがバイナリに埋め込む。
 build-web:

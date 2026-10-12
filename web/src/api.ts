@@ -128,10 +128,10 @@ export function fetchRows(databaseName: string): Promise<DatabaseRows> {
   return getJson(`${databasePath(databaseName)}/rows`);
 }
 
-/** 行 `rowId` に本文と値を書き、書いた行を返す (`tansu upsert`)。 */
+/** 行 `row.id` に値を書き、書いた行を返す (`tansu upsert`)。`values` に無いプロパティと、`body` を省いた時の本文は変えない。 */
 export function upsertRow(
   databaseName: string,
-  row: { id: string; body: string; values: Record<string, RowValueInput> },
+  row: { id: string; body?: string; values: Record<string, RowValueInput> },
 ): Promise<Row> {
   return postJson(`${databasePath(databaseName)}/rows`, row);
 }

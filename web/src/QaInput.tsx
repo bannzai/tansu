@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type DatabaseRows, fetchQaSession, fetchRows, type QaSession, recordQa } from "./api.ts";
 import { copyText } from "./clipboard.ts";
 import { Link } from "./Link.tsx";
@@ -58,6 +58,11 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inputSessionId] = useState(newInputSessionId);
+  // 記録の応答を待つ間に履歴の移動などで project / feature が変わった時に、古い feature の応答を表示しないよう、
+  // 今選んでいる project / feature を応答と照合するために持つ
+  const selection = useRef({ repo, feature });
+  selection.current = { repo, feature };
+  const [recording, setRecording] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchRows("project"), fetchRows("feature")]).then(
@@ -123,6 +128,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
       return;
     }
     setError(null);
+    setRecording(true);
     try {
       await recordQa({
         item_id: current.item.id,
@@ -134,10 +140,14 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
       });
       const reloaded = await fetchQaSession(session.repo, session.feature);
       setStatus(`${index + 1}. を ${RESULT_LABELS[picked]} で記録しました`);
-      setSession(reloaded);
-      setIndex(Math.min(index + 1, reloaded.items.length - 1));
+      if (selection.current.repo === reloaded.repo && selection.current.feature === reloaded.feature) {
+        setSession(reloaded);
+        setIndex(Math.min(index + 1, reloaded.items.length - 1));
+      }
     } catch (caught) {
       setError(errorText(caught));
+    } finally {
+      setRecording(false);
     }
   };
 
@@ -162,6 +172,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
         <select
           aria-label="project"
           value={repo ?? ""}
+          disabled={recording}
           onChange={(event) => navigate(routePath({ page: "qa", repo: event.target.value || null, feature: null }))}
         >
           <option value="">project を選ぶ</option>
@@ -177,7 +188,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
         <select
           aria-label="feature"
           value={feature ?? ""}
-          disabled={repo === null}
+          disabled={repo === null || recording}
           onChange={(event) => navigate(routePath({ page: "qa", repo, feature: event.target.value || null }))}
         >
           <option value="">feature を選ぶ</option>
@@ -287,7 +298,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
                 <button
                   type="button"
                   className="primary"
-                  disabled={picked === null || session.head_commit === null}
+                  disabled={picked === null || session.head_commit === null || recording}
                   onClick={record}
                 >
                   記録して次へ →
