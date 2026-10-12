@@ -107,7 +107,7 @@ exit code: `ok` が true なら 0、false なら 1、エラー (project が無�
 
 PR body に貼る「何をどう確認したか」の markdown を stdout に出す。DB には書かない。表の markdown / JSON の書き出しは汎用の `tansu export run --format markdown|json` を使う (`--format` は `pr-summary` だけを受け付ける)。
 
-- 見出し `## QA の記録 (<owner/repo>)` の後に、feature ごと (取り込んだ順) に `### <feature 名>` と表を出す。表の列は `| 項目 | 結果 | 確認日 | 画像 | commit |`
+- 見出し `## QA の記録 (<owner/repo>)` の後に、feature ごと (取り込んだ順) に `### <feature 名>` と表を出す。見出しとセルの文字列は markdown の記号をエスケープする (`note_list` は `note\_list`。汎用の `export --format markdown` と同じ規則)。表の列は `| 項目 | 結果 | 確認日 | 画像 | commit |`
 - 行は item ごと (取り込んだ順) に、その item の最後の run (「最後」は `qa verified` と同じ) を 1 行。結果は `OK` / `NG` / `あとで` / `スキップ`、確認日は `recorded_at` の先頭の `YYYY-MM-DD`、画像は `image_url` へのリンク `[画像](<URL>)` (本文の 2 つ目以降の画像は出さない)、commit は 7 桁の短縮 SHA。値の無いセルは `—`
 - run の無い item と、行の無い feature は出さない。表が 1 つも無い時は `記録された run はありません` の 1 行
 - `--since` を渡すと、`commit` が `<since>` の子孫 (`git merge-base --is-ancestor <since> <commit>`。`<since>` 自身は含めない) の run だけを見る。`commit` の無い run と、リポジトリで解決できない run は見ない。PR の base を渡すと、その PR で記録した run だけになる

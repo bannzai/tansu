@@ -1352,7 +1352,8 @@ fn qa_export_pr_summary_shows_the_latest_run_of_each_item() {
         summary.starts_with("## QA の記録 (acme/notes)\n"),
         "{summary}"
     );
-    assert!(summary.contains("### note_list\n"), "{summary}");
+    // 見出しの feature 名は markdown の記号 (`_` 等) をエスケープして出す
+    assert!(summary.contains("### note\\_list\n"), "{summary}");
     assert!(
         summary.contains("| 項目 | 結果 | 確認日 | 画像 | commit |"),
         "{summary}"
@@ -1395,7 +1396,8 @@ fn qa_export_pr_summary_shows_the_latest_run_of_each_item() {
     );
     assert!(since.contains("検索で絞り込める"), "{since}");
     assert!(!since.contains("一覧の並び"), "{since}");
-    assert!(!since.contains("### note_editor"), "{since}");
+    assert!(since.contains("### note\\_list\n"), "{since}");
+    assert!(!since.contains("### note\\_editor"), "{since}");
 
     fail(
         &sandbox,
