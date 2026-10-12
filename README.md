@@ -89,8 +89,38 @@ tansu serve --allow-host mac.tailnet.ts.net       # Host の許可リストに�
 
 ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけ。`Host` が許可リストに無いリクエストと、別のサイトからの書き込みは拒否する (規則は [documents/PROJECT.md](documents/PROJECT.md)「制約」)。QA の入力ビューは、project の checkout の HEAD の commit で run を記録する。
 
-`tansu mcp` は未実装 (進捗は [documents/DIRECTION.md](documents/DIRECTION.md))。実装が進んだら、MCP サーバーの登録手順をここに書く。
+### MCP サーバー
+
+`tansu mcp` は stdio の MCP サーバーで、CLI のサブコマンドと 1 対 1 の 11 の tool (`db_list` / `db_create` / `db_schema` / `query` / `upsert` / `delete` / `export` / `qa_import` / `qa_record` / `qa_verified` / `qa_export`) を公開する。入力・出力・失敗の扱いは [documents/cli-contract.md](documents/cli-contract.md)「MCP サーバー」にある。`tansu` が PATH にある (`make cli`) 前提で、3 つのツールに同じサーバーを登録する。DB と利用記録の置き場所を変える時は、各設定の `env` に `TANSU_HOME` を書く。
+
+**Claude Code** ( https://code.claude.com/docs/en/mcp ): プロジェクトの `.mcp.json` に書く。`type` の無い項目は stdio のサーバーとして読まれる。
+
+```json
+{"mcpServers": {"tansu": {"command": "tansu", "args": ["mcp"]}}}
+```
+
+コマンドで足す時: `claude mcp add --transport stdio --scope project tansu -- tansu mcp`
+
+**Codex CLI** ( https://developers.openai.com/codex/mcp 。2026-10-12 時点で https://learn.chatgpt.com/docs/extend/mcp?surface=cli へ転送される): `~/.codex/config.toml` (信頼したプロジェクトの `.codex/config.toml` でもよい) に書く。
+
+```toml
+[mcp_servers.tansu]
+command = "tansu"
+args = ["mcp"]
+```
+
+コマンドで足す時: `codex mcp add tansu -- tansu mcp`
+
+**pi** ( https://pi.dev/docs/latest/mcp ): `~/.pi/agent/mcp.json` (プロジェクトの `.pi/mcp.json` でもよい。信頼したプロジェクトだけ読まれる) に、Claude Code と同じ形で書く。
+
+```json
+{"mcpServers": {"tansu": {"command": "tansu", "args": ["mcp"]}}}
+```
+
+コマンドで足す時: `pi mcp add tansu -- tansu mcp` (プロジェクトの設定に書く時は `-l` を付ける)
+
+<!-- source: 2026-10-12 に各ページを取得して確かめた。code.claude.com/docs/en/mcp: 「Claude Code reads an entry with no `type` as a stdio server」、`claude mcp add [options] <name> -- <command> [args...]`、`--scope project` は `.mcp.json` に書く。learn.chatgpt.com/docs/extend/mcp?surface=cli: 「By default this is `~/.codex/config.toml`, but you can also scope MCP servers to a project with `.codex/config.toml` (trusted projects only)」「Configure each MCP server with a `[mcp_servers.<server-name>]` table」、`codex mcp add <server-name> ... -- <stdio server-command>`。pi.dev/docs/latest/mcp: 「Pi reads user-level servers from `~/.pi/agent/mcp.json`」「project servers from `.pi/mcp.json`」(project trust の後)、トップレベルは `mcpServers`、stdio は `command` / `args` / `env` / `cwd`、「Add `--local` or `-l` to write the project configuration instead」 -->
 
 ## データの扱い
 
-tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書き・QA 層の CLI・Web 画面で、MCP は実装の方針。Web 画面は文字を端末のフォントで描き、本文の markdown の画像は読み込まずにリンクで出すため、画面を開いても外部へのリクエストは起きない)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
+tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書き・QA 層の CLI・Web 画面・MCP サーバー。Web 画面は文字を端末のフォントで描き、本文の markdown の画像は読み込まずにリンクで出すため、画面を開いても外部へのリクエストは起きない)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。

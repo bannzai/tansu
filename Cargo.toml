@@ -25,6 +25,8 @@ libsql = { version = "0.9.30", default-features = false, features = ["core", "re
 nanoid = "0.4.0"
 # stdio のサーバー (`tansu mcp`) に要る機能だけを入れる
 rmcp = { version = "3.5.1", default-features = false, features = ["server", "macros", "transport-io"] }
+# MCP の tool の入力の JSON Schema (rmcp の `Parameters` が要求する `JsonSchema` の derive)。rmcp が依存する版と同じ 1 系
+schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"

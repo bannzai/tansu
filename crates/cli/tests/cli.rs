@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::RunningService;
+use rmcp::transport::TokioChildProcess;
+use rmcp::{RoleClient, ServiceExt};
 use serde_json::{Value, json};
 use tansu_core::config::{EnvVars, Settings};
 use tempfile::TempDir;
@@ -1650,4 +1654,313 @@ fn libsql_url_is_not_supported_yet() {
             .unwrap(),
     );
     assert!(stderr.contains("libsql://"), "{stderr}");
+}
+
+/// `tansu mcp` に接続した MCP のクライアント。
+type McpClient = RunningService<RoleClient, ()>;
+
+/// `sandbox` を `TANSU_HOME` にして `tansu mcp` を子プロセスとして起動し、MCP のクライアントとして接続する。
+async fn mcp_client(sandbox: &Sandbox) -> McpClient {
+    ().serve(
+        TokioChildProcess::new(tokio::process::Command::from(command(sandbox, &["mcp"]))).unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// MCP の tool `name` を `arguments` (JSON の object) で呼び、(isError か, 本文のテキスト) を返す。本文が無ければ空文字。
+async fn call_mcp(client: &McpClient, name: &'static str, arguments: Value) -> (bool, String) {
+    let result = client
+        .call_tool(
+            CallToolRequestParams::new(name).with_arguments(arguments.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    (
+        result.is_error == Some(true),
+        result
+            .content
+            .iter()
+            .map(|content| content.as_text().unwrap().text.as_str())
+            .collect(),
+    )
+}
+
+/// MCP の tool `name` が成功したことを確かめ、本文を JSON として返す。
+async fn call_mcp_json(client: &McpClient, name: &'static str, arguments: Value) -> Value {
+    let (is_error, text) = call_mcp(client, name, arguments).await;
+    assert!(!is_error, "{name} が失敗した: {text}");
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{error}: {text}"))
+}
+
+/// `usage.jsonl` の `event` を並びのまま返す。
+fn usage_events(sandbox: &Sandbox) -> Vec<String> {
+    usage_lines(sandbox)
+        .iter()
+        .map(|line| line["event"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn mcp_lists_one_tool_per_cli_subcommand() {
+    let sandbox = sandbox();
+    let client = mcp_client(&sandbox).await;
+    let mut names: Vec<String> = client
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|tool| tool.name.into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "db_create",
+            "db_list",
+            "db_schema",
+            "delete",
+            "export",
+            "qa_export",
+            "qa_import",
+            "qa_record",
+            "qa_verified",
+            "query",
+            "upsert",
+        ]
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn mcp_writes_and_reads_rows_in_the_same_shape_as_the_cli() {
+    let sandbox = sandbox();
+    let client = mcp_client(&sandbox).await;
+
+    let created = call_mcp_json(&client, "db_create", json!({"name": "tasks"})).await;
+    assert_eq!(created, succeed_json(&sandbox, &["db", "schema", "tasks"]));
+    let changed = call_mcp_json(
+        &client,
+        "db_schema",
+        json!({"name": "tasks", "add": ["title:text", "status:select:todo,done"], "unique": ["title"]}),
+    )
+    .await;
+    assert_eq!(changed, succeed_json(&sandbox, &["db", "schema", "tasks"]));
+    assert_eq!(
+        call_mcp_json(&client, "db_list", json!({})).await,
+        succeed_json(&sandbox, &["db", "list"])
+    );
+
+    let written = call_mcp_json(
+        &client,
+        "upsert",
+        json!({"database": "tasks", "json": {"id": "t1", "body": "本文", "values": {"title": "a", "status": "todo"}}}),
+    )
+    .await;
+    // 行の JSON を文字列で渡してもよい
+    call_mcp_json(
+        &client,
+        "upsert",
+        json!({"database": "tasks", "json": json!({"id": "t2", "values": {"title": "b", "status": "done"}}).to_string()}),
+    )
+    .await;
+    assert_eq!(written, query(&sandbox, "tasks", &[])[0]);
+
+    let queried = call_mcp_json(
+        &client,
+        "query",
+        json!({"database": "tasks", "where": ["status=done"], "sort": "title:desc", "limit": 5}),
+    )
+    .await;
+    assert_eq!(
+        queried,
+        succeed_json(
+            &sandbox,
+            &[
+                "query",
+                "tasks",
+                "--json",
+                "--where",
+                "status=done",
+                "--sort",
+                "title:desc",
+                "--limit",
+                "5"
+            ]
+        )
+    );
+    assert_eq!(row_ids(queried.as_array().unwrap()), ["t2"]);
+    assert_eq!(
+        call_mcp_json(
+            &client,
+            "export",
+            json!({"database": "tasks", "format": "json"})
+        )
+        .await,
+        succeed_json(&sandbox, &["export", "tasks", "--format", "json"])
+    );
+    let (is_error, markdown) = call_mcp(
+        &client,
+        "export",
+        json!({"database": "tasks", "format": "markdown"}),
+    )
+    .await;
+    assert!(!is_error, "{markdown}");
+    // CLI は結果の後ろに改行を 1 つ足して出力する
+    assert_eq!(
+        Some(markdown.as_str()),
+        succeed(&sandbox, &["export", "tasks", "--format", "markdown"]).strip_suffix('\n')
+    );
+
+    assert_eq!(
+        call_mcp(
+            &client,
+            "delete",
+            json!({"database": "tasks", "row_id": "t1"})
+        )
+        .await,
+        (false, String::new())
+    );
+    assert_eq!(row_ids(&query(&sandbox, "tasks", &[])), ["t2"]);
+
+    // 失敗は CLI の stderr と同じ理由を本文にした isError の結果になる
+    let (is_error, message) = call_mcp(&client, "query", json!({"database": "missing"})).await;
+    assert!(is_error);
+    assert_eq!(
+        format!("tansu: {message}\n"),
+        fail(&sandbox, &["query", "missing", "--json"])
+    );
+    client.cancel().await.unwrap();
+
+    let events = usage_events(&sandbox);
+    assert_eq!(events[0], "mcp");
+    let mcp_events: Vec<&str> = events
+        .iter()
+        .filter_map(|event| event.strip_prefix("mcp_"))
+        .collect();
+    assert_eq!(
+        mcp_events,
+        [
+            "db_create",
+            "db_schema",
+            "db_list",
+            "upsert",
+            "upsert",
+            "query",
+            "export",
+            "export",
+            "delete",
+            "query"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn mcp_records_a_run_and_reports_verified() {
+    let sandbox = sandbox();
+    let (_directory, root, first) = imported_repository(&sandbox);
+    let client = mcp_client(&sandbox).await;
+
+    let dry = call_mcp_json(
+        &client,
+        "qa_import",
+        json!({"paths": [root.to_str().unwrap()], "dry_run": true}),
+    )
+    .await;
+    assert_eq!(dry["dry_run"], true);
+    assert_eq!(
+        dry,
+        succeed_json(
+            &sandbox,
+            &[
+                "qa",
+                "import",
+                "--dry-run",
+                "--json",
+                root.to_str().unwrap()
+            ]
+        )
+    );
+
+    // 再テストが要る時も isError にはせず、ok が false の結果を返す
+    let verified_before = call_mcp_json(
+        &client,
+        "qa_verified",
+        json!({"repo": "acme/notes", "commit": first}),
+    )
+    .await;
+    assert_eq!(verified_before["ok"], false);
+    assert_eq!(verified_before, verified(&sandbox, &first, &[]).1);
+
+    let before = run_count(&sandbox);
+    let recorded = call_mcp_json(
+        &client,
+        "qa_record",
+        json!({
+            "repo": "acme/notes",
+            "feature": "note_list",
+            "item_name": "空の案内",
+            "result": "ok",
+            "commit": first,
+            "image_url": ["https://example.com/sample-notes/note_list/empty.png"],
+            "run_id": "mcp-test-1",
+        }),
+    )
+    .await;
+    assert_eq!(recorded["values"]["result"]["value"], "ok");
+    assert_eq!(recorded["values"]["source"]["value"], "record");
+    assert_eq!(recorded["values"]["run_id"]["value"], "mcp-test-1");
+    assert_eq!(run_count(&sandbox), before + 1);
+    assert!(query(&sandbox, "run", &["--where", "run_id=mcp-test-1"]).contains(&recorded));
+
+    let verified_after = call_mcp_json(
+        &client,
+        "qa_verified",
+        json!({"repo": "acme/notes", "commit": first}),
+    )
+    .await;
+    assert_eq!(verified_after, verified(&sandbox, &first, &[]).1);
+    let note_list = feature_of(&verified_after, "note_list");
+    assert_eq!(note_list["last_verified_commit"], first);
+    let unverified: Vec<&str> = note_list["unverified_items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(unverified, ["ピン留めの固定", "スワイプで削除"]);
+
+    let (is_error, summary) = call_mcp(
+        &client,
+        "qa_export",
+        json!({"repo": "acme/notes", "format": "pr-summary"}),
+    )
+    .await;
+    assert!(!is_error, "{summary}");
+    assert_eq!(
+        summary,
+        succeed(
+            &sandbox,
+            &[
+                "qa",
+                "export",
+                "--repo",
+                "acme/notes",
+                "--format",
+                "pr-summary"
+            ]
+        )
+        .trim_end()
+    );
+
+    // 項目の指定は item か repo / feature / item_name の組のどちらか一方
+    let (is_error, message) = call_mcp(
+        &client,
+        "qa_record",
+        json!({"item": "x", "repo": "acme/notes", "result": "ok", "commit": first}),
+    )
+    .await;
+    assert!(is_error, "{message}");
+    assert_eq!(run_count(&sandbox), before + 1);
+    client.cancel().await.unwrap();
 }
