@@ -415,7 +415,10 @@ async fn two_roots_with_the_same_repo_are_counted_and_saved_once() {
     assert_eq!(all_rows(&connection, "item").await.len(), 12);
     assert_eq!(all_rows(&connection, "run").await.len(), 8);
     let note_editor = query_named(&connection, "feature", &["name=note_editor"]).await;
-    assert_eq!(note_editor[0]["values"]["verification"]["value"], "agent-browser, manual");
+    assert_eq!(
+        note_editor[0]["values"]["verification"]["value"],
+        "agent-browser, manual"
+    );
     assert_eq!(dry_run(&roots).unwrap().counts, report.counts);
 }
 
@@ -459,7 +462,10 @@ async fn a_second_file_with_the_same_feature_name_is_skipped_as_a_whole() {
     // 読み飛ばしたファイルが 1 つ目のファイルの feature の verification を消さない
     let note_list = query_named(&connection, "feature", &["name=note_list"]).await;
     assert_eq!(note_list.len(), 1);
-    assert_eq!(note_list[0]["values"]["verification"]["value"], "agent-browser");
+    assert_eq!(
+        note_list[0]["values"]["verification"]["value"],
+        "agent-browser"
+    );
 }
 
 #[tokio::test]
@@ -494,7 +500,12 @@ async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
     let run_ids: Vec<String> = query_named(&connection, "run", &[])
         .await
         .iter()
-        .map(|run| run["values"]["run_id"]["value"].as_str().unwrap().to_owned())
+        .map(|run| {
+            run["values"]["run_id"]["value"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
         .collect();
     assert_eq!(run_ids.len(), 2);
     assert!(run_ids.contains(&"record:1".to_owned()), "{run_ids:?}");
