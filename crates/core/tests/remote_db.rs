@@ -99,15 +99,9 @@ async fn remote_create_upsert_query_delete() {
     schema::create_database(&connection, DATABASE_NAME)
         .await
         .unwrap();
-    schema::change_schema(
-        &connection,
-        DATABASE_NAME,
-        &["title:text".into()],
-        &[],
-        &[],
-    )
-    .await
-    .unwrap();
+    schema::change_schema(&connection, DATABASE_NAME, &["title:text".into()], &[], &[])
+        .await
+        .unwrap();
     rows::upsert(
         &connection,
         DATABASE_NAME,

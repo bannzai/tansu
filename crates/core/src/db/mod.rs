@@ -146,10 +146,9 @@ pub async fn schema_version(connection: &Connection) -> Result<i64, Error> {
     let mut rows = connection
         .query("SELECT COALESCE(MAX(version), 0) FROM schema_migration", ())
         .await?;
-    let row = rows
-        .next()
-        .await?
-        .ok_or(Error::EmptyResult("SELECT MAX(version) FROM schema_migration"))?;
+    let row = rows.next().await?.ok_or(Error::EmptyResult(
+        "SELECT MAX(version) FROM schema_migration",
+    ))?;
     Ok(row.get::<i64>(0)?)
 }
 
