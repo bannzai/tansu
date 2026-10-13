@@ -1644,16 +1644,29 @@ fn writes_only_under_tansu_home() {
 }
 
 #[test]
-fn libsql_url_is_not_supported_yet() {
+fn libsql_url_without_an_auth_token_fails() {
     let sandbox = sandbox();
     let stderr = assert_failed(
         command(&sandbox, &["db", "list"])
             .env("TANSU_DB_URL", "libsql://example.turso.io")
-            .env("TANSU_DB_AUTH_TOKEN", "token")
             .output()
             .unwrap(),
     );
-    assert!(stderr.contains("libsql://"), "{stderr}");
+    assert!(stderr.contains("TANSU_DB_AUTH_TOKEN"), "{stderr}");
+}
+
+#[test]
+fn unreachable_libsql_url_fails_without_leaking_the_token() {
+    let sandbox = sandbox();
+    // 127.0.0.1 のポート 1 は待ち受けが無く、外部のネットワークに出ずに接続が拒否される
+    let stderr = assert_failed(
+        command(&sandbox, &["db", "list"])
+            .env("TANSU_DB_URL", "libsql://127.0.0.1:1")
+            .env("TANSU_DB_AUTH_TOKEN", "secret-token-value")
+            .output()
+            .unwrap(),
+    );
+    assert!(!stderr.contains("secret-token-value"), "{stderr}");
 }
 
 /// `tansu mcp` に接続した MCP のクライアント。

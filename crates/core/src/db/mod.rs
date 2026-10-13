@@ -11,9 +11,12 @@ use libsql::{Builder, Connection, Transaction, TransactionBehavior};
 use crate::config::{DbLocation, Settings};
 use crate::error::Error;
 
-/// 番号順のマイグレーション。N 番目 (1 始まり) を当て終えると `user_version` が N になる。
+/// 番号順のマイグレーション。N 番目 (1 始まり) を当て終えると `schema_migration` に N の行が入る。
 /// 当てたものは書き換えず、変更は新しい番号で足す (`.claude/rules/sqlite-database.md`)。
 const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_create_tables.sql")];
+
+/// 適用済みのマイグレーションの番号を記録する `schema_migration` テーブルを、無ければ作る SQL。
+const CREATE_SCHEMA_MIGRATION_TABLE: &str = include_str!("migrations/schema_migration.sql");
 
 /// ローカルのファイルを開く接続が、別プロセス (CLI・`tansu mcp`・`tansu serve`) の書き込みを待つ時間。
 /// SQLite の既定の busy handler は NULL で、ロックに当たると待たずに SQLITE_BUSY を返す
@@ -25,7 +28,9 @@ const LOCAL_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// 設定が指す DB を開き、未適用のマイグレーションを当てて接続を返す。
 /// 何度呼んでも同じ状態になる (適用済みのマイグレーションは当て直さない)。
 /// DB のスキーマの版がこのバイナリより新しい時は `Error::SchemaNewerThanBinary` を返す。
-/// `libsql://` (Turso Cloud) は Turso Cloud の接続の issue まで [`Error::RemoteNotSupported`] を返す。
+/// `libsql://` (Turso Cloud) は接続を最初の問い合わせ (マイグレーションの版の読み取り) まで張らないため
+/// (libsql 0.9.30 `Database::connect` のコメント「it will not call any C ffi and will lazily create a HTTP connection」)、
+/// トークンの誤り・接続できない先はここで `Error::Db` になる。
 pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     let connection = match &settings.db {
         DbLocation::Local(path) => {
@@ -38,9 +43,18 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
             enable_wal(&connection).await?;
             connection
         }
-        DbLocation::Remote { .. } => return Err(Error::RemoteNotSupported),
+        // WAL・busy_timeout は送らない。Turso Cloud は journal mode を自分で決めて変えさせず
+        // (https://docs.turso.tech/cloud/limitations「Turso Cloud manages journaling internally and does not allow changing
+        // the journal mode.」)、busy_timeout はリモートの接続では何もしない (libsql 0.9.30 `src/hrana/hyper.rs` の
+        // `busy_timeout`「Busy timeout is a no-op for remote connections.」)
+        DbLocation::Remote { url, auth_token } => {
+            Builder::new_remote(url.clone(), auth_token.expose().to_owned())
+                .build()
+                .await?
+                .connect()?
+        }
     };
-    migrate(&connection).await?;
+    migrate(&connection, matches!(settings.db, DbLocation::Local(_))).await?;
     Ok(connection)
 }
 
@@ -123,8 +137,36 @@ async fn enable_wal(connection: &Connection) -> Result<(), Error> {
     }
 }
 
-/// 適用済みの番号 (`PRAGMA user_version`)。
+/// 適用済みの最新の番号 (`schema_migration` の最大の `version`)。`schema_migration` が無い DB
+/// (まだ何も当てていない、または `PRAGMA user_version` で記録していた版のバイナリが作った DB) は 0。
 pub async fn schema_version(connection: &Connection) -> Result<i64, Error> {
+    if !has_schema_migration_table(connection).await? {
+        return Ok(0);
+    }
+    let mut rows = connection
+        .query("SELECT COALESCE(MAX(version), 0) FROM schema_migration", ())
+        .await?;
+    let row = rows
+        .next()
+        .await?
+        .ok_or(Error::EmptyResult("SELECT MAX(version) FROM schema_migration"))?;
+    Ok(row.get::<i64>(0)?)
+}
+
+/// `schema_migration` テーブルがあるか。テーブルの有無を問い合わせの失敗で見分けると、ローカルとリモートで
+/// エラーの型が違う (`SqliteFailure` と `Hrana`) ため、`sqlite_master` を読む。
+async fn has_schema_migration_table(connection: &Connection) -> Result<bool, Error> {
+    let mut rows = connection
+        .query(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migration'",
+            (),
+        )
+        .await?;
+    Ok(rows.next().await?.is_some())
+}
+
+/// `PRAGMA user_version` の値。適用済みの番号を `schema_migration` で記録する前の版のバイナリは、ここに番号を書いていた。
+async fn user_version(connection: &Connection) -> Result<i64, Error> {
     let mut rows = connection.query("PRAGMA user_version", ()).await?;
     let row = rows
         .next()
@@ -186,8 +228,10 @@ fn value_path(property_id: &crate::model::Id) -> String {
 }
 
 /// 最新なら write ロックを取らずに戻る。足りない番号がある時だけ `BEGIN IMMEDIATE` を開き、
-/// 別プロセスが先に当てた可能性があるため、その中で版を読み直してから当てる。
-async fn migrate(connection: &Connection) -> Result<(), Error> {
+/// 別プロセス (Turso Cloud では別の Mac) が先に当てた可能性があるため、その中で版を読み直してから当てる。
+/// `read_user_version` はローカルのファイルの時だけ true にする (`PRAGMA user_version` で記録していた版のバイナリが
+/// 作った DB はローカルにしか無く、Turso Cloud の `user_version` の読み取りは未検証のため送らない)。
+async fn migrate(connection: &Connection, read_user_version: bool) -> Result<(), Error> {
     let version = schema_version(connection).await?;
     ensure_not_newer(version)?;
     if version == latest_version() {
@@ -197,17 +241,46 @@ async fn migrate(connection: &Connection) -> Result<(), Error> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .await?;
-    let version = schema_version(&transaction).await?;
+    let result = migrate_in(&transaction, read_user_version).await;
+    finish(transaction, result).await
+}
+
+/// [`migrate`] の本体。`connection` は書き込みロックを取ったトランザクション。
+/// `schema_migration` が無ければ作り、`read_user_version` の時は `PRAGMA user_version` の番号までを適用済みとして記録してから、
+/// 未適用の番号を当てる。
+async fn migrate_in(connection: &Connection, read_user_version: bool) -> Result<(), Error> {
+    if !has_schema_migration_table(connection).await? {
+        connection
+            .execute_batch(CREATE_SCHEMA_MIGRATION_TABLE)
+            .await?;
+        if read_user_version {
+            let applied = user_version(connection).await?;
+            ensure_not_newer(applied)?;
+            for number in 1..=applied {
+                record_migration(connection, number).await?;
+            }
+        }
+    }
+    let version = schema_version(connection).await?;
     ensure_not_newer(version)?;
     for (index, sql) in MIGRATIONS.iter().enumerate() {
         let number = i64::try_from(index + 1).expect("マイグレーションの数は i64 に収まる");
         if number > version {
-            transaction.execute_batch(sql).await?;
-            transaction
-                .execute(&format!("PRAGMA user_version = {number}"), ())
-                .await?;
+            connection.execute_batch(sql).await?;
+            record_migration(connection, number).await?;
         }
     }
-    transaction.commit().await?;
+    Ok(())
+}
+
+/// 番号 `number` のマイグレーションを当て終えたことを `schema_migration` に記録する。
+/// 同じ番号が既にあれば PRIMARY KEY の衝突で失敗し、呼び出し元のトランザクションごと巻き戻る (二重に当てた変更を残さない)。
+async fn record_migration(connection: &Connection, number: i64) -> Result<(), Error> {
+    connection
+        .execute(
+            "INSERT INTO schema_migration (version) VALUES (?)",
+            [number],
+        )
+        .await?;
     Ok(())
 }

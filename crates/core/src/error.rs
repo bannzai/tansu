@@ -21,11 +21,6 @@ pub enum Error {
     /// `libsql://<host>` を指定したのに `TANSU_DB_AUTH_TOKEN` が無い。
     #[error("libsql:// の DB を開くには TANSU_DB_AUTH_TOKEN が要ります")]
     MissingAuthToken,
-    /// `libsql://<host>` (Turso Cloud) への接続。Turso Cloud の接続の issue で対応するまでは開かない。
-    #[error(
-        "libsql:// の DB への接続はまだ対応していません (TANSU_DB_URL を外すか file:<パス> を指定してください)"
-    )]
-    RemoteNotSupported,
     /// 指定した名前のデータベースが無い。
     #[error("データベース `{0}` はありません")]
     DatabaseNotFound(String),

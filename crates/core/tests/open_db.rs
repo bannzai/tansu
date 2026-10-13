@@ -187,7 +187,7 @@ async fn open_refuses_a_database_newer_than_the_binary() {
     let settings = settings_under(&home);
     let connection = db::open(&settings).await.unwrap();
     connection
-        .execute("PRAGMA user_version = 99", ())
+        .execute("INSERT INTO schema_migration (version) VALUES (99)", ())
         .await
         .unwrap();
 
@@ -197,4 +197,74 @@ async fn open_refuses_a_database_newer_than_the_binary() {
         error,
         Error::SchemaNewerThanBinary { db: 99, binary: 1 }
     ));
+}
+
+/// `schema_migration` の版の一覧 (昇順)。
+async fn recorded_migrations(connection: &libsql::Connection) -> Vec<i64> {
+    let mut rows = connection
+        .query("SELECT version FROM schema_migration ORDER BY version", ())
+        .await
+        .unwrap();
+    let mut versions = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        versions.push(row.get::<i64>(0).unwrap());
+    }
+    versions
+}
+
+/// 適用済みの番号を `PRAGMA user_version` に書いていた版のバイナリが作った DB (3 つのテーブルがあり、
+/// `user_version` が 1 で、`schema_migration` が無い) を、ファイルに直接作る。
+async fn create_database_recorded_in_user_version(path: &std::path::Path) {
+    let connection = libsql::Builder::new_local(path)
+        .build()
+        .await
+        .unwrap()
+        .connect()
+        .unwrap();
+    connection
+        .execute_batch(include_str!("../src/db/migrations/0001_create_tables.sql"))
+        .await
+        .unwrap();
+    connection
+        .execute("PRAGMA user_version = 1", ())
+        .await
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO \"database\" (id, name, created_at) VALUES ('d1', 'kept', 't')",
+            (),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn database_recorded_in_user_version_is_not_migrated_again() {
+    let home = tempfile::tempdir().unwrap();
+    create_database_recorded_in_user_version(&home.path().join("tansu.sqlite")).await;
+
+    let connection = db::open(&settings_under(&home)).await.unwrap();
+
+    assert_eq!(recorded_migrations(&connection).await, [1]);
+    assert_eq!(db::schema_version(&connection).await.unwrap(), 1);
+    assert_eq!(
+        db::schema::list_databases(&connection)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|database| database.name)
+            .collect::<Vec<_>>(),
+        ["kept"]
+    );
+}
+
+#[tokio::test]
+async fn open_records_each_migration_once() {
+    let home = tempfile::tempdir().unwrap();
+    let settings = settings_under(&home);
+
+    db::open(&settings).await.unwrap();
+    let connection = db::open(&settings).await.unwrap();
+
+    assert_eq!(recorded_migrations(&connection).await, [1]);
 }
