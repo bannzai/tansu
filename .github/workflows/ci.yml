@@ -49,7 +49,8 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test -p tansu-core --test remote_db --locked -- --ignored
+      # --nocapture: remote_qa_import_of_the_fixtures が出す qa import の所要時間をログに残す
+      - run: cargo test -p tansu-core --test remote_db --locked -- --ignored --nocapture
 
   web:
     runs-on: ubuntu-latest

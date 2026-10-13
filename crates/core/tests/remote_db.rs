@@ -7,6 +7,7 @@ use serde_json::json;
 use tansu_core::config::{AuthToken, DbLocation, EnvVars, Settings};
 use tansu_core::db::{self, rows, schema};
 use tansu_core::model::Id;
+use tansu_core::qa::import::import;
 
 /// テストが行を書くデータベースの名前。`create_database` が同じ名前で 2 回呼んでも 1 つにするため、固定の名前で run をまたいで使う。
 const DATABASE_NAME: &str = "ci-remote";
@@ -139,4 +140,25 @@ async fn remote_create_upsert_query_delete() {
             .await
             .is_empty()
     );
+}
+
+/// `qa import` は QA の 4 つの表への書き込みを 1 つのトランザクションで行う、いちばん重い書き込みで、
+/// Turso Cloud の書き込みのトランザクションは 5 秒で打ち切られる
+/// (https://docs.turso.tech/sdk/ts/reference「Interactive transactions in libSQL lock the database for writing until
+/// committed or rolled back, with a 5-second timeout.」)。fixture の取り込みがリモートでその中に収まるかを確かめる。
+/// 取り込みは自然キーで upsert するため、CI 用の DB に残っても次の run で行は増えない。
+#[tokio::test]
+#[ignore = "TANSU_DB_URL / TANSU_DB_AUTH_TOKEN が要る。CI の remote job が -- --ignored で実行する"]
+async fn remote_qa_import_of_the_fixtures() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = db::open(&remote_settings(&home)).await.unwrap();
+    let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/qa/sample-notes");
+
+    let started = std::time::Instant::now();
+    let report = import(&connection, &[fixtures]).await.unwrap();
+    println!("qa import をリモートで {:?} で終えた", started.elapsed());
+
+    assert_eq!(report.counts.project, 1);
+    assert!(report.counts.item > 0);
 }
