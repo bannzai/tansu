@@ -41,6 +41,11 @@ pub enum Error {
     /// ローカルの DB を WAL モードに切り替えられなかった (再試行の期限まで別のプロセスと競合し続けた)。
     #[error("DB を WAL モードに切り替えられませんでした (journal_mode が {0} のまま)")]
     WalNotEnabled(String),
+    /// Turso Cloud の DB を開く処理 (接続とマイグレーション) が期限 (秒) までに終わらなかった。
+    #[error(
+        "libsql:// の DB が {0} 秒以内に応答しませんでした (TANSU_DB_URL と接続先を確認してください)"
+    )]
+    RemoteOpenTimedOut(u64),
     /// 必ず 1 行返すはずの問い合わせが行を返さなかった。
     #[error("{0} が結果を返しませんでした")]
     EmptyResult(&'static str),

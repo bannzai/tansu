@@ -25,12 +25,17 @@ const CREATE_SCHEMA_MIGRATION_TABLE: &str = include_str!("migrations/schema_migr
 /// その数倍の 5 秒にした。この見込みは推定で、実測していない。
 const LOCAL_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Turso Cloud の DB を開いてマイグレーションの確認・適用を終えるまでの期限。
+/// CI の `remote` job (GitHub Actions の runner から Turso Cloud) で、マイグレーションを含めて 2 回開くテストが
+/// 約 5 秒だった (2026-10-13 の run 38361344307) ので、その数倍の 30 秒にした。
+const REMOTE_OPEN_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// 設定が指す DB を開き、未適用のマイグレーションを当てて接続を返す。
 /// 何度呼んでも同じ状態になる (適用済みのマイグレーションは当て直さない)。
 /// DB のスキーマの版がこのバイナリより新しい時は `Error::SchemaNewerThanBinary` を返す。
 /// `libsql://` (Turso Cloud) は接続を最初の問い合わせ (マイグレーションの版の読み取り) まで張らないため
 /// (libsql 0.9.30 `Database::connect` のコメント「it will not call any C ffi and will lazily create a HTTP connection」)、
-/// トークンの誤り・接続できない先はここで `Error::Db` になる。
+/// トークンの誤り・接続できない先はここで `Error::Db` になり、応答が返らない時は `Error::RemoteOpenTimedOut` になる。
 pub async fn open(settings: &Settings) -> Result<Connection, Error> {
     let connection = match &settings.db {
         DbLocation::Local(path) => {
@@ -48,13 +53,20 @@ pub async fn open(settings: &Settings) -> Result<Connection, Error> {
         // the journal mode.」)、busy_timeout はリモートの接続では何もしない (libsql 0.9.30 `src/hrana/hyper.rs` の
         // `busy_timeout`「Busy timeout is a no-op for remote connections.」)
         DbLocation::Remote { url, auth_token } => {
-            Builder::new_remote(url.clone(), auth_token.expose().to_owned())
+            let connection = Builder::new_remote(url.clone(), auth_token.expose().to_owned())
                 .build()
                 .await?
-                .connect()?
+                .connect()?;
+            // libsql 0.9.30 の HTTP の経路には要求・応答の期限が無く、サーバーが応答を返さないと待ち続けるため、
+            // 開く処理に期限を付ける。期限で途中のトランザクションを捨てても、サーバー側が期限で巻き戻す
+            // (libsql 0.9.30 `src/hrana/hyper.rs`「transaction will rollback automatically after timeout on the server side」)
+            tokio::time::timeout(REMOTE_OPEN_TIMEOUT, migrate(&connection, false))
+                .await
+                .map_err(|_| Error::RemoteOpenTimedOut(REMOTE_OPEN_TIMEOUT.as_secs()))??;
+            return Ok(connection);
         }
     };
-    migrate(&connection, matches!(settings.db, DbLocation::Local(_))).await?;
+    migrate(&connection, true).await?;
     Ok(connection)
 }
 
