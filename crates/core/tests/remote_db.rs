@@ -111,7 +111,7 @@ async fn remote_create_upsert_query_delete() {
     .unwrap();
     assert_eq!(
         row_ids_with_title(&connection, &first_title).await,
-        [row_id.clone()]
+        std::slice::from_ref(&row_id)
     );
 
     rows::upsert(
@@ -128,7 +128,7 @@ async fn remote_create_upsert_query_delete() {
     );
     assert_eq!(
         row_ids_with_title(&connection, &second_title).await,
-        [row_id.clone()]
+        std::slice::from_ref(&row_id)
     );
 
     rows::delete(&connection, DATABASE_NAME, &row_id)
