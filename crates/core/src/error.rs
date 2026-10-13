@@ -21,11 +21,6 @@ pub enum Error {
     /// `libsql://<host>` を指定したのに `TANSU_DB_AUTH_TOKEN` が無い。
     #[error("libsql:// の DB を開くには TANSU_DB_AUTH_TOKEN が要ります")]
     MissingAuthToken,
-    /// `libsql://<host>` (Turso Cloud) への接続。Turso Cloud の接続の issue で対応するまでは開かない。
-    #[error(
-        "libsql:// の DB への接続はまだ対応していません (TANSU_DB_URL を外すか file:<パス> を指定してください)"
-    )]
-    RemoteNotSupported,
     /// 指定した名前のデータベースが無い。
     #[error("データベース `{0}` はありません")]
     DatabaseNotFound(String),
@@ -46,6 +41,11 @@ pub enum Error {
     /// ローカルの DB を WAL モードに切り替えられなかった (再試行の期限まで別のプロセスと競合し続けた)。
     #[error("DB を WAL モードに切り替えられませんでした (journal_mode が {0} のまま)")]
     WalNotEnabled(String),
+    /// Turso Cloud の DB を開く処理 (接続とマイグレーション) が期限 (秒) までに終わらなかった。
+    #[error(
+        "libsql:// の DB が {0} 秒以内に応答しませんでした (TANSU_DB_URL と接続先を確認してください)"
+    )]
+    RemoteOpenTimedOut(u64),
     /// 必ず 1 行返すはずの問い合わせが行を返さなかった。
     #[error("{0} が結果を返しませんでした")]
     EmptyResult(&'static str),

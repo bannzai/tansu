@@ -33,6 +33,25 @@ jobs:
       # ビルドしたバイナリが起動することを確かめる
       - run: ./target/release/tansu --version
 
+  # Turso Cloud の CI 用の DB に接続し、ローカルのファイルと同じ操作とマイグレーションをリモートで確かめる
+  # (crates/core/tests/remote_db.rs)。fork の PR には Secrets が渡らないため、pull_request では動かさず
+  # workflow_dispatch (`gh workflow run ci.yml --ref <ブランチ>`) の時だけ動かす
+  remote:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TANSU_DB_URL: ${{ secrets.TANSU_DB_URL }}
+      TANSU_DB_AUTH_TOKEN: ${{ secrets.TANSU_DB_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # --nocapture: remote_qa_import_of_the_fixtures が出す qa import の所要時間をログに残す
+      - run: cargo test -p tansu-core --test remote_db --locked -- --ignored --nocapture
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 15
