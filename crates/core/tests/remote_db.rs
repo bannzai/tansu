@@ -142,18 +142,18 @@ async fn remote_create_upsert_query_delete() {
     );
 }
 
-/// `qa import` は QA の 4 つの表への書き込みを 1 つのトランザクションで行う、いちばん重い書き込みで、
-/// Turso Cloud の書き込みのトランザクションは 5 秒で打ち切られる
+/// `qa import` は QA の 4 つの表への書き込みを 1 つのトランザクションで行う、いちばん重い書き込み。
+/// Turso の文書は対話的なトランザクションに 5 秒の期限があると書く
 /// (https://docs.turso.tech/sdk/ts/reference「Interactive transactions in libSQL lock the database for writing until
-/// committed or rolled back, with a 5-second timeout.」)。fixture の取り込みがリモートでその中に収まるかを確かめる。
-/// 取り込みは自然キーで upsert するため、CI 用の DB に残っても次の run で行は増えない。
+/// committed or rolled back, with a 5-second timeout.」) ため、fixture の取り込みがリモートでコミットまで通るかを確かめ、
+/// 所要時間を出力する。取り込みは自然キーで upsert するため、CI 用の DB に残っても次の run で行は増えない。
 #[tokio::test]
 #[ignore = "TANSU_DB_URL / TANSU_DB_AUTH_TOKEN が要る。CI の remote job が -- --ignored で実行する"]
 async fn remote_qa_import_of_the_fixtures() {
     let home = tempfile::tempdir().unwrap();
     let connection = db::open(&remote_settings(&home)).await.unwrap();
-    let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/qa/sample-notes");
+    let fixtures =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/qa/sample-notes");
 
     let started = std::time::Instant::now();
     let report = import(&connection, &[fixtures]).await.unwrap();
