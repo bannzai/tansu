@@ -123,4 +123,19 @@ args = ["mcp"]
 
 ## データの扱い
 
-tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書き・QA 層の CLI・Web 画面・MCP サーバー。Web 画面は文字を端末のフォントで描き、本文の markdown の画像は読み込まずにリンクで出すため、画面を開いても外部へのリクエストは起きない)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`libsql://`) はまだ開けず、指定するとエラーで止まる。対応した後は、データがその DB に保存され、外部への通信はその接続だけになる。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
+tansu は計測を持たず、ログインもサーバーを各 Mac の localhost で動かす間は持たず、外部への送信は利用者が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い) という設計で作る (この時点で動くのは CLI の表の読み書き・QA 層の CLI・Web 画面・MCP サーバー。Web 画面は文字を端末のフォントで描き、本文の markdown の画像は読み込まずにリンクで出すため、画面を開いても外部へのリクエストは起きない)。データの置き場所は起動時に選ぶ (`TANSU_DB_URL`。`documents/PROJECT.md`「DB の置き場所」): 既定はこのマシンの SQLite ファイル (`TANSU_HOME` (既定 `~/.tansu`) の下の `tansu.sqlite`。`file:<パス>` で別の場所にもできる。実行中は付随ファイル `-wal` / `-shm` もできる) で、この時はマシンの外へ何も送らない。Turso Cloud の DB (`TANSU_DB_URL=libsql://...`) を選ぶと、データがその DB に保存され、外部への通信はその接続だけになる (複数の Mac で同じ DB を開けば同じデータを使える)。どちらを選んでもこのマシンに書くファイルは利用記録 (`$TANSU_HOME/usage.jsonl`。画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かず、どこにも送らない)。サーバーは既定で `127.0.0.1` だけで待ち受ける。利用規約・プライバシーポリシーはこの記載で代える。
+
+Turso Cloud の DB を使う手順 (Turso のアカウント・DB・トークンの作成は利用者が行う):
+
+1. Turso の CLI でログインし (`turso auth login`。アカウントが無ければ `turso auth signup`)、DB を作る: `turso db create <DB 名>`
+2. 接続先の URL を `turso db show <DB 名> --url` で、トークンを `turso db tokens create <DB 名>` で出す
+3. tansu を使うディレクトリの `.envrc` (git 管理外) に書き、`direnv allow` する。tansu は起動のたびにこの 2 つを読み、無ければローカルのファイルを使う
+
+```sh
+export TANSU_DB_URL=libsql://...   # 2 の URL
+export TANSU_DB_AUTH_TOKEN=...     # 2 のトークン
+```
+
+`TANSU_DB_URL` が `libsql://` でトークンが無い時と、接続できない時は、stderr に理由を 1 行出して exit 1 で止まる。初めて開いた時に表を作り、2 回目からは作り直さない。ローカルのファイルのデータは Turso に移さない (別の DB として始まる)。
+
+<!-- source: 2026-10-13 に取得して確かめた。docs.turso.tech/quickstart: 「turso auth signup」「turso auth login」、libSQL の DB は「turso db create my-db」。docs.turso.tech/cli/db/show: `turso db show <database-name> [flags]`、`--url`「Show URL for the database HTTP API.」。docs.turso.tech/cli/db/tokens/create: `turso db tokens create <database-name> [flags]`、`--expiration`「can be `never` or a value in days」。docs.turso.tech/sdk/http/reference: 「`libsql://` for libSQL databases」。接続とマイグレーションの挙動は crates/core/src/db/mod.rs と .claude/rules/sqlite-database.md -->
