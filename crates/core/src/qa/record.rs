@@ -6,15 +6,12 @@ use libsql::Connection;
 use serde_json::json;
 
 use super::{
-    FEATURE, ITEM, PROJECT, RUN, ensure_schema, find_row_id, full_sha, markdown_link_destination,
+    FEATURE, IMPORT_RUN_ID_PREFIX, ITEM, PROJECT, RUN, ensure_schema, find_row_id, full_sha,
+    markdown_link_destination,
 };
 use crate::db::{begin, finish, now, rows};
 use crate::error::Error;
 use crate::model::{Database, Id, Row};
-
-/// `qa import` が作る run の `run_id` の接頭辞。`qa record` の `run_id` には使わせない
-/// (取り込みが QA.md の現状に合わせて消す run と取り違えないため)。
-const IMPORT_RUN_ID_PREFIX: &str = "import:";
 
 /// `qa record` で記録する項目の指定。
 #[derive(Debug, Clone)]
@@ -150,20 +147,27 @@ async fn item_id(connection: &Connection, selector: &ItemSelector) -> Result<Id,
                     "project `{repo}` に feature `{feature}` はありません"
                 ))
             })?;
-            find_row_id(
+            // 同じ名前の項目は `qa import` が別の item として残すため、名前で 1 つに決まらない時は黙って選ばない
+            let (_, items) = rows::query_in(
                 connection,
                 ITEM,
                 &[
                     format!("feature={}", feature_id.0),
                     format!("name={item_name}"),
                 ],
+                None,
+                Some(2),
             )
-            .await?
-            .ok_or_else(|| {
-                Error::InvalidInput(format!(
+            .await?;
+            match <[Row; 1]>::try_from(items) {
+                Ok([item]) => Ok(item.id),
+                Err(items) if items.is_empty() => Err(Error::InvalidInput(format!(
                     "project `{repo}` の feature `{feature}` に項目 `{item_name}` はありません"
-                ))
-            })
+                ))),
+                Err(_) => Err(Error::InvalidInput(format!(
+                    "project `{repo}` の feature `{feature}` に項目 `{item_name}` が 2 つ以上あります (--item に item の行 ID を渡してください)"
+                ))),
+            }
         }
     }
 }

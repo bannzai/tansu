@@ -112,7 +112,7 @@ struct ExportParams {
 struct QaImportParams {
     /// リポジトリのルート (配下の QA.md をすべて探す) か QA.md のファイルのパス
     paths: Vec<PathBuf>,
-    /// true なら書き込まずに、取り込んだ時と同じ件数と読み飛ばした行を返す
+    /// true なら書き込まずに、取り込んだ時と同じ結果 (件数・行の扱いの内訳・本文に残した行・どこにも入らなかった行) を返す
     #[serde(default)]
     dry_run: bool,
 }
@@ -282,7 +282,7 @@ impl TansuServer {
         .await
     }
 
-    /// QA.md 群を QA 層の 4 つの表 (project / feature / item / run) に取り込み、件数と読み飛ばした行を JSON で返す。同じファイルを 2 回取り込んでも行は増えない
+    /// QA.md 群を QA 層の 4 つの表 (project / feature / item / run) に取り込み、件数・行の扱いの内訳・本文に残した行・どこにも入らなかった行を JSON で返す。同じファイルを 2 回取り込んでも行は増えない
     #[tool]
     async fn qa_import(
         &self,
