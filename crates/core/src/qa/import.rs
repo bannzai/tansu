@@ -18,7 +18,7 @@ use super::{
 };
 use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
-use crate::model::Id;
+use crate::model::{Id, Row};
 
 /// 取り込んだ行の数 (データベースごと)。同じ QA.md の 2 回目でも、`--dry-run` でも同じ数になる
 /// (入力に含まれる project / feature / item / run の数で、新しく足した行の数ではない)。
@@ -370,9 +370,10 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
 /// - 項目の結果 (`ok` / `skip` / `ng`)・⏭️ / ❌ の本文 (`note`)・frontmatter の `last_verified_commit` (`commit`) は、
 ///   [`super::RepoTables::latest`] と同じ順 (`recorded_at`、同じなら行を追加した順) で最後になる確認の run にだけ書く。
 ///   QA.md は項目の今の結果と最後の確認の commit しか持たず、それより前の確認の結果と commit は分からないため
-/// - 前の版の `import:<item の行 ID>` の run は、行 ID と取り込みが書かない値 (`env` 等) を保ったまま、日付が最後の確認の run に移す
-/// - その項目の run のうち、`run_id` が `import:` で始まり今回作らないもの (QA.md で記録・確認が消えたもの) は消す。
-///   `qa record` と Web 画面の run は消さない
+/// - 既にある取り込みの run の行は、確認の内容 (確認日と本文) で確認に当て、行 ID と取り込みが書かない値 (`env` 等) を保つ。
+///   前の版の `import:<item の行 ID>` の run は、日付が最後の確認の run に移す
+/// - その項目の取り込みの run (`run_id` が `import:` で始まる) のうち、どの確認にも当たらなかったもの (QA.md で記録・確認が
+///   消えたもの) は消す。`qa record` と Web 画面の run は消さない
 async fn write_runs(
     connection: &Connection,
     qa_md: &QaMd,
@@ -405,42 +406,83 @@ async fn write_runs(
         None,
     )
     .await?;
-    // 前の版の `import:<item の行 ID>` (1 項目 1 run) は、日付が最後の確認の run に移す。消して作り直すと、
-    // Web 画面・CLI で書き足した値 (`env` 等) と、ほかの行からその run への relation が失われるため
+    let bodies: Vec<&str> = (0..run_ids.len())
+        .map(|index| {
+            item.confirmations
+                .get(index)
+                .map_or("", |confirmation| confirmation.body.as_str())
+        })
+        .collect();
+    let item_run_prefix = format!("{IMPORT_RUN_ID_PREFIX}{}:", item_id.0);
+    // 確認ごとに、既にある取り込みの run の行を当てる。行 ID と、取り込みが書かない値 (`env` 等) と、ほかの行からの
+    // relation を保つため、確認の順番ではなく内容で当てる (前の確認を QA.md から消すと順番がずれるため):
+    // 1. 確認日・本文・`run_id` が同じ行 2. 確認日と本文が同じ行 3. 同じ `run_id` の行 (確認の本文を書き換えた時)
+    // 4. 前の版の `import:<item の行 ID>` (1 項目 1 run) の行を、日付が最後の確認に
+    let mut row_for_index: Vec<Option<&Row>> = vec![None; run_ids.len()];
+    let mut claimed: BTreeSet<&Id> = BTreeSet::new();
+    for (match_content, match_run_id) in [(true, true), (true, false), (false, true)] {
+        for index in 0..run_ids.len() {
+            if row_for_index[index].is_some() {
+                continue;
+            }
+            let matched = existing_runs.iter().find(|run| {
+                let run_id = text_of(&run_database, run, "run_id").unwrap_or_default();
+                let same_content = text_of(&run_database, run, "recorded_at") == recorded_at[index]
+                    && run.body == bodies[index];
+                run_id.starts_with(&item_run_prefix)
+                    && (same_content || !match_content)
+                    && (run_id == run_ids[index] || !match_run_id)
+                    && !claimed.contains(&run.id)
+            });
+            if let Some(run) = matched {
+                claimed.insert(&run.id);
+                row_for_index[index] = Some(run);
+            }
+        }
+    }
+    let legacy_run_id = format!("{IMPORT_RUN_ID_PREFIX}{}", item_id.0);
     let legacy_index = recorded_at
         .iter()
         .enumerate()
         .max_by_key(|(index, recorded_at)| (recorded_instant(**recorded_at), *index))
         .map(|(index, _)| index)
-        .filter(|index| *index < run_ids.len());
-    let legacy_run_id = format!("{IMPORT_RUN_ID_PREFIX}{}", item_id.0);
-    let legacy_target_exists = legacy_index.is_some_and(|index| {
-        existing_runs
-            .iter()
-            .any(|run| text_of(&run_database, run, "run_id") == Some(run_ids[index].as_str()))
-    });
-    let mut legacy_row_id = None;
+        .filter(|index| *index < run_ids.len() && row_for_index[*index].is_none());
+    let legacy_run = existing_runs
+        .iter()
+        .find(|run| text_of(&run_database, run, "run_id") == Some(legacy_run_id.as_str()));
+    if let (Some(index), Some(run)) = (legacy_index, legacy_run) {
+        claimed.insert(&run.id);
+        row_for_index[index] = Some(run);
+    }
+    // 当てなかった取り込みの run (QA.md で記録・確認が消えたもの) は消す。`qa record` と Web 画面の run は消さない
     for run in &existing_runs {
-        let Some(run_id) = text_of(&run_database, run, "run_id") else {
-            continue;
-        };
-        if run_id == legacy_run_id && legacy_index.is_some() && !legacy_target_exists {
-            legacy_row_id = Some(run.id.clone());
-        } else if run_id.starts_with(IMPORT_RUN_ID_PREFIX) && !run_ids.iter().any(|id| id == run_id)
+        if !claimed.contains(&run.id)
+            && text_of(&run_database, run, "run_id")
+                .is_some_and(|run_id| run_id.starts_with(IMPORT_RUN_ID_PREFIX))
         {
             rows::delete_in(connection, RUN, &run.id.0).await?;
+        }
+    }
+    // 当てた行の `run_id` を付け替える前に、付け替える行を一時的な `run_id` に退避する (確認の順番が入れ替わった時に、
+    // 付け替えの途中で `run_id` の unique が重ならないように)。付け替えの無い行は書かない (2 回目の取り込みで行を変えないため)
+    for (index, run) in row_for_index.iter().enumerate() {
+        if let Some(run) = run
+            && text_of(&run_database, run, "run_id") != Some(run_ids[index].as_str())
+        {
+            rows::upsert_in(
+                connection,
+                RUN,
+                &json!({"id": run.id, "values": {"run_id": format!("{item_run_prefix}moving:{}", run.id.0)}}),
+            )
+            .await?;
         }
     }
 
     // 結果を書く run は、`RepoTables::latest` が選ぶものと同じにする: `recorded_at` が最後で、同じなら行の追加順
     // (rowid) が後のもの。既にある行はその位置、これから足す行は既存の行の後ろに確認の順で並ぶ
     let row_position = |index: usize| {
-        existing_runs
-            .iter()
-            .position(|run| {
-                text_of(&run_database, run, "run_id") == Some(run_ids[index].as_str())
-                    || (Some(index) == legacy_index && legacy_row_id.as_ref() == Some(&run.id))
-            })
+        row_for_index[index]
+            .and_then(|row| existing_runs.iter().position(|run| run.id == row.id))
             .unwrap_or(existing_runs.len() + index)
     };
     let latest = (0..run_ids.len())
@@ -452,8 +494,8 @@ async fn write_runs(
             connection,
             RUN,
             &json!({
-                "id": legacy_row_id.as_ref().filter(|_| Some(index) == legacy_index),
-                "body": confirmation.map_or("", |confirmation| confirmation.body.as_str()),
+                "id": row_for_index[index].map(|run| &run.id),
+                "body": bodies[index],
                 "values": {
                     "run_id": run_id,
                     "item": [item_id],

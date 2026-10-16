@@ -335,6 +335,12 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     let mut evidence: Option<Evidence> = None;
     // エビデンスの見出しを既に当てた項目の `items` の添字
     let mut headed_items: HashSet<usize> = HashSet::new();
+    // ファイルにあるエビデンスの見出しの (項目名, 期待動作)。期待動作が一致しない見出しを、後ろに一致する見出しがある項目に
+    // 先取りで当てないために使う
+    let own_headings: HashSet<(String, String)> = lines
+        .iter()
+        .filter_map(|line| parse_bold_name(line.strip_prefix("### ")?.trim()))
+        .collect();
 
     for (index, line) in lines.iter().copied().enumerate() {
         let line_number = index + 1;
@@ -452,8 +458,9 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 match parse_bold_name(heading.trim()) {
                     Some((name, expected)) => {
                         // 名前と期待動作が一致する項目を先に当てる (同じ名前の項目の一部にしかエビデンスが無い時に、
-                        // 別の項目へ当てないため)。一致が無ければ同じ名前の項目に当てる。どちらも、まだ見出しを
-                        // 当てていない最初の項目に当て、全部に当て終えていれば最後の項目に当てる
+                        // 別の項目へ当てないため)。一致が無ければ同じ名前の項目に当て、ファイルのどこかに一致する見出しが
+                        // ある項目は後回しにする。どちらも、まだ見出しを当てていない最初の項目に当て、全部に当て終えていれば
+                        // 最後の項目に当てる
                         let same_name: Vec<usize> = parser
                             .qa_md
                             .items
@@ -467,14 +474,21 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             .copied()
                             .filter(|index| parser.qa_md.items[*index].expected == expected)
                             .collect();
-                        let candidates = if same_expected.is_empty() {
-                            same_name
-                        } else {
-                            same_expected
+                        let exact = !same_expected.is_empty();
+                        let candidates = if exact { same_expected } else { same_name };
+                        let has_own_heading = |item_index: usize| {
+                            let item = &parser.qa_md.items[item_index];
+                            own_headings.contains(&(item.name.clone(), item.expected.clone()))
                         };
                         state.heading_item = candidates
                             .iter()
-                            .find(|item_index| !headed_items.contains(*item_index))
+                            .filter(|item_index| !headed_items.contains(*item_index))
+                            .find(|item_index| exact || !has_own_heading(**item_index))
+                            .or_else(|| {
+                                candidates
+                                    .iter()
+                                    .find(|item_index| !headed_items.contains(*item_index))
+                            })
                             .or(candidates.last())
                             .copied();
                         headed_items.extend(state.heading_item);

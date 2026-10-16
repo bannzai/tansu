@@ -783,6 +783,53 @@ async fn the_result_goes_to_the_run_the_readers_pick_after_moving_a_previous_for
 }
 
 #[tokio::test]
+async fn removing_the_first_confirmation_keeps_the_rows_of_the_others() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    let write = |confirmations: &str| {
+        std::fs::write(
+            &file,
+            format!("## 1. 表示\n\n- [x] **一覧**: 出る\n\n#### 動作確認\n<details>\n\n### **一覧**: 出る\n\n{confirmations}</details>\n"),
+        )
+        .unwrap()
+    };
+    write("**確認日: 2026-09-01**\n1 回目\n\n**再確認日: 2026-09-10**\n2 回目\n\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    let item = query_named(&connection, "item", &["name=一覧"]).await;
+    let item_id = item[0]["id"].as_str().unwrap();
+    let second = runs_of_item(&connection, item_id).await[1].clone();
+    // 2 回目の確認の run に、利用者が env を書き足したことにする
+    rows::upsert(
+        &connection,
+        "run",
+        &json!({"id": second["id"], "values": {"env": "staging"}}),
+    )
+    .await
+    .unwrap();
+
+    write("**再確認日: 2026-09-10**\n2 回目\n\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    // 残った確認は自分の行のまま (順番が繰り上がって :1 になる)、消えた確認の行だけが消える
+    let runs = runs_of_item(&connection, item_id).await;
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["id"], second["id"]);
+    assert_eq!(
+        runs[0]["values"]["run_id"]["value"],
+        json!(format!("import:{item_id}:1"))
+    );
+    assert_eq!(runs[0]["values"]["env"]["value"], "staging");
+    assert_eq!(runs[0]["values"]["result"]["value"], "ok");
+    assert_eq!(runs[0]["body"], "2 回目");
+}
+
+#[tokio::test]
 async fn a_run_of_the_previous_import_format_keeps_its_row_and_added_values() {
     let home = tempfile::tempdir().unwrap();
     let connection = open(&home).await;

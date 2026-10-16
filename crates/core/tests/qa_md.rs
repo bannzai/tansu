@@ -598,6 +598,28 @@ fn an_outdated_evidence_heading_goes_to_a_same_name_item_without_a_heading() {
 }
 
 #[test]
+fn an_outdated_evidence_heading_does_not_take_an_item_whose_own_heading_comes_later() {
+    // 古い Y の見出しが先、X に一致する見出しが後。古い見出しは X ではなく Y に当てる
+    let qa_md = parse(
+        "x/QA.md",
+        "- [x] **A**: X\n- [x] **A**: Y\n\n#### 動作確認\n<details>\n\n### **A**: 古い Y\n\n**確認日: 2026-10-02**\n\n### **A**: X\n\n**確認日: 2026-10-01**\n\n</details>\n",
+    );
+    let dates: Vec<Vec<Option<&str>>> = qa_md
+        .items
+        .iter()
+        .map(|item| {
+            item.confirmations
+                .iter()
+                .map(|confirmation| confirmation.date.as_deref())
+                .collect()
+        })
+        .collect();
+    assert_eq!(dates, [vec![Some("2026-10-01")], vec![Some("2026-10-02")]]);
+    assert_eq!(qa_md.items[1].body, "### **A**: 古い Y");
+    assert_every_line_is_accounted(&qa_md, 15);
+}
+
+#[test]
 fn an_item_section_without_items_keeps_its_heading_in_the_feature_body() {
     let qa_md = parse(
         "x/QA.md",
