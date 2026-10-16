@@ -31,7 +31,8 @@ type Loaded = {
 /**
  * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
  * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
- * `onSaved` は保存が成功した後に呼ぶ (パネルの時に表を読み直すため)。
+ * `onSaved` は保存が成功した後に呼ぶ (パネルの時に表を読み直すため)。`savedRow` は表のセルで書いた後のこの行で、
+ * 書かれた値をパネルに映すために渡す。
  */
 export function RowDetail({
   databaseName,
@@ -39,12 +40,14 @@ export function RowDetail({
   databases,
   onClose,
   onSaved,
+  savedRow,
 }: {
   databaseName: string;
   rowId: string;
   databases: Database[];
   onClose?: () => void;
   onSaved?: () => void;
+  savedRow?: Row;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState<Record<string, RowValueInput>>({});
@@ -98,6 +101,34 @@ export function RowDetail({
   useEffect(() => {
     load().catch((caught: unknown) => setError(errorText(caught)));
   }, [load]);
+
+  // 表のセルで同じ行が書かれた時は、書かれたプロパティの編集欄と (まだ触っていなければ) 本文だけを置き換え、
+  // この画面でまだ保存していない入力は残す。読み直した後の方が新しければ古い書き込みとして無視する
+  useEffect(() => {
+    if (
+      savedRow === undefined ||
+      savedRow.id !== rowId ||
+      loaded === null ||
+      Date.parse(savedRow.updated_at) <= Date.parse(loaded.row.updated_at)
+    ) {
+      return;
+    }
+    const previous = loaded.row;
+    setDraft((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        loaded.database.properties
+          .filter(
+            (property) =>
+              property.kind.type !== "relation" &&
+              JSON.stringify(savedRow.values[property.name]) !== JSON.stringify(previous.values[property.name]),
+          )
+          .map((property) => [property.name, inputValue(savedRow.values[property.name])]),
+      ),
+    }));
+    setBody((current) => (current === previous.body ? savedRow.body : current));
+    setLoaded({ ...loaded, row: savedRow });
+  }, [savedRow, rowId, loaded]);
 
   if (loaded === null) {
     return error === null ? (

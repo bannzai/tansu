@@ -184,15 +184,19 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await page.screenshot({ path: testInfo.outputPath("table-cell-edited.png"), fullPage: true });
 });
 
-test("表の最後の「+ 新規」で空の行が足され、その場で名前を付けられる", async ({ page }, testInfo) => {
+test("表の最後の「+ 新規」で空の行が足され、絞り込み中でもその場で名前を付けられる", async ({ page }, testInfo) => {
   await page.goto("/db/item");
   const rows = page.getByTestId("table-row");
   await expect(rows).toHaveCount(12);
+  // 足す空の行は labels に「課金」を持たず絞り込みに合わないが、名前を入れ終わるまでは表に残る
+  await page.getByRole("button", { name: "フィルター", exact: true }).click();
+  await page.getByLabel("labels", { exact: true }).selectOption("課金");
+  await expect(rows).toHaveCount(1);
   const created = itemRowWritten(page);
   await page.getByRole("button", { name: "+ 新規", exact: true }).click();
   expect((await created).ok()).toBe(true);
-  await expect(rows).toHaveCount(13);
-  await expect(page.getByTestId("row-count")).toHaveText("13 行");
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("row-count")).toHaveText("1 / 13 行");
 
   // 足した行は名前の編集欄が開いた状態になる
   const nameEditor = page.getByRole("textbox", { name: / の name$/ });
@@ -201,6 +205,7 @@ test("表の最後の「+ 新規」で空の行が足され、その場で名前
   const named = itemRowWritten(page);
   await nameEditor.press("Enter");
   expect((await named).ok()).toBe(true);
+  await expect(rows).toHaveCount(1);
 
   await page.reload();
   await expect(rows).toHaveCount(13);
@@ -227,6 +232,17 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   await expect(page.getByRole("button", { name: "検索で絞り込める を開く" })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("peek.png") });
   const peekUrl = page.url();
+
+  // パネルでまだ保存していない入力は、表のセルで同じ行を書いても残り、表で書いた値はパネルに映る
+  const draft = "パネルで書きかけの期待値";
+  await peek.getByLabel("expected", { exact: true }).fill(draft);
+  const tableCheckbox = page.getByRole("checkbox", { name: "一覧の並び の verified" });
+  await expect(tableCheckbox).toBeChecked();
+  const written = itemRowWritten(page);
+  await tableCheckbox.click();
+  expect((await written).ok()).toBe(true);
+  await expect(peek.getByLabel("verified", { exact: true })).not.toBeChecked();
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
 
   await page.getByRole("button", { name: "検索で絞り込める を開く" }).click();
   await expect(peek.getByRole("heading", { level: 1 })).toHaveText("検索で絞り込める");

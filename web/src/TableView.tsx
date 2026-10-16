@@ -80,8 +80,8 @@ export function TableView({
   const [toolbarPanel, setToolbarPanel] = useState<"filter" | "sort" | null>(null);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [adding, setAdding] = useState(false);
-  // 表のセルで書いた行がパネルに開いている行なら、パネルを作り直して書いた値を読み直させる
-  const [peekRevision, setPeekRevision] = useState(0);
+  // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
+  const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
 
   const load = useCallback(async () => {
     const table = await fetchRows(databaseName);
@@ -134,7 +134,12 @@ export function TableView({
     ],
     titles,
   );
-  const shown = sort === null ? filtered : sortRows(filtered, sort, titles);
+  // 編集中の行は絞り込みに合わなくなっても残す (「+ 新規」で足した空の行に名前を入れられるように)
+  const visible =
+    editing === null || filtered.some((row) => row.id === editing.rowId)
+      ? filtered
+      : [...filtered, ...rows.filter((row) => row.id === editing.rowId)];
+  const shown = sort === null ? visible : sortRows(visible, sort, titles);
   const activeFilterCount = Object.values(choiceFilters).filter((value) => value !== "").length + (text === "" ? 0 : 1);
   const targetName = (property: Property) =>
     property.kind.type === "relation" ? loaded.targets.get(property.kind.target_database_id)?.database.name : undefined;
@@ -162,10 +167,9 @@ export function TableView({
     }
     setWriteError(null);
     try {
-      replaceRow(await upsertRow(database.name, { id: row.id, values }));
-      if (peek === row.id) {
-        setPeekRevision((revision) => revision + 1);
-      }
+      const written = await upsertRow(database.name, { id: row.id, values });
+      replaceRow(written);
+      setLastWrittenRow(written);
     } catch (caught) {
       setWriteError(errorText(caught));
     }
@@ -382,7 +386,8 @@ export function TableView({
       {peek !== null && (
         <section className="peek" aria-label="行のページ" data-testid="peek">
           <RowDetail
-            key={`${peek}:${peekRevision}`}
+            key={peek}
+            savedRow={lastWrittenRow}
             databaseName={database.name}
             rowId={peek}
             databases={databases}
