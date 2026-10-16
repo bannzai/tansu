@@ -322,8 +322,18 @@ fn is_excluded_directory(directory: &Path) -> bool {
 /// (`.git/info/exclude`・global の excludes を含む) で除外されていないものを返す。`root` より下で `.git`
 /// (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下、
 /// [`is_excluded_directory`] の下、symlink とその下、作業ツリーに無いファイル (削除してまだ commit していない等) は含めない。
-/// `root` が git の作業ツリーの外か、git を実行できなければ `None`。
+/// `root` が git の作業ツリーの外か、`root` 自体が `.gitignore` の対象 (`ls-files` が何も返さない) か、
+/// git を実行できなければ `None`。
 fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
+    if Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["check-ignore", "-q", "."])
+        .status()
+        .is_ok_and(|status| status.success())
+    {
+        return None;
+    }
     let output = Command::new("git")
         .args(["-C"])
         .arg(root)

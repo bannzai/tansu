@@ -1005,6 +1005,24 @@ fn qa_import_outside_git_reads_every_qa_md_except_fixed_directory_names() {
     assert_eq!(dry_run_files(&sandbox, &root), ["QA.md", "ignored/QA.md"]);
 }
 
+#[test]
+fn qa_import_of_a_gitignored_root_reads_like_outside_git() {
+    let sandbox = sandbox();
+    let directory = tempfile::tempdir().unwrap();
+    let repository = directory.path().join("repository");
+    std::fs::create_dir_all(&repository).unwrap();
+    git(&repository, &["init", "-q"]);
+    std::fs::write(repository.join(".gitignore"), "tmp/\n").unwrap();
+    let root = repository.join("tmp/notes");
+    write_qa_md(&root, "QA.md");
+    write_qa_md(&root, "features/list/QA.md");
+
+    assert_eq!(
+        dry_run_files(&sandbox, &root),
+        ["QA.md", "features/list/QA.md"]
+    );
+}
+
 /// `directory` の下を `destination` へ再帰的に複製する。
 fn copy_dir(directory: &Path, destination: &Path) {
     std::fs::create_dir_all(destination).unwrap();

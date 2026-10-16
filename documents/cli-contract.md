@@ -54,7 +54,7 @@ run の `values` のプロパティ (`type` と `value` の型):
 
 QA.md 群を QA 層の 4 つのデータベース (project / feature / item / run) に取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。同じ入力を 2 回取り込んでも行は増えない。読み替えの規則は `documents/data-model.md`「QA 層」。
 
-- ルートの下で探す QA.md: ルートが git の作業ツリーの中なら、git が追跡している QA.md と、未追跡で `.gitignore` (`.git/info/exclude`・global の excludes を含む) の対象でない QA.md (`git ls-files --cached --others --exclude-standard`)。ルートより下で `.git` (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下と、作業ツリーに無いファイル (削除してまだ commit していない等) は読まない。ルートが git の作業ツリーの外か git を実行できない時は、`.gitignore` と入れ子の `.git` を見ずに配下をすべて探す。どちらでも `.git` / `node_modules` / `target` という名前のディレクトリの下と symlink は読まない。読まなかった QA.md は `files` に出さない
+- ルートの下で探す QA.md: ルートが git の作業ツリーの中なら、git が追跡している QA.md と、未追跡で `.gitignore` (`.git/info/exclude`・global の excludes を含む) の対象でない QA.md (`git ls-files --cached --others --exclude-standard`)。ルートより下で `.git` (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下と、作業ツリーに無いファイル (削除してまだ commit していない等) は読まない。ルートが git の作業ツリーの外か、ルート自体が `.gitignore` の対象か、git を実行できない時は、`.gitignore` と入れ子の `.git` を見ずに配下をすべて探す。どちらでも `.git` / `node_modules` / `target` という名前のディレクトリの下と symlink は読まない。読まなかった QA.md は `files` に出さない
 - `--dry-run`: DB を開かず何も書かない (利用記録は足す)。出力は取り込んだ時と同じ
 - 出力 (`--json`): 下の object。`--json` 無しは件数の 1 行と、読み飛ばした行を 1 行ずつ
 - exit code: 成功 0、失敗 1 (読めないパス等。その時は何も書かない)
