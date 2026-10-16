@@ -1005,6 +1005,35 @@ fn qa_import_outside_git_reads_every_qa_md_except_fixed_directory_names() {
     assert_eq!(dry_run_files(&sandbox, &root), ["QA.md", "ignored/QA.md"]);
 }
 
+// macOS (APFS) は UTF-8 でないファイル名を作れないため linux に限る (CI は ubuntu)
+#[cfg(target_os = "linux")]
+#[test]
+fn qa_import_in_a_git_work_tree_reads_qa_md_under_a_non_utf8_directory_name() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let sandbox = sandbox();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("notes");
+    let file = root
+        .join(std::ffi::OsStr::from_bytes(b"feature-\xff"))
+        .join("QA.md");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, "# QA\n\n- [ ] **一覧が開く**: 項目が並ぶ\n").unwrap();
+    git(&root, &["init", "-q"]);
+
+    let report = succeed_json(
+        &sandbox,
+        &[
+            "qa",
+            "import",
+            "--dry-run",
+            "--json",
+            root.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(report["files"].as_array().unwrap().len(), 1, "{report}");
+}
+
 #[test]
 fn qa_import_of_a_gitignored_root_reads_like_outside_git() {
     let sandbox = sandbox();

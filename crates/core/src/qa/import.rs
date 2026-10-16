@@ -351,8 +351,7 @@ fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
         output
             .stdout
             .split(|byte| *byte == 0)
-            .filter_map(|relative| std::str::from_utf8(relative).ok())
-            .map(|relative| root.join(relative))
+            .map(|relative| root.join(path_from_git_output(relative)))
             .filter(|file| file.file_name().is_some_and(|name| name == "QA.md"))
             .filter(|file| file.is_file() && !file.is_symlink())
             .filter(|file| {
@@ -370,6 +369,20 @@ fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
             })
             .collect(),
     )
+}
+
+/// `git ls-files -z` が出す 1 件分のパスのバイト列。unix ではバイト列のまま使い、UTF-8 でない名前のパスも落とさない
+/// (`read_dir` で探す時と同じファイルを読めるように)。
+#[cfg(unix)]
+fn path_from_git_output(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// `git ls-files -z` が出す 1 件分のパスのバイト列。unix 以外の git はパスを UTF-8 で出す。
+#[cfg(not(unix))]
+fn path_from_git_output(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// `directory` の下の `QA.md` を再帰的に探してパス順で `files` に足す。git の作業ツリーの外 (git を実行できない時を含む) で使う。
