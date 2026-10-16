@@ -309,7 +309,8 @@ fn separate_paragraph(body: &mut String) {
 /// `- [ ] **項目名**: 期待動作` と `- [x]`、入れ子の `自動化: auto(...) | manual(...) | todo` (括弧は全角・半角のどちらでも)、
 /// `⏭️ スキップ:` / `❌ 失敗:` とその下の入れ子 (併記事項)、`## 仕様チェックリスト` の表、`#### 動作確認` の details の中の
 /// `### **項目名**: 期待動作` と、`**確認日: YYYY-MM-DD**` / `**再確認日: YYYY-MM-DD**` (日付の後ろの注記は確認の本文) ごとの
-/// `<img src="URL">` と説明文。同じ名前の項目は別の項目にし、同じ名前の k 番目のエビデンスの見出しを k 番目の項目に当てる。
+/// `<img src="URL">` と説明文。同じ名前の項目は別の項目にし、エビデンスの見出しは名前と期待動作が一致する項目に
+/// (無ければ同じ名前の k 番目の見出しを k 番目の項目に) 当てる。
 pub fn parse(file: &str, text: &str) -> QaMd {
     let lines: Vec<&str> = text
         .lines()
@@ -332,7 +333,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     let mut current_item: Option<(usize, usize)> = None;
     let mut record_indent: Option<usize> = None;
     let mut evidence: Option<Evidence> = None;
-    let mut evidence_heading_counts: HashMap<String, usize> = HashMap::new();
+    // (項目名, 一致した期待動作) ごとに、当てたエビデンスの見出しの数。期待動作が一致しなかった見出しは `None` で数える
+    let mut evidence_heading_counts: HashMap<(String, Option<String>), usize> = HashMap::new();
 
     for (index, line) in lines.iter().copied().enumerate() {
         let line_number = index + 1;
@@ -448,10 +450,9 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             if let Some(heading) = line.strip_prefix("### ") {
                 state.confirmation = None;
                 match parse_bold_name(heading.trim()) {
-                    Some((name, _)) => {
-                        let count = evidence_heading_counts.entry(name.clone()).or_default();
-                        let occurrence = *count;
-                        *count += 1;
+                    Some((name, expected)) => {
+                        // 名前と期待動作が一致する項目を先に当てる (同じ名前の項目の一部にしかエビデンスが無い時に、
+                        // 別の項目へ当てないため)。一致が無ければ、同じ名前の k 番目の見出しを k 番目の項目に当てる
                         let same_name: Vec<usize> = parser
                             .qa_md
                             .items
@@ -460,9 +461,32 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             .filter(|(_, item)| item.name == name)
                             .map(|(item_index, _)| item_index)
                             .collect();
+                        let same_expected: Vec<usize> = same_name
+                            .iter()
+                            .copied()
+                            .filter(|index| parser.qa_md.items[*index].expected == expected)
+                            .collect();
+                        let (candidates, key) = if same_expected.is_empty() {
+                            (same_name, (name, None))
+                        } else {
+                            (same_expected, (name, Some(expected.clone())))
+                        };
+                        let count = evidence_heading_counts.entry(key).or_default();
+                        let occurrence = *count;
+                        *count += 1;
                         state.heading_item =
-                            same_name.get(occurrence).or(same_name.last()).copied();
-                        if state.heading_item.is_some() {
+                            candidates.get(occurrence).or(candidates.last()).copied();
+                        if let Some(item_index) = state.heading_item
+                            && parser.qa_md.items[item_index].expected != expected
+                        {
+                            parser.keep(
+                                BodyTarget::Item(item_index),
+                                line_number,
+                                line,
+                                line,
+                                "エビデンスの見出しの期待動作がチェック項目と違う",
+                            );
+                        } else if state.heading_item.is_some() {
                             parser.structured(line_number);
                         } else {
                             parser.keep(

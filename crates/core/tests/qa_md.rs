@@ -552,6 +552,30 @@ fn fenced_code_blocks_are_not_read_as_syntax() {
 }
 
 #[test]
+fn an_evidence_heading_goes_to_the_item_with_the_same_name_and_expected_behavior() {
+    // 同じ名前の前の項目にはエビデンスが無い。見出しの期待動作で後ろの項目に当てる
+    let qa_md = parse(
+        "x/QA.md",
+        "- [ ] **A**: X\n- [x] **A**: Y\n\n#### 動作確認\n<details>\n\n### **A**: Y\n\n**確認日: 2026-10-01**\n\n### **A**: 古い文\n\n**確認日: 2026-10-02**\n\n</details>\n",
+    );
+    let dates: Vec<Vec<Option<&str>>> = qa_md
+        .items
+        .iter()
+        .map(|item| {
+            item.confirmations
+                .iter()
+                .map(|confirmation| confirmation.date.as_deref())
+                .collect()
+        })
+        .collect();
+    // 期待動作が一致しない見出しは、同じ名前の k 番目の項目 (ここでは 1 番目の X) に当て、見出しの行をその項目の本文に残す
+    assert_eq!(dates, [vec![Some("2026-10-02")], vec![Some("2026-10-01")]]);
+    assert_eq!(qa_md.items[0].body, "### **A**: 古い文");
+    assert_eq!(skipped_line_numbers(&qa_md), [11]);
+    assert_every_line_is_accounted(&qa_md, 15);
+}
+
+#[test]
 fn an_item_section_without_items_keeps_its_heading_in_the_feature_body() {
     let qa_md = parse(
         "x/QA.md",

@@ -670,6 +670,45 @@ async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
 }
 
 #[tokio::test]
+async fn removing_the_first_of_two_same_name_items_keeps_the_row_of_the_second() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    let write = |text: &str| std::fs::write(&file, text).unwrap();
+    write("## 1. 表示\n\n- [ ] **A**: X\n- [ ] **A**: Y\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    let expected_by_id = |items: Vec<Value>| -> Vec<(String, String)> {
+        items
+            .iter()
+            .map(|item| {
+                (
+                    item["id"].as_str().unwrap().to_owned(),
+                    item["values"]["expected"]["value"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                )
+            })
+            .collect()
+    };
+    let before = expected_by_id(query_named(&connection, "item", &["name=A"]).await);
+
+    write("## 1. 表示\n\n- [ ] **A**: Y\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    // Y は自分の行に当たり、X の行 (QA.md から消えた項目) は書き換えない
+    assert_eq!(
+        expected_by_id(query_named(&connection, "item", &["name=A"]).await),
+        before
+    );
+}
+
+#[tokio::test]
 async fn a_run_of_the_previous_import_format_keeps_its_row_and_added_values() {
     let home = tempfile::tempdir().unwrap();
     let connection = open(&home).await;

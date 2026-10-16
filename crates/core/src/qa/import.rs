@@ -18,7 +18,7 @@ use super::{
 };
 use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
-use crate::model::Id;
+use crate::model::{Id, Row};
 
 /// 取り込んだ行の数 (データベースごと)。同じ QA.md の 2 回目でも、`--dry-run` でも同じ数になる
 /// (入力に含まれる project / feature / item / run の数で、新しく足した行の数ではない)。
@@ -300,8 +300,9 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
             }),
         )
         .await?;
-        // 同じ名前の項目は名前で 1 行に決まらないため、feature の item を名前ごとに追加した順で並べ、
-        // QA.md の同じ名前の k 番目の項目を k 番目の行に当てる
+        // 同じ名前の項目は名前で 1 行に決まらないため、名前と期待動作が一致する行を先に当て、無ければ名前が一致する行
+        // (追加した順) のうちまだ当てていないものに当てる。順番だけで当てると、前の項目を QA.md から消した時に
+        // その行 (と `qa record` の run) が後ろの項目に移るため
         let (item_database, existing_items) = rows::query_in(
             connection,
             ITEM,
@@ -310,17 +311,27 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
             None,
         )
         .await?;
-        let mut existing_item_ids: BTreeMap<&str, Vec<&Id>> = BTreeMap::new();
-        for row in &existing_items {
-            if let Some(name) = text_of(&item_database, row, "name") {
-                existing_item_ids.entry(name).or_default().push(&row.id);
+        let mut claimed_item_ids: BTreeSet<&Id> = BTreeSet::new();
+        let mut item_ids = Vec::new();
+        for item in &qa_md.items {
+            let same_name =
+                |row: &&Row| text_of(&item_database, row, "name") == Some(item.name.as_str());
+            let same_expected = |row: &&Row| {
+                text_of(&item_database, row, "expected") == Some(item.expected.as_str())
+            };
+            let unclaimed = |row: &&Row| !claimed_item_ids.contains(&row.id);
+            let matched = existing_items
+                .iter()
+                .filter(same_name)
+                .filter(unclaimed)
+                .find(same_expected)
+                .or_else(|| existing_items.iter().filter(same_name).find(unclaimed));
+            if let Some(row) = matched {
+                claimed_item_ids.insert(&row.id);
             }
+            item_ids.push(matched.map_or_else(Id::generate, |row| row.id.clone()));
         }
-        for (item, occurrence) in qa_md.items.iter().zip(occurrences(&qa_md.items)) {
-            let item_id = existing_item_ids
-                .get(item.name.as_str())
-                .and_then(|ids| ids.get(occurrence))
-                .map_or_else(Id::generate, |id| (*id).clone());
+        for (item, item_id) in qa_md.items.iter().zip(item_ids) {
             let has_runs = run_count(item) > 0;
             rows::upsert_in(
                 connection,
