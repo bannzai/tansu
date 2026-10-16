@@ -180,6 +180,7 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await editor.press("Enter");
   await expect(page.getByRole("button", { name: "言語を切り替えられる の expected を編集" })).toBeDisabled();
   await expect(page.getByRole("checkbox", { name: "言語を切り替えられる の verified" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "+ 新規", exact: true })).toBeDisabled();
   expect((await failed).status()).toBe(500);
   await expect(page.getByRole("alert")).toHaveText("E2E で失敗させた");
   await expect(editor).toHaveValue(expected);

@@ -80,9 +80,11 @@ export function TableView({
   const [toolbarPanel, setToolbarPanel] = useState<"filter" | "sort" | null>(null);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [adding, setAdding] = useState(false);
+  // パネルで保存した後に表を読み直している間。読み直しは最後に表全体を置き換えるため、その間の書き込みを止める
+  const [reloading, setReloading] = useState(false);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
-  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず、保存を 1 つずつにする。
+  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
   // 保存は読み込んだ値との差分で送り応答の行で置き換えるため、並べると後の入力が「変更なし」になったり古い応答で
   // 値が戻ったりする。また別のセルへ移ると、失敗した時に書きかけを持つ編集欄が消えてしまう
   const [savingCell, setSavingCell] = useState<string | null>(null);
@@ -162,6 +164,9 @@ export function TableView({
           },
     );
 
+  // セルの保存・行の追加・読み直しのどれかの途中。書き込みを 1 つずつにするため、その間は編集も「+ 新規」も始めさせない
+  const writing = savingCell !== null || adding || reloading;
+
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
     const cellKey = `${row.id}:${property.name}`;
     // 応答を待つ間に別のセルを開いていたら、そちらは閉じない
@@ -227,7 +232,7 @@ export function TableView({
       targetDatabaseName={targetName(property)}
       editing={editing?.rowId === row.id && editing.property === property.name}
       saving={savingCell === `${row.id}:${property.name}`}
-      locked={savingCell !== null}
+      locked={writing}
       onEdit={() => setEditing({ rowId: row.id, property: property.name })}
       onCancel={() => setEditing(null)}
       onWrite={(value) => writeValue(row, property, value)}
@@ -390,7 +395,7 @@ export function TableView({
             })}
             <tr>
               <td colSpan={columns.length + 1} className="new-row-cell">
-                <button type="button" className="new-row-button" disabled={adding} onClick={addRow}>
+                <button type="button" className="new-row-button" disabled={writing} onClick={addRow}>
                   + 新規
                 </button>
               </td>
@@ -408,7 +413,10 @@ export function TableView({
             databases={databases}
             onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
             onSaved={() => {
-              load().catch((caught: unknown) => setWriteError(errorText(caught)));
+              setReloading(true);
+              load()
+                .catch((caught: unknown) => setWriteError(errorText(caught)))
+                .finally(() => setReloading(false));
             }}
           />
         </section>
@@ -438,7 +446,7 @@ function OpenButton({ label, onOpen }: { label: string; onOpen: () => void }) {
  * 表の 1 つのセル。checkbox はその場で切り替え、relation は読み取りだけ (詳細ページと同じく編集しない)、それ以外は
  * クリックで `editing` にして編集欄を出す。`onWrite` は編集した値を保存し、`onCancel` は保存せずに編集をやめる。
  * `extra` は値の後に置く要素 (行の名前の列の「開く」)。`rowLabel` は行の名前で、操作の名前に使う。
- * `saving` はこのセルの保存の応答を待つ間、`locked` は表のどれかのセルの保存の応答を待つ間 (編集を始めさせない)。
+ * `saving` はこのセルの保存の応答を待つ間、`locked` は表のどこかで書き込み (セルの保存・行の追加・読み直し) の途中の間 (編集を始めさせない)。
  */
 function Cell({
   row,
