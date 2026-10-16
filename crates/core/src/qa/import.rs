@@ -52,7 +52,8 @@ pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
     Ok(report(&parse_all(paths)?, true))
 }
 
-/// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。
+/// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` を探す。探す範囲は `documents/cli-contract.md` の
+/// `qa import`) か QA.md のファイル。
 ///
 /// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
 /// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)。
@@ -326,7 +327,13 @@ fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
     let output = Command::new("git")
         .args(["-C"])
         .arg(root)
-        .args(["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
         .output()
         .ok()
         .filter(|output| output.status.success())?;

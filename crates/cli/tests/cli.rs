@@ -926,7 +926,13 @@ fn write_qa_md(root: &Path, relative: &str) {
 fn dry_run_files(sandbox: &Sandbox, root: &Path) -> Vec<String> {
     let report = succeed_json(
         sandbox,
-        &["qa", "import", "--dry-run", "--json", root.to_str().unwrap()],
+        &[
+            "qa",
+            "import",
+            "--dry-run",
+            "--json",
+            root.to_str().unwrap(),
+        ],
     );
     let root = root.canonicalize().unwrap();
     let mut files: Vec<String> = report["files"]
@@ -964,8 +970,11 @@ fn qa_import_skips_nested_repositories_and_gitignored_paths_in_a_git_work_tree()
     // commit 済みのディレクトリを、index を更新せずにリポジトリの外への symlink に置き換える
     write_qa_md(directory.path(), "outside/QA.md");
     std::fs::remove_dir_all(root.join("features/linked")).unwrap();
-    std::os::unix::fs::symlink(directory.path().join("outside"), root.join("features/linked"))
-        .unwrap();
+    std::os::unix::fs::symlink(
+        directory.path().join("outside"),
+        root.join("features/linked"),
+    )
+    .unwrap();
     // 未追跡で `.gitignore` の対象でない QA.md は読む
     write_qa_md(&root, "features/untracked/QA.md");
     std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
@@ -975,7 +984,10 @@ fn qa_import_skips_nested_repositories_and_gitignored_paths_in_a_git_work_tree()
     std::fs::write(root.join("placeholder/.git"), "gitdir: /nonexistent\n").unwrap();
     write_qa_md(&root, "node_modules/package/QA.md");
 
-    assert_eq!(dry_run_files(&sandbox, &root), ["QA.md", "features/untracked/QA.md"]);
+    assert_eq!(
+        dry_run_files(&sandbox, &root),
+        ["QA.md", "features/untracked/QA.md"]
+    );
 }
 
 #[test]
