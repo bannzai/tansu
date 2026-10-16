@@ -1,4 +1,11 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   type Database,
   type DatabaseRows,
@@ -509,13 +516,7 @@ function Cell({
   return (
     <td className={className}>
       {property.kind.type !== "relation" && (
-        <button
-          type="button"
-          className="cell-edit"
-          aria-label={`${label} を編集`}
-          disabled={locked}
-          onClick={onEdit}
-        />
+        <button type="button" className="cell-edit" aria-label={`${label} を編集`} disabled={locked} onClick={onEdit} />
       )}
       <span className={extra === undefined ? "cell-value" : "cell-value row-title"}>
         {extra !== undefined && (value === undefined || (value.type === "text" && value.value === "")) ? (
