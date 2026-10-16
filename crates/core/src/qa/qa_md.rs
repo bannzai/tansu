@@ -585,7 +585,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             {
                 // setup-qa の書式が決めている summary の文字列だけを書式として扱い、それ以外の文字は本文に残す
                 let text = text_outside_tags(line);
-                if ["", "動作確認スクショ", "動作確認エビデンス"].contains(&text.as_str()) {
+                if ["", "動作確認スクショ", "動作確認エビデンス"].contains(&text.as_str())
+                {
                     parser.structured(line_number);
                 } else {
                     parser.keep(
