@@ -87,7 +87,7 @@ export function TableView({
   const [toolbarPanel, setToolbarPanel] = useState<"filter" | "sort" | null>(null);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [adding, setAdding] = useState(false);
-  // パネルで保存した後の表の読み直しの、終わっていない数。読み直しは最後に表全体を置き換えるため、その間の書き込みを
+  // パネルで保存・選択肢の追加をした後の表の読み直しの、終わっていない数。読み直しは最後に表全体を置き換えるため、その間の書き込みを
   // 止める。パネルは読み直しの途中でも続けて保存できるので、重なった読み直しがすべて終わるまで止めるために数で持つ
   const [reloadCount, setReloadCount] = useState(0);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
@@ -542,6 +542,15 @@ function Cell({
   );
 }
 
+/**
+ * キー入力が日本語の変換の途中 (確定の Enter を含む) か。Safari は確定の Enter の keydown より先に compositionend を
+ * 送り、その keydown の isComposing が false になるため、keyCode 229 でも見分ける
+ * (https://bugs.webkit.org/show_bug.cgi?id=165004)。
+ */
+function isComposing(event: ReactKeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
 /** 編集欄を描いた時にフォーカスを移す ref。 */
 function focusOnMount(element: HTMLElement | null) {
   element?.focus();
@@ -592,7 +601,7 @@ function CellEditor({
     }
   };
   // 編集欄の Esc はこの編集の取消だけに使い、パネルを閉じる window の Esc まで届けない
-  // (multi_select の「完了」やチェックボックスは文字の入力欄ではないため、window 側では見分けられない)
+  // (select は文字の入力欄ではないため、window 側では見分けられない。multi_select の Esc は下の document で受ける)
   const cancel = (event: ReactKeyboardEvent) => {
     event.stopPropagation();
     finish(undefined);
@@ -600,22 +609,39 @@ function CellEditor({
   const textValue = () =>
     property.kind.type === "number" ? (draftText.trim() === "" ? null : Number(draftText)) : draftText;
 
-  // multi_select の編集欄は blur ではなく、編集欄の外を押した時に保存する。Safari では checkbox と label を押しても
-  // フォーカスが移らず、blur を手がかりにすると選択肢を押した瞬間に変更前の値で閉じてしまうため
+  // multi_select の編集欄は blur ではなく、編集欄の外を押した時に保存し、Esc はフォーカスの場所を問わず取り消す。
+  // Safari では checkbox と label を押してもフォーカスが移らず (それまでの要素は blur する)、blur や編集欄の
+  // keydown を手がかりにすると、選択肢を押した瞬間に閉じたり、その後の Esc が届かなかったりするため
   const popover = useRef<HTMLFieldSetElement>(null);
-  const finishChoices = useRef(() => finish(draftChoices));
-  finishChoices.current = () => finish(draftChoices);
+  // document の listener から、最新の選択で保存 (`save` が true) か取消をする
+  const finishChoices = useRef((save: boolean) => finish(save ? draftChoices : undefined));
+  finishChoices.current = (save) => finish(save ? draftChoices : undefined);
   useEffect(() => {
     if (property.kind.type !== "multi_select") {
       return;
     }
     const onPointerDown = (event: PointerEvent) => {
+      // 右クリックなど主ボタン以外の操作では閉じない
+      if (event.button !== 0) {
+        return;
+      }
       if (!(event.target instanceof Node && popover.current?.contains(event.target))) {
-        finishChoices.current();
+        finishChoices.current(true);
+      }
+    };
+    // capture で受けて止め、パネルを閉じる window の Esc まで届けない
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        finishChoices.current(false);
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
   }, [property.kind.type]);
 
   switch (property.kind.type) {
@@ -653,9 +679,11 @@ function CellEditor({
           className="cell-popover"
           aria-label={label}
           disabled={saving}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              cancel(event);
+          onBlur={(event) => {
+            // Tab などキーボードでフォーカスが編集欄の外へ移った時も保存する。移り先が無い (null の) blur は Safari で
+            // 選択肢を押した時にも起きるため、移り先が分かる時だけにする
+            if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) {
+              finish(draftChoices);
             }
           }}
         >
@@ -693,7 +721,7 @@ function CellEditor({
           onChange={(event) => setDraftText(event.target.value)}
           onBlur={() => finish(draftText)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey && !isComposing(event)) {
               event.preventDefault();
               finish(draftText);
             } else if (event.key === "Escape") {
@@ -715,7 +743,7 @@ function CellEditor({
           onChange={(event) => setDraftText(event.target.value)}
           onBlur={() => finish(textValue())}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !isComposing(event)) {
               finish(textValue());
             } else if (event.key === "Escape") {
               cancel(event);

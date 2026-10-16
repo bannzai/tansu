@@ -167,13 +167,17 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await page.screenshot({ path: testInfo.outputPath("table-cell-editing.png"), fullPage: true });
 
   // 保存の応答を待つ間はほかのセルの編集を始められず、保存に失敗しても編集欄と入力は残り、そのまま送り直せる
+  // 応答を待つ間の画面を確かめ終わるまで、失敗の応答を返さずに止めておく
+  let releaseFailure: () => void = () => undefined;
+  const failureReleased = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
   await page.route("**/api/databases/item/rows", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
     }
-    // 応答を待つ間の画面を確かめるために遅らせる
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await failureReleased;
     await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"E2E で失敗させた"}' });
   });
   const failed = itemRowWritten(page);
@@ -181,6 +185,7 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await expect(page.getByRole("button", { name: "言語を切り替えられる の expected を編集" })).toBeDisabled();
   await expect(page.getByRole("checkbox", { name: "言語を切り替えられる の verified" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "+ 新規", exact: true })).toBeDisabled();
+  releaseFailure();
   expect((await failed).status()).toBe(500);
   await expect(page.getByRole("alert")).toHaveText("E2E で失敗させた");
   await expect(editor).toHaveValue(expected);
@@ -222,6 +227,12 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await expect(specIdsEditor).toHaveCount(0);
   await expect(themeRow.locator(".tag", { hasText: /^S5$/ })).toHaveCount(0);
   await expect(themeRow.locator(".tag", { hasText: /^S3$/ })).toBeVisible();
+  // 選択肢を押した後の Esc は保存せずに取り消す
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S1", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S1$/ })).toHaveCount(0);
 
   await page.reload();
   await expect(page.getByTestId("table-row").getByText(expected)).toBeVisible();
