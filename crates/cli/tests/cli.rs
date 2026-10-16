@@ -915,6 +915,76 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
     assert!(stderr.contains("/nonexistent/QA.md"), "{stderr}");
 }
 
+/// `root` の下の `relative` に合成の QA.md を書く (途中のディレクトリも作る)。
+fn write_qa_md(root: &Path, relative: &str) {
+    let file = root.join(relative);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, "# QA\n\n- [ ] **一覧が開く**: 項目が並ぶ\n").unwrap();
+}
+
+/// `qa import <root> --dry-run --json` の `files` を、`root` からの相対パスにして返す。
+fn dry_run_files(sandbox: &Sandbox, root: &Path) -> Vec<String> {
+    let report = succeed_json(
+        sandbox,
+        &["qa", "import", "--dry-run", "--json", root.to_str().unwrap()],
+    );
+    let root = root.canonicalize().unwrap();
+    let mut files: Vec<String> = report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| {
+            Path::new(file.as_str().unwrap())
+                .strip_prefix(&root)
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+#[test]
+fn qa_import_skips_nested_repositories_and_gitignored_paths_in_a_git_work_tree() {
+    let sandbox = sandbox();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("notes");
+    write_qa_md(&root, "QA.md");
+    write_qa_md(&root, "features/removed/QA.md");
+    git(&root, &["init", "-q"]);
+    commit_all(&root, "first");
+    // agent が作った作業用の worktree (ルートに `.git` のファイルを持つ。commit 済みの QA.md の複製が入る)
+    git(&root, &["worktree", "add", "-q", ".claude/worktrees/agent"]);
+    // 削除してまだ commit していない QA.md (git の index には残る)
+    std::fs::remove_file(root.join("features/removed/QA.md")).unwrap();
+    // 未追跡で `.gitignore` の対象でない QA.md は読む
+    write_qa_md(&root, "features/untracked/QA.md");
+    std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+    write_qa_md(&root, "ignored/QA.md");
+    // 有効なリポジトリを指さない `.git` のファイルを置いたディレクトリ
+    write_qa_md(&root, "placeholder/QA.md");
+    std::fs::write(root.join("placeholder/.git"), "gitdir: /nonexistent\n").unwrap();
+    write_qa_md(&root, "node_modules/package/QA.md");
+
+    assert_eq!(dry_run_files(&sandbox, &root), ["QA.md", "features/untracked/QA.md"]);
+}
+
+#[test]
+fn qa_import_outside_git_reads_every_qa_md_except_fixed_directory_names() {
+    let sandbox = sandbox();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("notes");
+    write_qa_md(&root, "QA.md");
+    // git の管理下でなければ `.gitignore` は見ない
+    std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+    write_qa_md(&root, "ignored/QA.md");
+    write_qa_md(&root, "node_modules/package/QA.md");
+    write_qa_md(&root, "target/QA.md");
+
+    assert_eq!(dry_run_files(&sandbox, &root), ["QA.md", "ignored/QA.md"]);
+}
+
 /// `directory` の下を `destination` へ再帰的に複製する。
 fn copy_dir(directory: &Path, destination: &Path) {
     std::fs::create_dir_all(destination).unwrap();
