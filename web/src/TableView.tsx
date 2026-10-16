@@ -600,8 +600,8 @@ function CellEditor({
       onWrite(value);
     }
   };
-  // 編集欄の Esc はこの編集の取消だけに使い、パネルを閉じる window の Esc まで届けない
-  // (select は文字の入力欄ではないため、window 側では見分けられない。multi_select の Esc は下の document で受ける)
+  // 編集欄の Esc はこの編集の取消だけに使い、パネルを閉じる window の Esc まで届けない (window 側も isTextEntry で
+  // 見分けるが、編集欄が決める方を正にする。multi_select の Esc は下の document で受ける)
   const cancel = (event: ReactKeyboardEvent) => {
     event.stopPropagation();
     finish(undefined);
@@ -609,9 +609,10 @@ function CellEditor({
   const textValue = () =>
     property.kind.type === "number" ? (draftText.trim() === "" ? null : Number(draftText)) : draftText;
 
-  // multi_select の編集欄は blur ではなく、編集欄の外を押した時に保存し、Esc はフォーカスの場所を問わず取り消す。
-  // Safari では checkbox と label を押してもフォーカスが移らず (それまでの要素は blur する)、blur や編集欄の
-  // keydown を手がかりにすると、選択肢を押した瞬間に閉じたり、その後の Esc が届かなかったりするため
+  // multi_select の編集欄は、編集欄の外を押した時と、移り先の分かる blur で外へ出た時に保存し、Esc はフォーカスの
+  // 場所を問わず取り消す。Safari では checkbox と label を押してもフォーカスが移らず (それまでの要素は移り先の無い
+  // blur をする)、どんな blur でも保存したり編集欄の keydown だけで Esc を受けたりすると、選択肢を押した瞬間に
+  // 閉じたり、その後の Esc が届かなかったりするため
   const popover = useRef<HTMLFieldSetElement>(null);
   // document の listener から、最新の選択で保存 (`save` が true) か取消をする
   const finishChoices = useRef((save: boolean) => finish(save ? draftChoices : undefined));
@@ -651,12 +652,10 @@ function CellEditor({
           ref={focusOnMount}
           aria-label={label}
           className="cell-input"
-          value={draftText}
+          // 保存済みの値を出し続け、保存に失敗した時に同じ選択肢を選び直せる (change が起きる) ようにする
+          value={typeof initial === "string" ? initial : ""}
           disabled={saving}
-          onChange={(event) => {
-            setDraftText(event.target.value);
-            finish(event.target.value === "" ? null : event.target.value);
-          }}
+          onChange={(event) => finish(event.target.value === "" ? null : event.target.value)}
           onBlur={() => finish(undefined)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -724,7 +723,7 @@ function CellEditor({
             if (event.key === "Enter" && !event.shiftKey && !isComposing(event)) {
               event.preventDefault();
               finish(draftText);
-            } else if (event.key === "Escape") {
+            } else if (event.key === "Escape" && !isComposing(event)) {
               cancel(event);
             }
           }}
@@ -745,7 +744,7 @@ function CellEditor({
           onKeyDown={(event) => {
             if (event.key === "Enter" && !isComposing(event)) {
               finish(textValue());
-            } else if (event.key === "Escape") {
+            } else if (event.key === "Escape" && !isComposing(event)) {
               cancel(event);
             }
           }}

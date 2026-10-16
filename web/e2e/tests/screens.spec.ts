@@ -233,6 +233,15 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await page.keyboard.press("Escape");
   await expect(specIdsEditor).toHaveCount(0);
   await expect(themeRow.locator(".tag", { hasText: /^S1$/ })).toHaveCount(0);
+  // キーボードで編集欄の外へ移っても保存する
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S2", { exact: true }).click();
+  const savedByTab = itemRowWritten(page);
+  await specIdsEditor.getByRole("button", { name: "完了" }).focus();
+  await page.keyboard.press("Tab");
+  expect((await savedByTab).ok()).toBe(true);
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S2$/ })).toBeVisible();
 
   await page.reload();
   await expect(page.getByTestId("table-row").getByText(expected)).toBeVisible();

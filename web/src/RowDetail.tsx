@@ -202,7 +202,7 @@ export function RowDetail({
           ID {row.id} · 更新 {row.updated_at}
         </span>
       </header>
-      <main className="detail-main">
+      <div className="detail-main">
         <section className="detail-body">
           <h1>{rowTitle(database, row)}</h1>
           <fieldset className="editor" disabled={writing}>
@@ -280,7 +280,7 @@ export function RowDetail({
             </section>
           ))}
         </aside>
-      </main>
+      </div>
     </div>
   );
 }
