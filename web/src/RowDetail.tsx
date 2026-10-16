@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import {
   addProperties,
@@ -102,17 +102,17 @@ export function RowDetail({
     load().catch((caught: unknown) => setError(errorText(caught)));
   }, [load]);
 
+  // 映した `savedRow`。書き込みごとに別の値が来るため同じ値かで見分ける (updated_at は秒単位で、同じ秒の書き込みを
+  // 区別できない)。開く前に書いた行は読み込みに含まれるので、映し済みとして始める
+  const appliedSavedRow = useRef(savedRow);
+
   // 表のセルで同じ行が書かれた時は、書かれたプロパティの編集欄と (まだ触っていなければ) 本文だけを置き換え、
-  // この画面でまだ保存していない入力は残す。読み直した後の方が新しければ古い書き込みとして無視する
+  // この画面でまだ保存していない入力は残す
   useEffect(() => {
-    if (
-      savedRow === undefined ||
-      savedRow.id !== rowId ||
-      loaded === null ||
-      Date.parse(savedRow.updated_at) <= Date.parse(loaded.row.updated_at)
-    ) {
+    if (savedRow === undefined || savedRow === appliedSavedRow.current || savedRow.id !== rowId || loaded === null) {
       return;
     }
+    appliedSavedRow.current = savedRow;
     const previous = loaded.row;
     setDraft((current) => ({
       ...current,

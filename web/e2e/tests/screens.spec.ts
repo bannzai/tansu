@@ -243,6 +243,18 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   expect((await written).ok()).toBe(true);
   await expect(peek.getByLabel("verified", { exact: true })).not.toBeChecked();
   await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+  // 続けて書くと (更新時刻が秒単位で同じでも) 後の値がパネルに映る
+  const writtenAgain = itemRowWritten(page);
+  await tableCheckbox.click();
+  expect((await writtenAgain).ok()).toBe(true);
+  await expect(peek.getByLabel("verified", { exact: true })).toBeChecked();
+  // 表のセルの編集を Esc で取り消しても、パネルは閉じず書きかけも残る
+  await page.getByRole("button", { name: "一覧の並び の labels を編集" }).click();
+  const labelsEditor = page.getByRole("group", { name: "一覧の並び の labels" });
+  await expect(labelsEditor).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(labelsEditor).toHaveCount(0);
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
 
   await page.getByRole("button", { name: "検索で絞り込める を開く" }).click();
   await expect(peek.getByRole("heading", { level: 1 })).toHaveText("検索で絞り込める");

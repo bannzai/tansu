@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   type Database,
   type DatabaseRows,
@@ -537,6 +537,12 @@ function CellEditor({
       onWrite(value);
     }
   };
+  // 編集欄の Esc はこの編集の取消だけに使い、パネルを閉じる window の Esc まで届けない
+  // (multi_select の「完了」やチェックボックスは文字の入力欄ではないため、window 側では見分けられない)
+  const cancel = (event: ReactKeyboardEvent) => {
+    event.stopPropagation();
+    finish(undefined);
+  };
   const textValue = () =>
     property.kind.type === "number" ? (draftText.trim() === "" ? null : Number(draftText)) : draftText;
 
@@ -552,7 +558,7 @@ function CellEditor({
           onBlur={() => finish(undefined)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
-              finish(undefined);
+              cancel(event);
             }
           }}
         >
@@ -576,7 +582,7 @@ function CellEditor({
           }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
-              finish(undefined);
+              cancel(event);
             }
           }}
         >
@@ -617,7 +623,7 @@ function CellEditor({
               event.preventDefault();
               finish(draftText);
             } else if (event.key === "Escape") {
-              finish(undefined);
+              cancel(event);
             }
           }}
         />
@@ -637,7 +643,7 @@ function CellEditor({
             if (event.key === "Enter" && !event.nativeEvent.isComposing) {
               finish(textValue());
             } else if (event.key === "Escape") {
-              finish(undefined);
+              cancel(event);
             }
           }}
         />
