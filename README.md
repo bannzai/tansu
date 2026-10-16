@@ -55,12 +55,12 @@ castle の setup-qa / run-qa skill の形式の QA.md を、4 つの表 (project
 
 ```sh
 tansu qa import ~/ghq/github.com/owner/repo                   # リポジトリのルート (配下の QA.md をすべて探す)
-tansu qa import lib/features/notes/QA.md --json               # QA.md のファイル。--json で件数と読み飛ばした行を JSON で出す
+tansu qa import lib/features/notes/QA.md --json               # QA.md のファイル。--json で件数と行の扱いの内訳を JSON で出す
 tansu qa import ~/ghq/github.com/owner/repo --dry-run --json  # 書かずに同じ出力を出す
 tansu query run --json --where source=import                  # 取り込んだ記録
 ```
 
-同じ QA.md を 2 回取り込んでも行は増えない。`--json` の `counts` は入力に含まれる project / feature / item / run の数で、2 回目や `--dry-run` でも同じ値になる (新しく足した行の数ではない)。`skipped` は解釈できずに読み飛ばした行 (`file` / `line` / `content` / `reason`)。取り込みの規則 (project の名前の決め方、run の結果と記録日時) は [documents/data-model.md](documents/data-model.md)「QA 層」にある。
+同じ QA.md を 2 回取り込んでも行は増えない。`--json` の `counts` は入力に含まれる project / feature / item / run の数で、2 回目や `--dry-run` でも同じ値になる (新しく足した行の数ではない)。`skipped` は構造として読めず feature・item・run の本文に残した行 (`file` / `line` / `content` / `reason`)、`unaccounted` は本文にも入らなかった行で、空なら QA.md の内容はすべて DB から読める (形は [documents/cli-contract.md](documents/cli-contract.md))。取り込みの規則 (project の名前の決め方、run の結果と記録日時) は [documents/data-model.md](documents/data-model.md)「QA 層」にある。
 
 QA を実行した結果の記録と、commit を基準にした再テストの判定:
 
