@@ -869,17 +869,20 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
         json!({"project": 1, "feature": 4, "item": 12, "run": 8})
     );
     assert_eq!(dry["files"].as_array().unwrap().len(), 4);
-    assert_eq!(dry["skipped"].as_array().unwrap().len(), 8);
+    // fixture の 4 ファイルは 270 行で、どの行も構造として読んだ行か本文に残した行になる
+    assert_eq!(dry["lines"], json!({"structured": 232, "body": 38}));
+    assert_eq!(dry["unaccounted"], json!([]));
+    assert_eq!(dry["skipped"].as_array().unwrap().len(), 38);
     assert!(
         dry["skipped"][0]["file"]
             .as_str()
             .unwrap()
-            .ends_with("features/note_list/QA.md"),
+            .ends_with("sample-notes/QA.md"),
         "{}",
         dry["skipped"][0]
     );
-    assert_eq!(dry["skipped"][0]["line"], 34);
-    assert_eq!(dry["skipped"][0]["content"], "  - 優先度: 高");
+    assert_eq!(dry["skipped"][0]["line"], 7);
+    assert_eq!(dry["skipped"][0]["content"], "# QA 全体ガイド");
     assert!(dry["skipped"][0]["reason"].is_string());
     // --dry-run は DB を開かず、ファイルも作らない
     assert!(!sandbox.tansu_home.path().join("tansu.sqlite").exists());
@@ -907,12 +910,48 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
     let text = succeed(&sandbox, &["qa", "import", fixtures]);
     assert!(
         text.starts_with(
-            "project: 1, feature: 4, item: 12, run: 8 (4 ファイル)\n読み飛ばした行: 8 行\n"
+            "project: 1, feature: 4, item: 12, run: 8 (4 ファイル)\n行: 構造として読んだ 232 行、本文に残した 38 行、どこにも入らなかった 0 行\n本文に残した行:\n"
         ),
         "{text}"
     );
     let stderr = fail(&sandbox, &["qa", "import", "--json", "/nonexistent/QA.md"]);
     assert!(stderr.contains("/nonexistent/QA.md"), "{stderr}");
+}
+
+#[test]
+fn qa_record_by_a_name_shared_by_two_items_is_an_error() {
+    let sandbox = sandbox();
+    let fixtures = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/qa/lossless-notes"
+    );
+    succeed(&sandbox, &["qa", "import", fixtures]);
+    let record = |item_name: &'static str| {
+        [
+            "qa",
+            "record",
+            "--repo",
+            "lossless-notes",
+            "--feature",
+            "sync",
+            "--item-name",
+            item_name,
+            "--result",
+            "ok",
+            "--commit",
+            "0123456789abcdef0123456789abcdef01234567",
+        ]
+    };
+    let before = run_count(&sandbox);
+
+    // 同じ名前の項目が 2 つある時は、どちらにも記録せず --item を案内する
+    let stderr = fail(&sandbox, &record("競合を表示する"));
+    assert!(stderr.contains("2 つ以上"), "{stderr}");
+    assert!(stderr.contains("--item"), "{stderr}");
+    assert_eq!(run_count(&sandbox), before);
+
+    succeed(&sandbox, &record("編集が別の端末に届く"));
+    assert_eq!(run_count(&sandbox), before + 1);
 }
 
 /// `root` の下の `relative` に合成の QA.md を書く (途中のディレクトリも作る)。

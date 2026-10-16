@@ -1,11 +1,16 @@
 //! QA.md (castle の setup-qa / run-qa skill の形式。SSOT は castle の `setup-qa/references/qa-md-format.md`) のパーサ。
-//! 理解できない行で失敗せず、読み飛ばした行を [`QaMd::skipped`] に残す (`documents/PROJECT.md`「QA.md の形式」)。
+//! 1 行も落とさない: 各行を「構造として読んだ行」か「本文に残した行」([`QaMd::skipped`]。feature・項目・確認の本文に
+//! markdown のまま入れる) のどちらかにし、どちらにもならなかった行を [`QaMd::unaccounted`] に出す
+//! (`documents/data-model.md`「QA 層」)。理解できない行で失敗しない。
+
+use std::collections::HashSet;
 
 use serde::Serialize;
 
+use super::markdown_link_destination;
 use crate::named_json::normalize_date;
 
-/// QA.md 1 ファイルを読んだ結果。frontmatter の 4 項目と、チェック項目・仕様チェックリスト・読み飛ばした行を持つ。
+/// QA.md 1 ファイルを読んだ結果。frontmatter の 4 項目、チェック項目・仕様チェックリスト・feature の本文と、行の扱いの内訳を持つ。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct QaMd {
     /// frontmatter の `feature` (root QA.md は `_root`)。無い・`null` なら `None`。
@@ -16,12 +21,19 @@ pub struct QaMd {
     pub last_verified_commit: Option<String>,
     /// frontmatter の `last_verified_at` (`YYYY-MM-DD`)。`null` なら `None`。
     pub last_verified_at: Option<String>,
-    /// チェック項目。ファイルに出た順。同じ名前の 2 つ目以降は読み飛ばした行になる。
+    /// チェック項目。ファイルに出た順。同じ名前の項目も別の項目として持つ。
     pub items: Vec<QaMdItem>,
     /// 仕様チェックリストの表の行。対応項目は [`QaMdItem::spec_ids`] にも写してある。
     pub spec_rows: Vec<QaMdSpecRow>,
-    /// 解釈できずに読み飛ばした行。
+    /// feature の本文 (markdown)。項目・エビデンスに当たらない行 (タイトル・冒頭の段落・散文のセクション・項目の間の地の文・
+    /// frontmatter の知らないキー) と、仕様チェックリストの表の写し。地の文の前にはそのセクションの `## ` 見出しを写す。
+    pub body: String,
+    /// 構造として読んだ行 (値に入れた行と、空行・`<details>`・`---` のような書式だけの行) の数。
+    pub structured_lines: usize,
+    /// 構造として読めず、本文 (feature・項目・確認のどれか) に残した行。
     pub skipped: Vec<SkippedLine>,
+    /// 構造としても本文としても入らなかった行。パーサがすべての行を扱えていれば空。
+    pub unaccounted: Vec<SkippedLine>,
 }
 
 /// QA.md のチェック項目 1 つ (`- [ ] **項目名**: 期待動作` と、その入れ子・エビデンス)。
@@ -35,18 +47,34 @@ pub struct QaMdItem {
     pub expected: String,
     /// `- [x]` なら true。
     pub checked: bool,
-    /// 入れ子の `自動化:` の種別。行が無ければ `None`。
+    /// 項目が属する `## ` 見出しの文字列 (`1. 表示`)。見出しより前の項目は `None`。
+    pub section: Option<String>,
+    /// 入れ子の `自動化:` の種別。行が無い・値が形式外なら `None`。
     pub automation: Option<QaAutomation>,
-    /// `自動化: auto(...)` / `manual(...)` の括弧の中 (flow のパス、自動化できない理由)。
+    /// `自動化: auto(...)` / `manual(...)` の括弧の中 (flow のパス、自動化できない理由)。値が形式外の時はその値。
     pub automation_detail: Option<String>,
     /// 入れ子の `⏭️ スキップ:` / `❌ 失敗:` の記録。項目の入れ子に無ければエビデンスブロックの記録。
     pub record: Option<QaMdRecord>,
-    /// エビデンスブロックの `**確認日: YYYY-MM-DD**` の日付。
-    pub verified_at: Option<String>,
-    /// エビデンスブロックの `<img src="...">` の URL (最初の 1 つ)。
-    pub image_url: Option<String>,
+    /// エビデンスの確認 (`確認日` / `再確認日` ごと)。ファイルに出た順。
+    pub confirmations: Vec<QaMdConfirmation>,
+    /// 項目の本文 (markdown)。入れ子の補足の行・形式外の自動化の行・入れ子のコードブロックと、エビデンスの見出しの下で
+    /// 最初の確認日より前にある画像・説明文。
+    pub body: String,
     /// 仕様チェックリストでこの項目を対応項目にしている仕様 ID (S1, S2, ...)。表に出た順。
     pub spec_ids: Vec<String>,
+}
+
+/// エビデンスの確認 1 回分 (`**確認日: YYYY-MM-DD**` / `**再確認日: ...**` の行から、次の確認日かエビデンスの見出しの前まで)。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QaMdConfirmation {
+    /// 確認日の行の行番号 (1 始まり)。
+    pub line: usize,
+    /// 確認日。日付として読めなければ `None` (その行は [`QaMdConfirmation::body`] に残す)。
+    pub date: Option<String>,
+    /// この確認の最初の画像の URL。
+    pub image_url: Option<String>,
+    /// この確認の本文 (markdown)。日付の後ろの注記・説明文と、すべての画像 (`![](<URL>)`)。
+    pub body: String,
 }
 
 /// 入れ子の `自動化:` の種別。
@@ -102,7 +130,7 @@ pub struct QaMdSpecRow {
     pub item_name: Option<String>,
 }
 
-/// 解釈できずに読み飛ばした行。
+/// 報告する行 ([`QaMd::skipped`] では本文に残した行、[`QaMd::unaccounted`] ではどこにも入らなかった行)。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SkippedLine {
     /// 行があるファイル (`parse` に渡した表示名)。
@@ -111,8 +139,28 @@ pub struct SkippedLine {
     pub line: usize,
     /// 行の内容。
     pub content: String,
-    /// 読み飛ばした理由。
+    /// 構造として読めなかった理由。
     pub reason: String,
+}
+
+/// 1 行を何として扱ったか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineKind {
+    /// 値に入れた行と、書式だけの行。
+    Structured,
+    /// 本文に残した行。
+    Body,
+}
+
+/// 本文に残す行の行き先。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyTarget {
+    /// feature の本文。
+    Feature,
+    /// `items` の添字の項目の本文。
+    Item(usize),
+    /// (`items` の添字, その項目の `confirmations` の添字) の確認の本文。
+    Confirmation(usize, usize),
 }
 
 /// `#### 動作確認` の details の中を読んでいる間の状態。
@@ -123,6 +171,21 @@ struct Evidence {
     started: bool,
     /// 直前の `### **項目名**` が指す項目の `items` の添字。項目に無い見出しの下は `None`。
     heading_item: Option<usize>,
+    /// 直前の確認日の、`heading_item` の項目の `confirmations` の添字。見出しの後でまだ確認日が無ければ `None`。
+    confirmation: Option<usize>,
+}
+
+impl Evidence {
+    /// エビデンスの中の、構造として読めない行の行き先。
+    fn target(&self) -> BodyTarget {
+        match (self.heading_item, self.confirmation) {
+            (Some(item_index), Some(confirmation_index)) => {
+                BodyTarget::Confirmation(item_index, confirmation_index)
+            }
+            (Some(item_index), None) => BodyTarget::Item(item_index),
+            (None, _) => BodyTarget::Feature,
+        }
+    }
 }
 
 /// `## ` 見出しで決まる、今いるセクションの種類。
@@ -130,60 +193,180 @@ struct Evidence {
 enum Section {
     /// 見出しの前。
     None,
-    /// `## N. 名前` と `## 横断確認項目`。チェック項目を書く場所で、解釈できない行は読み飛ばした行として報告する。
+    /// `## N. 名前` と `## 横断確認項目`。チェック項目を書く場所。
     Items,
     /// `## 仕様チェックリスト`。
     Spec,
-    /// それ以外 (`## 関連リンク`、root QA.md の対象環境・起動方法・実行ナレッジ等)。散文なので、解釈できなくても報告しない。
+    /// それ以外 (`## 関連リンク`、root QA.md の対象環境・起動方法・実行ナレッジ、`## <変更> に関する注記` 等)。見出しごと feature の本文に残す。
     Prose,
 }
 
-/// `file` (表示名) の内容 `text` を読む。失敗せず、解釈できない行は [`QaMd::skipped`] に残す。
-///
-/// 読む構文: frontmatter (`feature` / `verification` / `last_verified_commit` / `last_verified_at`)、`## N. セクション`、
-/// `- [ ] **項目名**: 期待動作` と `- [x]`、入れ子の `自動化: auto(...) | manual(...) | todo` (括弧は全角・半角のどちらでも)、
-/// `⏭️ スキップ:` / `❌ 失敗:` とその下の入れ子 (併記事項)、`## 仕様チェックリスト` の表、`#### 動作確認` の details の中の
-/// `### **項目名**: 期待動作` と `**確認日: YYYY-MM-DD**`・`<img src="URL">`。
-/// 同じ名前の項目が 2 つ以上あれば、2 つ目以降は読み飛ばした行にする (項目は feature と名前で特定するため)。
-pub fn parse(file: &str, text: &str) -> QaMd {
-    let mut qa_md = QaMd::default();
-    let mut section = Section::None;
-    let mut in_frontmatter = false;
-    // 開いている fenced code block のフェンスの (文字, 長さ)。閉じは CommonMark の規則 (同じ文字・開き以上の長さ・後ろは空白だけ)
-    let mut code_fence: Option<(char, usize)> = None;
-    let mut current_item: Option<(usize, usize)> = None;
-    let mut record_indent: Option<usize> = None;
-    let mut evidence: Option<Evidence> = None;
-    let skip = |qa_md: &mut QaMd, line_number: usize, content: &str, reason: &str| {
-        qa_md.skipped.push(SkippedLine {
-            file: file.to_owned(),
+/// 読んでいる途中の結果と、行の扱いの記録。
+struct Parser<'a> {
+    /// `parse` に渡した表示名。
+    file: &'a str,
+    /// 組み立て中の結果。
+    qa_md: QaMd,
+    /// 行ごとの扱い (添字は行番号 - 1)。`None` の行はどこにも入っていない。
+    kinds: Vec<Option<LineKind>>,
+    /// 最後に本文を書いた行き先。空行で段落を区切る先。
+    last_target: Option<BodyTarget>,
+    /// 項目のセクションの `## ` 見出しで、まだ feature の本文に写していないもの。そのセクションの地の文を feature の本文に
+    /// 書く時に先に写す (どのセクションの地の文かが本文から分かるように)。
+    pending_heading: Option<String>,
+    /// 今の項目のセクションが始まった時の `items` の数。セクションに項目が 1 つも無かったかを見分ける。
+    section_first_item: usize,
+}
+
+impl Parser<'_> {
+    /// 項目のセクションが項目も地の文も無いまま終わった時に、その `## ` 見出しを feature の本文に写す
+    /// (見出しが項目の `section` にも本文にも入らず失われないように)。セクションの終わり (次の `## ` 見出しとファイルの終わり) で呼ぶ。
+    fn flush_empty_section_heading(&mut self) {
+        if self.qa_md.items.len() == self.section_first_item
+            && let Some(heading) = self.pending_heading.take()
+        {
+            separate_paragraph(&mut self.qa_md.body);
+            self.qa_md.body.push_str(&heading);
+            self.qa_md.body.push('\n');
+        }
+        self.pending_heading = None;
+    }
+
+    /// `target` の本文。
+    fn body_mut(&mut self, target: BodyTarget) -> &mut String {
+        match target {
+            BodyTarget::Feature => &mut self.qa_md.body,
+            BodyTarget::Item(item_index) => &mut self.qa_md.items[item_index].body,
+            BodyTarget::Confirmation(item_index, confirmation_index) => {
+                &mut self.qa_md.items[item_index].confirmations[confirmation_index].body
+            }
+        }
+    }
+
+    /// 行 `line_number` を構造として読んだ行にする。
+    fn structured(&mut self, line_number: usize) {
+        self.kinds[line_number - 1] = Some(LineKind::Structured);
+    }
+
+    /// `target` の本文に `text` を 1 行足す。行の扱いは記録しない (構造として読んだ行の写しにも使うため)。
+    fn copy(&mut self, target: BodyTarget, text: &str) {
+        if target == BodyTarget::Feature
+            && let Some(heading) = self.pending_heading.take()
+        {
+            separate_paragraph(&mut self.qa_md.body);
+            self.qa_md.body.push_str(&heading);
+            self.qa_md.body.push_str("\n\n");
+        }
+        let body = self.body_mut(target);
+        body.push_str(text);
+        body.push('\n');
+        self.last_target = Some(target);
+    }
+
+    /// 行 `line_number` (内容 `content`) を、本文に残した行として記録する。本文には書かない ([`Parser::keep`] か [`Parser::copy`] が書く)。
+    fn report_kept(&mut self, line_number: usize, content: &str, reason: &str) {
+        self.kinds[line_number - 1] = Some(LineKind::Body);
+        self.qa_md.skipped.push(SkippedLine {
+            file: self.file.to_owned(),
             line: line_number,
             content: content.to_owned(),
             reason: reason.to_owned(),
         });
-    };
+    }
 
-    for (index, raw_line) in text.lines().enumerate() {
+    /// 行 `line_number` (内容 `content`) を `target` の本文に `text` として残し、本文に残した行として記録する。
+    fn keep(
+        &mut self,
+        target: BodyTarget,
+        line_number: usize,
+        content: &str,
+        text: &str,
+        reason: &str,
+    ) {
+        self.copy(target, text);
+        self.report_kept(line_number, content, reason);
+    }
+
+    /// 空行 `line_number`。構造として数え、最後に書いた本文の段落を区切る。
+    fn blank(&mut self, line_number: usize) {
+        self.structured(line_number);
+        if let Some(target) = self.last_target {
+            separate_paragraph(self.body_mut(target));
+        }
+    }
+}
+
+/// 本文 `body` が空でなく、空行で終わっていなければ空行を足す。
+fn separate_paragraph(body: &mut String) {
+    if !body.is_empty() && !body.ends_with("\n\n") {
+        body.push('\n');
+    }
+}
+
+/// `file` (表示名) の内容 `text` を読む。失敗せず、構造として読めない行は本文に残して [`QaMd::skipped`] に報告する。
+///
+/// 読む構文: frontmatter (`feature` / `verification` / `last_verified_commit` / `last_verified_at`)、`## N. セクション`、
+/// `- [ ] **項目名**: 期待動作` と `- [x]`、入れ子の `自動化: auto(...) | manual(...) | todo` (括弧は全角・半角のどちらでも)、
+/// `⏭️ スキップ:` / `❌ 失敗:` とその下の入れ子 (併記事項)、`## 仕様チェックリスト` の表、`#### 動作確認` の details の中の
+/// `### **項目名**: 期待動作` と、`**確認日: YYYY-MM-DD**` / `**再確認日: YYYY-MM-DD**` (日付の後ろの注記は確認の本文) ごとの
+/// `<img src="URL">` と説明文。同じ名前の項目は別の項目にし、エビデンスの見出しは名前と期待動作が一致する項目に
+/// (無ければ同じ名前の項目に。どちらもまだ見出しを当てていない最初の項目) 当てる。
+pub fn parse(file: &str, text: &str) -> QaMd {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .collect();
+    let mut parser = Parser {
+        file,
+        qa_md: QaMd::default(),
+        kinds: vec![None; lines.len()],
+        last_target: None,
+        pending_heading: None,
+        section_first_item: 0,
+    };
+    let mut section = Section::None;
+    let mut section_name: Option<String> = None;
+    let mut in_frontmatter = false;
+    // 開いている fenced code block の (フェンスの文字, 長さ, 中身の行き先, 本文に書く時に外す行頭の空白の数)。
+    // 閉じは CommonMark の規則 (同じ文字・開き以上の長さ・後ろは空白だけ)
+    let mut code_fence: Option<(char, usize, BodyTarget, usize)> = None;
+    let mut current_item: Option<(usize, usize)> = None;
+    let mut record_indent: Option<usize> = None;
+    let mut evidence: Option<Evidence> = None;
+    // エビデンスの見出しを既に当てた項目の `items` の添字
+    let mut headed_items: HashSet<usize> = HashSet::new();
+    // ファイルにあるエビデンスの見出しの (項目名, 期待動作)。期待動作が一致しない見出しを、後ろに一致する見出しがある項目に
+    // 先取りで当てないために使う
+    let own_headings: HashSet<(String, String)> = lines
+        .iter()
+        .filter_map(|line| parse_bold_name(line.strip_prefix("### ")?.trim()))
+        .collect();
+
+    for (index, line) in lines.iter().copied().enumerate() {
         let line_number = index + 1;
-        let line = raw_line.trim_end_matches('\r');
         let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
 
         if index == 0 && trimmed == "---" {
             in_frontmatter = true;
+            parser.structured(line_number);
             continue;
         }
         if in_frontmatter {
             if trimmed == "---" {
                 in_frontmatter = false;
+                parser.structured(line_number);
                 continue;
             }
             if trimmed.is_empty() {
+                parser.structured(line_number);
                 continue;
             }
             let Some((key, value)) = trimmed.split_once(':') else {
-                skip(
-                    &mut qa_md,
+                parser.keep(
+                    BodyTarget::Feature,
                     line_number,
+                    line,
                     line,
                     "frontmatter の行が `キー: 値` の形でない",
                 );
@@ -194,26 +377,40 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 value => Some(value.to_owned()),
             };
             match key.trim() {
-                "feature" => qa_md.feature = value,
-                "verification" => qa_md.verification = value,
-                "last_verified_commit" => qa_md.last_verified_commit = value,
-                // run の recorded_at (date) に写すため、日付として読めない値は捨てて報告する
+                "feature" => parser.qa_md.feature = value,
+                "verification" => parser.qa_md.verification = value,
+                "last_verified_commit" => parser.qa_md.last_verified_commit = value,
+                // run の recorded_at (date) に写すため、日付として読めない値は本文に残す
                 "last_verified_at" => match value.as_deref().map(normalize_date) {
-                    Some(None) => skip(
-                        &mut qa_md,
+                    Some(None) => {
+                        parser.keep(
+                            BodyTarget::Feature,
+                            line_number,
+                            line,
+                            line,
+                            "last_verified_at が YYYY-MM-DD で読めない",
+                        );
+                        continue;
+                    }
+                    date => parser.qa_md.last_verified_at = date.flatten(),
+                },
+                _ => {
+                    parser.keep(
+                        BodyTarget::Feature,
                         line_number,
                         line,
-                        "last_verified_at が YYYY-MM-DD で読めない",
-                    ),
-                    date => qa_md.last_verified_at = date.flatten(),
-                },
-                _ => skip(&mut qa_md, line_number, line, "frontmatter の知らないキー"),
+                        line,
+                        "frontmatter の知らないキー",
+                    );
+                    continue;
+                }
             }
+            parser.structured(line_number);
             continue;
         }
 
-        // fenced code block (記述例・コマンド) の中は構文として読まない
-        if let Some((open_char, open_length)) = code_fence {
+        // fenced code block (記述例・コマンド) の中は構文として読まず、開いた位置の本文にそのまま残す
+        if let Some((open_char, open_length, target, strip)) = code_fence {
             if let Some((close_char, close_length)) = code_fence_marker(trimmed)
                 && close_char == open_char
                 && close_length >= open_length
@@ -221,14 +418,35 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             {
                 code_fence = None;
             }
+            parser.keep(
+                target,
+                line_number,
+                line,
+                dedent(line, strip),
+                "コードブロックの中",
+            );
             continue;
         }
-        if let Some(marker) = code_fence_marker(trimmed) {
-            code_fence = Some(marker);
+        if let Some((fence_char, fence_length)) = code_fence_marker(trimmed) {
+            let (target, strip) = match (&evidence, current_item) {
+                (Some(state), _) => (state.target(), indent),
+                (None, Some((item_index, item_indent))) if indent > item_indent => {
+                    (BodyTarget::Item(item_index), item_indent + 2)
+                }
+                _ => (BodyTarget::Feature, 0),
+            };
+            code_fence = Some((fence_char, fence_length, target, strip));
+            parser.keep(
+                target,
+                line_number,
+                line,
+                dedent(line, strip),
+                "コードブロックの中",
+            );
             continue;
         }
 
-        // `<details>` が無い・閉じ忘れのエビデンスブロックは次の `## ` 見出しで終わりにする (以降を読み飛ばさないため)
+        // `<details>` が無い・閉じ忘れのエビデンスブロックは次の `## ` 見出しで終わりにする (以降を説明文にしないため)
         if evidence.is_some() && line.starts_with("## ") {
             evidence = None;
         }
@@ -236,13 +454,61 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             let opens = line.matches("<details").count();
             let closes = line.matches("</details>").count();
             if let Some(heading) = line.strip_prefix("### ") {
+                state.confirmation = None;
                 match parse_bold_name(heading.trim()) {
-                    Some((name, _)) => {
-                        state.heading_item = qa_md.items.iter().position(|item| item.name == name);
-                        if state.heading_item.is_none() {
-                            skip(
-                                &mut qa_md,
+                    Some((name, expected)) => {
+                        // 名前と期待動作が一致する項目を先に当てる (同じ名前の項目の一部にしかエビデンスが無い時に、
+                        // 別の項目へ当てないため)。一致が無ければ同じ名前の項目に当て、ファイルのどこかに一致する見出しが
+                        // ある項目は後回しにする。どちらも、まだ見出しを当てていない最初の項目に当て、全部に当て終えていれば
+                        // 最後の項目に当てる
+                        let same_name: Vec<usize> = parser
+                            .qa_md
+                            .items
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, item)| item.name == name)
+                            .map(|(item_index, _)| item_index)
+                            .collect();
+                        let same_expected: Vec<usize> = same_name
+                            .iter()
+                            .copied()
+                            .filter(|index| parser.qa_md.items[*index].expected == expected)
+                            .collect();
+                        let exact = !same_expected.is_empty();
+                        let candidates = if exact { same_expected } else { same_name };
+                        let has_own_heading = |item_index: usize| {
+                            let item = &parser.qa_md.items[item_index];
+                            own_headings.contains(&(item.name.clone(), item.expected.clone()))
+                        };
+                        state.heading_item = candidates
+                            .iter()
+                            .filter(|item_index| !headed_items.contains(*item_index))
+                            .find(|item_index| exact || !has_own_heading(**item_index))
+                            .or_else(|| {
+                                candidates
+                                    .iter()
+                                    .find(|item_index| !headed_items.contains(*item_index))
+                            })
+                            .or(candidates.last())
+                            .copied();
+                        headed_items.extend(state.heading_item);
+                        if let Some(item_index) = state.heading_item
+                            && parser.qa_md.items[item_index].expected != expected
+                        {
+                            parser.keep(
+                                BodyTarget::Item(item_index),
                                 line_number,
+                                line,
+                                line,
+                                "エビデンスの見出しの期待動作がチェック項目と違う",
+                            );
+                        } else if state.heading_item.is_some() {
+                            parser.structured(line_number);
+                        } else {
+                            parser.keep(
+                                BodyTarget::Feature,
+                                line_number,
+                                line,
                                 line,
                                 "エビデンスの見出しの項目名に一致するチェック項目が無い",
                             );
@@ -250,85 +516,135 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                     }
                     None => {
                         state.heading_item = None;
-                        skip(
-                            &mut qa_md,
+                        parser.keep(
+                            BodyTarget::Feature,
                             line_number,
+                            line,
                             line,
                             "エビデンスの見出しが `### **項目名**: 期待動作` の形でない",
                         );
                     }
                 }
-            } else if line.contains("確認日") {
-                match (state.heading_item, verified_date(line)) {
-                    (Some(item_index), Some(date)) => {
-                        let item = &mut qa_md.items[item_index];
-                        if item.verified_at.is_none() {
-                            item.verified_at = Some(date);
+            } else if let Some((date, annotation)) = confirmation_line(trimmed) {
+                match state.heading_item {
+                    Some(item_index) => {
+                        let confirmations = &mut parser.qa_md.items[item_index].confirmations;
+                        confirmations.push(QaMdConfirmation {
+                            line: line_number,
+                            date: date.clone(),
+                            image_url: None,
+                            body: String::new(),
+                        });
+                        let target = BodyTarget::Confirmation(item_index, confirmations.len() - 1);
+                        state.confirmation = Some(confirmations.len() - 1);
+                        if date.is_some() {
+                            parser.structured(line_number);
+                            parser.last_target = Some(target);
+                            if !annotation.is_empty() {
+                                parser.copy(target, &annotation);
+                            }
                         } else {
-                            skip(&mut qa_md, line_number, line, "2 つ目以降の確認日");
+                            parser.keep(
+                                target,
+                                line_number,
+                                line,
+                                trimmed,
+                                "確認日の日付が YYYY-MM-DD で読めない",
+                            );
                         }
                     }
-                    (Some(_), None) => skip(
-                        &mut qa_md,
+                    None => parser.keep(
+                        BodyTarget::Feature,
                         line_number,
                         line,
-                        "確認日の日付が YYYY-MM-DD で読めない",
-                    ),
-                    (None, _) => skip(
-                        &mut qa_md,
-                        line_number,
                         line,
                         "どの項目の確認日か分からない (エビデンスの見出しの下に無い)",
                     ),
                 }
             } else if line.contains("<img") {
-                match (state.heading_item, image_source(line)) {
-                    (Some(item_index), Some(url)) => {
-                        let item = &mut qa_md.items[item_index];
-                        if item.image_url.is_none() {
-                            item.image_url = Some(url);
-                        } else {
-                            skip(&mut qa_md, line_number, line, "2 つ目以降の画像");
-                        }
-                    }
-                    (Some(_), None) => skip(&mut qa_md, line_number, line, "画像の src が無い"),
-                    (None, _) => skip(
-                        &mut qa_md,
+                let urls = image_sources(line);
+                match state.target() {
+                    BodyTarget::Feature => parser.keep(
+                        BodyTarget::Feature,
                         line_number,
+                        line,
                         line,
                         "どの項目の画像か分からない (エビデンスの見出しの下に無い)",
                     ),
+                    target if urls.is_empty() => {
+                        parser.keep(target, line_number, line, trimmed, "画像の src が無い")
+                    }
+                    target => {
+                        if let BodyTarget::Confirmation(item_index, confirmation_index) = target {
+                            let confirmation = &mut parser.qa_md.items[item_index].confirmations
+                                [confirmation_index];
+                            if confirmation.image_url.is_none() {
+                                confirmation.image_url = urls.first().cloned();
+                            }
+                        }
+                        for url in &urls {
+                            parser
+                                .copy(target, &format!("![]({})", markdown_link_destination(url)));
+                        }
+                        let text = text_outside_tags(line);
+                        if text.is_empty() {
+                            parser.structured(line_number);
+                        } else {
+                            parser.keep(target, line_number, line, &text, "画像の行の説明文");
+                        }
+                    }
                 }
             } else if let Some(record) = parse_record(trimmed.trim_start_matches("- ").trim()) {
                 match state.heading_item {
-                    Some(item_index) if qa_md.items[item_index].record.is_none() => {
-                        qa_md.items[item_index].record = Some(record);
+                    Some(item_index) if parser.qa_md.items[item_index].record.is_none() => {
+                        parser.qa_md.items[item_index].record = Some(record);
+                        parser.structured(line_number);
                     }
-                    Some(_) => skip(
-                        &mut qa_md,
+                    Some(_) => parser.keep(
+                        state.target(),
                         line_number,
                         line,
+                        trimmed,
                         "項目に既にスキップ / 失敗の記録がある",
                     ),
-                    None => skip(
-                        &mut qa_md,
+                    None => parser.keep(
+                        BodyTarget::Feature,
                         line_number,
+                        line,
                         line,
                         "どの項目の記録か分からない (エビデンスの見出しの下に無い)",
                     ),
                 }
-            } else if !(trimmed.is_empty()
-                || trimmed == "（未実行）"
-                || trimmed == "(未実行)"
-                || trimmed.starts_with("<details")
+            } else if trimmed.is_empty() {
+                parser.blank(line_number);
+            } else if trimmed == "（未実行）" || trimmed == "(未実行)" {
+                parser.structured(line_number);
+            } else if trimmed.starts_with("<details")
                 || trimmed.starts_with("</details>")
-                || trimmed.starts_with("<summary"))
+                || trimmed.starts_with("<summary")
             {
-                skip(
-                    &mut qa_md,
+                // setup-qa の書式が決めている summary の文字列だけを書式として扱い、それ以外の文字は本文に残す
+                let text = text_outside_tags(line);
+                if ["", "動作確認スクショ", "動作確認エビデンス"].contains(&text.as_str())
+                {
+                    parser.structured(line_number);
+                } else {
+                    parser.keep(
+                        state.target(),
+                        line_number,
+                        line,
+                        &text,
+                        "details / summary の中の文字",
+                    );
+                }
+            } else {
+                // 入れ子のリストの字下げと、改行を表す行末の空白を本文の markdown に残すため、行をそのまま書く
+                parser.keep(
+                    state.target(),
                     line_number,
                     line,
-                    "エビデンスの中で解釈できない行",
+                    line,
+                    "エビデンスの説明文",
                 );
             }
             state.depth += opens as i32 - closes as i32;
@@ -346,71 +662,109 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 depth: 0,
                 started: false,
                 heading_item: None,
+                confirmation: None,
             });
             current_item = None;
             record_indent = None;
+            parser.structured(line_number);
             continue;
         }
         if let Some(heading) = line.strip_prefix("## ") {
             let heading = heading.trim();
-            section = if heading == "仕様チェックリスト" {
-                Section::Spec
-            } else if heading == "横断確認項目" || is_numbered_heading(heading) {
-                Section::Items
-            } else {
-                Section::Prose
-            };
             current_item = None;
             record_indent = None;
+            parser.flush_empty_section_heading();
+            section_name = Some(heading.to_owned());
+            if heading == "仕様チェックリスト" {
+                section = Section::Spec;
+                separate_paragraph(&mut parser.qa_md.body);
+                parser.copy(BodyTarget::Feature, line);
+                parser.structured(line_number);
+            } else if heading == "横断確認項目" || is_numbered_heading(heading) {
+                section = Section::Items;
+                parser.pending_heading = Some(line.to_owned());
+                parser.section_first_item = parser.qa_md.items.len();
+                parser.structured(line_number);
+            } else {
+                section = Section::Prose;
+                separate_paragraph(&mut parser.qa_md.body);
+                parser.keep(
+                    BodyTarget::Feature,
+                    line_number,
+                    line,
+                    line,
+                    "散文のセクションの見出し",
+                );
+            }
             continue;
         }
-        if trimmed.is_empty() || trimmed == "---" || line.starts_with("# ") {
+        if trimmed.is_empty() {
+            parser.blank(line_number);
+            continue;
+        }
+        if trimmed == "---" {
+            parser.structured(line_number);
+            continue;
+        }
+        if line.starts_with("# ") {
+            parser.keep(
+                BodyTarget::Feature,
+                line_number,
+                line,
+                line,
+                "タイトルの見出し",
+            );
             continue;
         }
 
-        let indent = line.len() - line.trim_start().len();
         if let Some(record_start) = record_indent {
             if indent > record_start {
-                if let Some((item_index, _)) = current_item
-                    && let Some(record) = qa_md.items[item_index].record.as_mut()
+                if let Some(record) = current_item
+                    .and_then(|(item_index, _)| parser.qa_md.items[item_index].record.as_mut())
                 {
                     record.note.push('\n');
                     record
                         .note
                         .push_str(trimmed.strip_prefix("- ").unwrap_or(trimmed));
+                    parser.structured(line_number);
+                } else {
+                    parser.keep(
+                        BodyTarget::Feature,
+                        line_number,
+                        line,
+                        line,
+                        "記録の併記事項だが項目が無い",
+                    );
                 }
                 continue;
             }
             record_indent = None;
         }
 
-        if let Some(checkbox) = parse_checkbox(trimmed) {
-            let (checked, rest) = checkbox;
+        if let Some((checked, rest)) = parse_checkbox(trimmed) {
             match parse_bold_name(rest) {
                 Some((name, expected)) => {
-                    if qa_md.items.iter().any(|item| item.name == name) {
-                        skip(&mut qa_md, line_number, line, "同じ名前の項目が既にある");
-                        current_item = None;
-                    } else {
-                        qa_md.items.push(QaMdItem {
-                            line: line_number,
-                            name,
-                            expected,
-                            checked,
-                            automation: None,
-                            automation_detail: None,
-                            record: None,
-                            verified_at: None,
-                            image_url: None,
-                            spec_ids: Vec::new(),
-                        });
-                        current_item = Some((qa_md.items.len() - 1, indent));
-                    }
+                    parser.qa_md.items.push(QaMdItem {
+                        line: line_number,
+                        name,
+                        expected,
+                        checked,
+                        section: section_name.clone(),
+                        automation: None,
+                        automation_detail: None,
+                        record: None,
+                        confirmations: Vec::new(),
+                        body: String::new(),
+                        spec_ids: Vec::new(),
+                    });
+                    current_item = Some((parser.qa_md.items.len() - 1, indent));
+                    parser.structured(line_number);
                 }
                 None => {
-                    skip(
-                        &mut qa_md,
+                    parser.keep(
+                        BodyTarget::Feature,
                         line_number,
+                        line,
                         line,
                         "チェック項目が `- [ ] **項目名**: 期待動作` の形でない",
                     );
@@ -422,127 +776,182 @@ pub fn parse(file: &str, text: &str) -> QaMd {
 
         if let Some((item_index, item_indent)) = current_item
             && indent > item_indent
-            && let Some(content) = trimmed.strip_prefix("- ")
         {
-            let content = content.trim();
-            if let Some(value) = content
-                .strip_prefix("自動化:")
-                .or_else(|| content.strip_prefix("自動化："))
-            {
-                match parse_automation(value.trim()) {
+            let target = BodyTarget::Item(item_index);
+            let text = dedent(line, item_indent + 2);
+            let content = trimmed.strip_prefix("- ").map(str::trim);
+            let automation_value = content.and_then(|content| {
+                content
+                    .strip_prefix("自動化:")
+                    .or_else(|| content.strip_prefix("自動化："))
+                    .map(str::trim)
+            });
+            if let Some(value) = automation_value {
+                let item = &mut parser.qa_md.items[item_index];
+                match parse_automation(value) {
                     Some((automation, detail)) => {
-                        let item = &mut qa_md.items[item_index];
                         item.automation = Some(automation);
                         item.automation_detail = detail;
+                        parser.structured(line_number);
                     }
-                    None => skip(
-                        &mut qa_md,
-                        line_number,
-                        line,
-                        "自動化の値が auto(...) / manual(...) / todo でない",
-                    ),
+                    None => {
+                        item.automation_detail = Some(value.to_owned());
+                        parser.keep(
+                            target,
+                            line_number,
+                            line,
+                            text,
+                            "自動化の値が auto(...) / manual(...) / todo でない",
+                        );
+                    }
                 }
-            } else if let Some(record) = parse_record(content) {
-                let item = &mut qa_md.items[item_index];
+            } else if let Some(record) = content.and_then(parse_record) {
+                let item = &mut parser.qa_md.items[item_index];
                 if item.record.is_none() {
                     item.record = Some(record);
                     record_indent = Some(indent);
+                    parser.structured(line_number);
                 } else {
-                    skip(
-                        &mut qa_md,
+                    parser.keep(
+                        target,
                         line_number,
                         line,
+                        text,
                         "項目に既にスキップ / 失敗の記録がある",
                     );
                 }
             } else {
-                skip(
-                    &mut qa_md,
+                parser.keep(
+                    target,
                     line_number,
                     line,
-                    "項目の入れ子で解釈できない行 (自動化 / ⏭️ スキップ / ❌ 失敗 のどれでもない)",
+                    text,
+                    "項目の補足 (自動化 / ⏭️ スキップ / ❌ 失敗 のどれでもない)",
                 );
             }
             continue;
         }
+        current_item = None;
 
-        match section {
-            Section::Spec => {
-                if !trimmed.starts_with('|') {
-                    skip(
-                        &mut qa_md,
-                        line_number,
-                        line,
-                        "仕様チェックリストの表の外の行",
-                    );
-                    continue;
-                }
-                let cells = split_table_cells(trimmed);
-                if cells.len() < 3 {
-                    skip(
-                        &mut qa_md,
-                        line_number,
-                        line,
-                        "仕様チェックリストの行の列が 3 つ未満",
-                    );
-                    continue;
-                }
-                let is_header = cells[0].eq_ignore_ascii_case("ID");
-                let is_separator = cells
-                    .iter()
-                    .all(|cell| !cell.is_empty() && cell.chars().all(|c| c == '-' || c == ':'));
-                if is_header || is_separator {
-                    continue;
-                }
-                // 仕様 ID は multi_select の選択肢の名前になる。空と `,` 入りは選択肢にできない (`db schema --add` の形式)
-                if cells[0].is_empty() || cells[0].contains(',') {
-                    skip(
-                        &mut qa_md,
-                        line_number,
-                        line,
-                        "仕様 ID が空か `,` を含む (選択肢の名前にできない)",
-                    );
-                    continue;
-                }
-                let item_name = match cells[2].trim_matches('*').trim() {
-                    "" | "—" | "-" | "–" => None,
-                    name => Some(name.to_owned()),
-                };
-                qa_md.spec_rows.push(QaMdSpecRow {
-                    line: line_number,
-                    id: cells[0].clone(),
-                    expected: cells[1].clone(),
-                    item_name,
-                });
-            }
-            Section::Items => skip(&mut qa_md, line_number, line, "解釈できない行"),
-            Section::None | Section::Prose => {}
+        if section != Section::Spec {
+            parser.keep(
+                BodyTarget::Feature,
+                line_number,
+                line,
+                line,
+                "項目にもエビデンスにも当たらない地の文",
+            );
+            continue;
         }
+        // 仕様チェックリストは表ごと feature の本文に写し (期待挙動と対応の無い仕様も残すため)、読めた行を構造として数える
+        parser.copy(BodyTarget::Feature, line);
+        if !trimmed.starts_with('|') {
+            parser.report_kept(line_number, line, "仕様チェックリストの表の外の行");
+            continue;
+        }
+        let cells = split_table_cells(trimmed);
+        if cells.len() < 3 {
+            parser.report_kept(line_number, line, "仕様チェックリストの行の列が 3 つ未満");
+            continue;
+        }
+        let is_header = cells[0].eq_ignore_ascii_case("ID");
+        let is_separator = cells
+            .iter()
+            .all(|cell| !cell.is_empty() && cell.chars().all(|c| c == '-' || c == ':'));
+        if is_header || is_separator {
+            parser.structured(line_number);
+            continue;
+        }
+        // 仕様 ID は multi_select の選択肢の名前になる。空と `,` 入りは選択肢にできない (`db schema --add` の形式)
+        if cells[0].is_empty() || cells[0].contains(',') {
+            parser.report_kept(
+                line_number,
+                line,
+                "仕様 ID が空か `,` を含む (選択肢の名前にできない)",
+            );
+            continue;
+        }
+        let item_name = match cells[2].trim_matches('*').trim() {
+            "" | "—" | "-" | "–" => None,
+            name => Some(name.to_owned()),
+        };
+        parser.qa_md.spec_rows.push(QaMdSpecRow {
+            line: line_number,
+            id: cells[0].clone(),
+            expected: cells[1].clone(),
+            item_name,
+        });
+        parser.structured(line_number);
     }
+    parser.flush_empty_section_heading();
 
-    // 仕様チェックリストの対応項目を項目側に写す。項目名に一致しない行は読み飛ばした行として報告する
-    let spec_rows = qa_md.spec_rows.clone();
+    // 仕様チェックリストの対応項目を項目側 (同じ名前の項目があれば最初の項目) に写す。項目名に一致しない行は、
+    // 表の写しとして feature の本文にあるので、本文に残した行として報告する
+    let spec_rows = parser.qa_md.spec_rows.clone();
     for row in spec_rows {
         let Some(item_name) = row.item_name else {
             continue;
         };
-        match qa_md.items.iter_mut().find(|item| item.name == item_name) {
+        match parser
+            .qa_md
+            .items
+            .iter_mut()
+            .find(|item| item.name == item_name)
+        {
             Some(item) => {
                 if !item.spec_ids.contains(&row.id) {
                     item.spec_ids.push(row.id);
                 }
             }
-            None => {
-                qa_md.skipped.push(SkippedLine {
-                    file: file.to_owned(),
-                    line: row.line,
-                    content: format!("| {} | {} | {} |", row.id, row.expected, item_name),
-                    reason: "仕様チェックリストの対応項目に一致するチェック項目が無い".to_owned(),
-                });
-            }
+            None => parser.report_kept(
+                row.line,
+                lines[row.line - 1],
+                "仕様チェックリストの対応項目に一致するチェック項目が無い",
+            ),
+        }
+    }
+
+    let Parser {
+        file,
+        mut qa_md,
+        kinds,
+        ..
+    } = parser;
+    qa_md.skipped.sort_by_key(|skipped| skipped.line);
+    qa_md.structured_lines = kinds
+        .iter()
+        .filter(|kind| **kind == Some(LineKind::Structured))
+        .count();
+    qa_md.unaccounted = kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, kind)| kind.is_none())
+        .map(|(index, _)| SkippedLine {
+            file: file.to_owned(),
+            line: index + 1,
+            content: lines[index].to_owned(),
+            reason: "構造としても本文としても読まなかった".to_owned(),
+        })
+        .collect();
+    trim_body(&mut qa_md.body);
+    for item in &mut qa_md.items {
+        trim_body(&mut item.body);
+        for confirmation in &mut item.confirmations {
+            trim_body(&mut confirmation.body);
         }
     }
     qa_md
+}
+
+/// 本文の末尾の改行を外す。
+fn trim_body(body: &mut String) {
+    body.truncate(body.trim_end_matches('\n').len());
+}
+
+/// `line` の行頭の空白を `width` 個まで外す (入れ子の行を、項目の本文の中で 1 段浅い markdown にするため)。
+fn dedent(line: &str, width: usize) -> &str {
+    let spaces = line.len() - line.trim_start_matches(' ').len();
+    &line[spaces.min(width)..]
 }
 
 /// frontmatter の `キー:` の後ろの値。YAML の引用符 (`"..."` / `'...'`) で囲まれていればその中身 (エスケープは解釈しない。
@@ -662,24 +1071,56 @@ fn parse_record(content: &str) -> Option<QaMdRecord> {
     })
 }
 
-/// `**確認日: YYYY-MM-DD**` (太字の中でも外でもよい) から日付を取り出し、保存する形 (`named_json::normalize_date`) にする。
-fn verified_date(line: &str) -> Option<String> {
-    let after = &line[line.find("確認日")? + "確認日".len()..];
-    let token = after
-        .trim_start_matches(['*', ' ', ':', '：'])
-        .split(|c: char| c == '*' || c.is_whitespace())
-        .next()?;
-    normalize_date(token)
+/// 行頭 (`-` `*` の後ろ) が `確認日:` / `再確認日:` (太字の中でも外でも、`:` は全角でも) の行なら、(日付, 日付の後ろの注記)。
+/// 日付は先頭の数字と `-` の並びを保存する形 (`named_json::normalize_date`) にしたもので、読めなければ `None`。
+/// 注記は日付の後ろの文字列から太字の `*` と前後の空白を外したもの (`（Android は未確認）` 等。無ければ空)。
+fn confirmation_line(trimmed: &str) -> Option<(Option<String>, String)> {
+    let label = trimmed.trim_start_matches(['-', '*', ' ']);
+    let after_label = label
+        .strip_prefix("再確認日")
+        .or_else(|| label.strip_prefix("確認日"))?;
+    let value = after_label
+        .trim_start_matches(['*', ' '])
+        .strip_prefix([':', '：'])?
+        .trim_start_matches(['*', ' ']);
+    let date_length = value
+        .find(|c: char| !(c.is_ascii_digit() || c == '-'))
+        .unwrap_or(value.len());
+    Some((
+        normalize_date(&value[..date_length]),
+        value[date_length..]
+            .trim()
+            .trim_matches('*')
+            .trim()
+            .to_owned(),
+    ))
 }
 
-/// `<img src="URL" ...>` の URL。
-fn image_source(line: &str) -> Option<String> {
-    let after = line
-        .find("src=")
-        .map(|index| &line[index + "src=".len()..])?;
-    let quote = after.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-    let url = after[quote.len_utf8()..].split(quote).next()?;
-    Some(url.to_owned()).filter(|url| !url.is_empty())
+/// 行から HTML のタグ (`<...>`) を除き、前後の空白を外した文字列 (画像・details の行に併記された説明文)。
+fn text_outside_tags(line: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for character in line.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => text.push(character),
+            _ => {}
+        }
+    }
+    text.trim().to_owned()
+}
+
+/// 行の中のすべての `<img src="URL" ...>` の URL (出た順)。
+fn image_sources(line: &str) -> Vec<String> {
+    line.match_indices("src=")
+        .filter_map(|(index, _)| {
+            let after = &line[index + "src=".len()..];
+            let quote = after.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+            let url = after[quote.len_utf8()..].split(quote).next()?;
+            Some(url.to_owned()).filter(|url| !url.is_empty())
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -731,25 +1172,43 @@ mod tests {
     }
 
     #[test]
-    fn verified_date_is_read_inside_or_outside_bold() {
+    fn confirmation_line_reads_the_leading_date_and_its_annotation() {
         assert_eq!(
-            verified_date("**確認日: 2026-10-11**").as_deref(),
-            Some("2026-10-11")
+            confirmation_line("**確認日: 2026-10-11**"),
+            Some((Some("2026-10-11".into()), String::new()))
         );
         assert_eq!(
-            verified_date("**確認日:** 2026-1-2").as_deref(),
-            Some("2026-01-02")
+            confirmation_line("**確認日:** 2026-1-2"),
+            Some((Some("2026-01-02".into()), String::new()))
         );
-        assert_eq!(verified_date("**確認日: 未定**"), None);
+        assert_eq!(
+            confirmation_line("**再確認日：2026-09-05（Android は未確認）**"),
+            Some((Some("2026-09-05".into()), "（Android は未確認）".into()))
+        );
+        assert_eq!(
+            confirmation_line("- 確認日: 2026-09-05"),
+            Some((Some("2026-09-05".into()), String::new()))
+        );
+        assert_eq!(
+            confirmation_line("**確認日: 未定**"),
+            Some((None, "未定".into()))
+        );
+        // 説明文の中の「確認日」は確認の始まりにしない
+        assert_eq!(confirmation_line("前回の確認日から画面が変わった"), None);
+        assert_eq!(confirmation_line("確認日は未定"), None);
     }
 
     #[test]
-    fn image_source_reads_the_url() {
+    fn image_sources_reads_every_url_in_the_line() {
         assert_eq!(
-            image_source(r#"<img src="https://example.com/a.png" width="320">"#).as_deref(),
-            Some("https://example.com/a.png")
+            image_sources(r#"<img src="https://example.com/a.png" width="320">"#),
+            ["https://example.com/a.png"]
         );
-        assert_eq!(image_source("<img width=\"320\">"), None);
+        assert_eq!(
+            image_sources(r#"<img src="https://e.com/a.png"> <img src='https://e.com/b.png'>"#),
+            ["https://e.com/a.png", "https://e.com/b.png"]
+        );
+        assert!(image_sources("<img width=\"320\">").is_empty());
     }
 
     #[test]
@@ -793,10 +1252,16 @@ mod tests {
         assert_eq!(qa_md.spec_rows[0].expected, "A | B");
         assert_eq!(qa_md.items[0].spec_ids, ["S1"]);
         assert!(qa_md.skipped.is_empty(), "{:?}", qa_md.skipped);
+        assert!(qa_md.unaccounted.is_empty(), "{:?}", qa_md.unaccounted);
+        // 表は feature の本文に写す
+        assert_eq!(
+            qa_md.body,
+            "## 仕様チェックリスト\n\n| ID | 期待挙動 | 対応項目 |\n|---|---|---|\n| S1 | A \\| B | 一覧 |"
+        );
     }
 
     #[test]
-    fn lines_outside_the_known_syntax_are_reported_not_fatal() {
+    fn lines_outside_the_known_syntax_are_kept_in_a_body_and_reported() {
         let qa_md = parse(
             "x/QA.md",
             "---\nfeature: f\ncolor: red\n---\n# f QA\n\n## 1. 表示\n\n- [ ] **一覧**: 出る\n  - 自動化: todo\n  - メモ\n- [ ] 名前なし\nただの文\n",
@@ -812,10 +1277,19 @@ mod tests {
             lines,
             [
                 (3, "color: red"),
+                (5, "# f QA"),
                 (11, "  - メモ"),
                 (12, "- [ ] 名前なし"),
                 (13, "ただの文")
             ]
         );
+        assert_eq!(qa_md.items[0].body, "- メモ");
+        assert_eq!(qa_md.items[0].section.as_deref(), Some("1. 表示"));
+        assert_eq!(
+            qa_md.body,
+            "color: red\n# f QA\n\n## 1. 表示\n\n- [ ] 名前なし\nただの文"
+        );
+        assert_eq!(qa_md.structured_lines + qa_md.skipped.len(), 13);
+        assert!(qa_md.unaccounted.is_empty(), "{:?}", qa_md.unaccounted);
     }
 }
