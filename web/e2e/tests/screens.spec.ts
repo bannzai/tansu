@@ -366,6 +366,13 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
 
   await peek.getByRole("button", { name: "閉じる" }).click();
   await expect(peek).toHaveCount(0);
+
+  // 無い行の URL で開いても、スマホ幅の全画面のパネルを閉じて表に戻れる
+  await page.goto("/db/item?peek=missing-row-id");
+  await expect(peek.getByRole("alert")).toContainText("missing-row-id");
+  await peek.getByRole("button", { name: "閉じる" }).click();
+  await expect(peek).toHaveCount(0);
+  await expect(page).toHaveURL(/\/db\/item$/);
 });
 
 test("QA の入力で OK / NG / あとで を記録するとフッターの件数が変わり、全部コピーが未入力と NG を markdown にする", async ({

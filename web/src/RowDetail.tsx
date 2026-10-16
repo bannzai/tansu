@@ -131,15 +131,28 @@ export function RowDetail({
   }, [savedRow, rowId, loaded]);
 
   if (loaded === null) {
-    return error === null ? (
-      <p className="muted">読み込み中</p>
-    ) : (
-      <p role="alert" className="error">
-        {error}
-      </p>
+    return (
+      <>
+        {/* 消した行や古い URL でパネルを開いた時も、スマホ幅の全画面のパネルから抜けられるようにする */}
+        {onClose !== undefined && (
+          <header className="bar">
+            <button type="button" className="icon-button" aria-label="閉じる" onClick={onClose}>
+              ×
+            </button>
+          </header>
+        )}
+        {error === null ? (
+          <p className="muted">読み込み中</p>
+        ) : (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+      </>
     );
   }
   const { database, row } = loaded;
+  const DetailMain = onClose === undefined ? "main" : "div";
   const titles = relationTitles(loaded.targets);
 
   const save = async () => {
@@ -202,7 +215,8 @@ export function RowDetail({
           ID {row.id} · 更新 {row.updated_at}
         </span>
       </header>
-      <div className="detail-main">
+      {/* 全画面の詳細ページでは main のランドマークにし、パネルでは表の画面の main の中なので入れ子にしない */}
+      <DetailMain className="detail-main">
         <section className="detail-body">
           <h1>{rowTitle(database, row)}</h1>
           <fieldset className="editor" disabled={writing}>
@@ -280,7 +294,7 @@ export function RowDetail({
             </section>
           ))}
         </aside>
-      </div>
+      </DetailMain>
     </div>
   );
 }
