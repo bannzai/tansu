@@ -165,6 +165,21 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   await expect(editor).toBeFocused();
   await editor.fill(expected);
   await page.screenshot({ path: testInfo.outputPath("table-cell-editing.png"), fullPage: true });
+
+  // 保存に失敗しても編集欄と入力は残り、そのまま送り直せる
+  await page.route("**/api/databases/item/rows", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"E2E で失敗させた"}' })
+      : route.continue(),
+  );
+  const failed = itemRowWritten(page);
+  await editor.press("Enter");
+  expect((await failed).status()).toBe(500);
+  await expect(page.getByRole("alert")).toHaveText("E2E で失敗させた");
+  await expect(editor).toHaveValue(expected);
+  await expect(editor).toBeEnabled();
+  await page.unroute("**/api/databases/item/rows");
+
   const savedText = itemRowWritten(page);
   await editor.press("Enter");
   expect((await savedText).ok()).toBe(true);

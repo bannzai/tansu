@@ -82,6 +82,9 @@ export function TableView({
   const [adding, setAdding] = useState(false);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
+  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。保存は読み込んだ値との差分で送るため、応答の前に同じセルを
+  // 編集し直すと後の入力が「変更なし」として送られない。応答までは編集させない
+  const [savingCells, setSavingCells] = useState<ReadonlySet<string>>(new Set());
 
   const load = useCallback(async () => {
     const table = await fetchRows(databaseName);
@@ -159,19 +162,28 @@ export function TableView({
     );
 
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
-    setEditing(null);
+    const cellKey = `${row.id}:${property.name}`;
+    // 応答を待つ間に別のセルを開いていたら、そちらは閉じない
+    const closeEditor = () =>
+      setEditing((current) => (current?.rowId === row.id && current.property === property.name ? null : current));
     // 表を読み込んだ後に CLI や別のタブが書いた値を消さないよう、変えたプロパティだけを送る
     const values = changedValues(row, { [property.name]: value });
     if (Object.keys(values).length === 0) {
+      closeEditor();
       return;
     }
     setWriteError(null);
+    setSavingCells((current) => new Set(current).add(cellKey));
     try {
       const written = await upsertRow(database.name, { id: row.id, values });
       replaceRow(written);
       setLastWrittenRow(written);
+      closeEditor();
     } catch (caught) {
+      // 編集欄は開いたままにして、入力を直して送り直せるようにする
       setWriteError(errorText(caught));
+    } finally {
+      setSavingCells((current) => new Set([...current].filter((key) => key !== cellKey)));
     }
   };
 
@@ -213,6 +225,7 @@ export function TableView({
       titles={titles}
       targetDatabaseName={targetName(property)}
       editing={editing?.rowId === row.id && editing.property === property.name}
+      saving={savingCells.has(`${row.id}:${property.name}`)}
       onEdit={() => setEditing({ rowId: row.id, property: property.name })}
       onCancel={() => setEditing(null)}
       onWrite={(value) => writeValue(row, property, value)}
@@ -431,6 +444,7 @@ function Cell({
   titles,
   targetDatabaseName,
   editing,
+  saving,
   onEdit,
   onCancel,
   onWrite,
@@ -442,6 +456,7 @@ function Cell({
   titles: RowTitles;
   targetDatabaseName: string | undefined;
   editing: boolean;
+  saving: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onWrite: (value: RowValueInput) => void;
@@ -457,6 +472,7 @@ function Cell({
           type="checkbox"
           aria-label={label}
           checked={value?.type === "checkbox" && value.value}
+          disabled={saving}
           onChange={(event) => onWrite(event.target.checked)}
         />
       </td>
@@ -469,6 +485,7 @@ function Cell({
           property={property}
           initial={inputValue(value)}
           label={label}
+          saving={saving}
           onWrite={onWrite}
           onCancel={onCancel}
         />
@@ -478,7 +495,13 @@ function Cell({
   return (
     <td className={className}>
       {property.kind.type !== "relation" && (
-        <button type="button" className="cell-edit" aria-label={`${label} を編集`} onClick={onEdit} />
+        <button
+          type="button"
+          className="cell-edit"
+          aria-label={`${label} を編集`}
+          disabled={saving}
+          onClick={onEdit}
+        />
       )}
       <span className={extra === undefined ? "cell-value" : "cell-value row-title"}>
         {extra !== undefined && (value === undefined || (value.type === "text" && value.value === "")) ? (
@@ -505,18 +528,21 @@ function focusOnMount(element: HTMLElement | null) {
 /**
  * セルの編集欄。text / number / url / date は入力欄で Enter (text は Shift + Enter で改行) かフォーカスを外すと保存、
  * select は選ぶと保存、multi_select はチェックを変えて「完了」かフォーカスを外すと保存する。Esc は保存せずにやめる。
- * `initial` は編集前の値 (upsert に渡す形)。`label` は編集欄の名前。
+ * `initial` は編集前の値 (upsert に渡す形)。`label` は編集欄の名前。`saving` は保存の応答を待つ間で、その間は入力を
+ * 受け付けない。保存に失敗すると編集欄は開いたまま `saving` が戻り、入力を直して送り直せる。
  */
 function CellEditor({
   property,
   initial,
   label,
+  saving,
   onWrite,
   onCancel,
 }: {
   property: Property;
   initial: RowValueInput;
   label: string;
+  saving: boolean;
   onWrite: (value: RowValueInput) => void;
   onCancel: () => void;
 }) {
@@ -526,6 +552,12 @@ function CellEditor({
   const [draftChoices, setDraftChoices] = useState(Array.isArray(initial) ? initial : []);
   // 保存か取消をした後に、編集欄が消える時の blur でもう一度保存しないようにする
   const finished = useRef(false);
+  // 保存に失敗して編集欄が残った時は、もう一度保存できるようにする
+  useEffect(() => {
+    if (!saving) {
+      finished.current = false;
+    }
+  }, [saving]);
   const finish = (value: RowValueInput | undefined) => {
     if (finished.current) {
       return;
@@ -553,8 +585,12 @@ function CellEditor({
           ref={focusOnMount}
           aria-label={label}
           className="cell-input"
-          value={typeof initial === "string" ? initial : ""}
-          onChange={(event) => finish(event.target.value === "" ? null : event.target.value)}
+          value={draftText}
+          disabled={saving}
+          onChange={(event) => {
+            setDraftText(event.target.value);
+            finish(event.target.value === "" ? null : event.target.value);
+          }}
           onBlur={() => finish(undefined)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -575,6 +611,7 @@ function CellEditor({
         <fieldset
           className="cell-popover"
           aria-label={label}
+          disabled={saving}
           onBlur={(event) => {
             if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
               finish(draftChoices);
@@ -616,6 +653,7 @@ function CellEditor({
           className="cell-input"
           rows={3}
           value={draftText}
+          disabled={saving}
           onChange={(event) => setDraftText(event.target.value)}
           onBlur={() => finish(draftText)}
           onKeyDown={(event) => {
@@ -637,6 +675,7 @@ function CellEditor({
           type={property.kind.type === "number" ? "number" : "text"}
           placeholder={property.kind.type === "date" ? "2026-10-12" : property.kind.type === "url" ? "https://" : ""}
           value={draftText}
+          disabled={saving}
           onChange={(event) => setDraftText(event.target.value)}
           onBlur={() => finish(textValue())}
           onKeyDown={(event) => {
