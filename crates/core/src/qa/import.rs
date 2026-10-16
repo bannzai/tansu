@@ -52,7 +52,8 @@ pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
     Ok(report(&parse_all(paths)?, true))
 }
 
-/// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` をすべて探す) か QA.md のファイル。
+/// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` を探す。探す範囲は `documents/cli-contract.md` の
+/// `qa import`) か QA.md のファイル。
 ///
 /// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
 /// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)。
@@ -80,8 +81,14 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
         })?;
         if metadata.is_dir() {
             let root = path.canonicalize()?;
-            let mut files = Vec::new();
-            find_qa_md(&root, &mut files)?;
+            let files = match find_qa_md_in_git(&root) {
+                Some(files) => files,
+                None => {
+                    let mut files = Vec::new();
+                    find_qa_md(&root, &mut files)?;
+                    files
+                }
+            };
             files_by_root.entry(root).or_default().extend(files);
         } else {
             let file = path.canonicalize()?;
@@ -302,8 +309,97 @@ fn run_result(item: &QaMdItem) -> Option<&'static str> {
     }
 }
 
-/// `directory` の下の `QA.md` を再帰的に探してパス順で `files` に足す。`.git` / `node_modules` / `target` の下は見ず、
-/// symlink は辿らない (リポジトリの外へ出ないように)。
+/// `directory` が QA.md を探さない名前のディレクトリ (`.git` / `node_modules` / `target`) なら true。
+/// `.git` は git の管理領域、`node_modules` / `target` は依存とビルドの生成物で、利用者が QA.md を書く場所ではないため。
+fn is_excluded_directory(directory: &Path) -> bool {
+    matches!(
+        directory.file_name().and_then(|name| name.to_str()),
+        Some(".git" | "node_modules" | "target")
+    )
+}
+
+/// `root` を起点にリポジトリを探す `git -C <root>` のコマンド。呼び出し元から受け継いだ、リポジトリ・index の場所を
+/// 決める環境変数 (git の hook の中で tansu を動かすと設定されている) を外し、`root` を含むリポジトリを使わせる。
+fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root);
+    for variable in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+    ] {
+        command.env_remove(variable);
+    }
+    command
+}
+
+/// git の作業ツリーの中の `root` (絶対パス) の下の `QA.md`。git が追跡しているものと、未追跡で `.gitignore`
+/// (`.git/info/exclude`・global の excludes を含む) で除外されていないものを返す。`root` より下で `.git`
+/// (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下、
+/// [`is_excluded_directory`] の下、symlink とその下、作業ツリーに無いファイル (削除してまだ commit していない等) は含めない。
+/// `root` が git の作業ツリーの外か、`root` 自体が `.gitignore` の対象 (`ls-files` が何も返さない) か、
+/// git を実行できなければ `None`。
+fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
+    if git_command(root)
+        .args(["check-ignore", "-q", "."])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+    {
+        return None;
+    }
+    let output = git_command(root)
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())?;
+    Some(
+        output
+            .stdout
+            .split(|byte| *byte == 0)
+            .map(|relative| root.join(path_from_git_output(relative)))
+            .filter(|file| file.file_name().is_some_and(|name| name == "QA.md"))
+            .filter(|file| file.is_file() && !file.is_symlink())
+            .filter(|file| {
+                // git は `.git` が有効なリポジトリを指す時だけ、そのディレクトリを入れ子のリポジトリとして下を見ない。
+                // `.git` の中身を問わず外すため、`.git` の有無を自分でも見る
+                !file
+                    .ancestors()
+                    .skip(1)
+                    .take_while(|directory| *directory != root)
+                    .any(|directory| {
+                        is_excluded_directory(directory)
+                            || directory.is_symlink()
+                            || std::fs::symlink_metadata(directory.join(".git")).is_ok()
+                    })
+            })
+            .collect(),
+    )
+}
+
+/// `git ls-files -z` が出す 1 件分のパスのバイト列。unix ではバイト列のまま使い、UTF-8 でない名前のパスも落とさない
+/// (`read_dir` で探す時と同じファイルを読めるように)。
+#[cfg(unix)]
+fn path_from_git_output(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+/// `git ls-files -z` が出す 1 件分のパスのバイト列。unix 以外の git はパスを UTF-8 で出す。
+#[cfg(not(unix))]
+fn path_from_git_output(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// `directory` の下の `QA.md` を再帰的に探してパス順で `files` に足す。git の作業ツリーの外 (git を実行できない時を含む) で使う。
+/// [`is_excluded_directory`] の下は見ず、symlink は辿らない (リポジトリの外へ出ないように)。
 fn find_qa_md(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), Error> {
     let mut entries: Vec<_> = std::fs::read_dir(directory)?.collect::<Result<_, _>>()?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
@@ -311,7 +407,7 @@ fn find_qa_md(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), Error> {
         let file_type = entry.file_type()?;
         let name = entry.file_name();
         if file_type.is_dir() {
-            if !matches!(name.to_str(), Some(".git" | "node_modules" | "target")) {
+            if !is_excluded_directory(&entry.path()) {
                 find_qa_md(&entry.path(), files)?;
             }
         } else if file_type.is_file() && name == "QA.md" {
