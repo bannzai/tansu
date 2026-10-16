@@ -270,6 +270,22 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   await tableCheckbox.click();
   expect((await writtenAgain).ok()).toBe(true);
   await expect(peek.getByLabel("verified", { exact: true })).toBeChecked();
+  // パネルで保存した後の表の読み直しの間は、表の編集と「+ 新規」を止める
+  await page.route("**/api/databases/item/rows", async (route) => {
+    if (route.request().method() === "GET") {
+      // 読み直しの間の画面を確かめるために遅らせる
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    await route.continue();
+  });
+  await peek.getByRole("button", { name: "保存", exact: true }).click();
+  const newRowButton = page.getByRole("button", { name: "+ 新規", exact: true });
+  await expect(newRowButton).toBeDisabled();
+  await expect(page.getByRole("button", { name: "検索で絞り込める の expected を編集" })).toBeDisabled();
+  await expect(newRowButton).toBeEnabled();
+  await page.unroute("**/api/databases/item/rows");
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+
   // 表のセルの編集を Esc で取り消しても、パネルは閉じず書きかけも残る
   await page.getByRole("button", { name: "一覧の並び の labels を編集" }).click();
   const labelsEditor = page.getByRole("group", { name: "一覧の並び の labels" });

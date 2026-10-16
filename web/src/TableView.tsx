@@ -80,8 +80,9 @@ export function TableView({
   const [toolbarPanel, setToolbarPanel] = useState<"filter" | "sort" | null>(null);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [adding, setAdding] = useState(false);
-  // パネルで保存した後に表を読み直している間。読み直しは最後に表全体を置き換えるため、その間の書き込みを止める
-  const [reloading, setReloading] = useState(false);
+  // パネルで保存した後の表の読み直しの、終わっていない数。読み直しは最後に表全体を置き換えるため、その間の書き込みを
+  // 止める。パネルは読み直しの途中でも続けて保存できるので、重なった読み直しがすべて終わるまで止めるために数で持つ
+  const [reloadCount, setReloadCount] = useState(0);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
   // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
@@ -165,7 +166,7 @@ export function TableView({
     );
 
   // セルの保存・行の追加・読み直しのどれかの途中。書き込みを 1 つずつにするため、その間は編集も「+ 新規」も始めさせない
-  const writing = savingCell !== null || adding || reloading;
+  const writing = savingCell !== null || adding || reloadCount > 0;
 
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
     const cellKey = `${row.id}:${property.name}`;
@@ -413,10 +414,10 @@ export function TableView({
             databases={databases}
             onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
             onSaved={() => {
-              setReloading(true);
+              setReloadCount((count) => count + 1);
               load()
                 .catch((caught: unknown) => setWriteError(errorText(caught)))
-                .finally(() => setReloading(false));
+                .finally(() => setReloadCount((count) => count - 1));
             }}
           />
         </section>
