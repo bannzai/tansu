@@ -200,6 +200,29 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
   expect((await savedCheckbox).ok()).toBe(true);
   await expect(checkbox).toBeChecked();
 
+  // multi_select は選択肢の文字を押して変え、「完了」か編集欄の外を押すと保存する
+  const themeRow = page
+    .getByTestId("table-row")
+    .filter({ has: page.getByRole("button", { name: "テーマを切り替えられる を開く" }) });
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  const specIdsEditor = page.getByRole("group", { name: "テーマを切り替えられる の spec_ids" });
+  await specIdsEditor.getByText("S3", { exact: true }).click();
+  await specIdsEditor.getByText("S5", { exact: true }).click();
+  await expect(specIdsEditor).toBeVisible();
+  const savedChoices = itemRowWritten(page);
+  await specIdsEditor.getByRole("button", { name: "完了" }).click();
+  expect((await savedChoices).ok()).toBe(true);
+  await expect(themeRow.locator(".tag", { hasText: /^S3$/ })).toBeVisible();
+  await expect(themeRow.locator(".tag", { hasText: /^S5$/ })).toBeVisible();
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S5", { exact: true }).click();
+  const savedOutside = itemRowWritten(page);
+  await page.getByRole("heading", { level: 1 }).click();
+  expect((await savedOutside).ok()).toBe(true);
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S5$/ })).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S3$/ })).toBeVisible();
+
   await page.reload();
   await expect(page.getByTestId("table-row").getByText(expected)).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "テーマを切り替えられる の verified" })).toBeChecked();

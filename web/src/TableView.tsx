@@ -549,7 +549,7 @@ function focusOnMount(element: HTMLElement | null) {
 
 /**
  * セルの編集欄。text / number / url / date は入力欄で Enter (text は Shift + Enter で改行) かフォーカスを外すと保存、
- * select は選ぶと保存、multi_select はチェックを変えて「完了」かフォーカスを外すと保存する。Esc は保存せずにやめる。
+ * select は選ぶと保存、multi_select はチェックを変えて「完了」か編集欄の外を押すと保存する。Esc は保存せずにやめる。
  * `initial` は編集前の値 (upsert に渡す形)。`label` は編集欄の名前。`saving` は保存の応答を待つ間で、その間は入力を
  * 受け付けない。保存に失敗すると編集欄は開いたまま `saving` が戻り、入力を直して送り直せる。
  */
@@ -600,6 +600,24 @@ function CellEditor({
   const textValue = () =>
     property.kind.type === "number" ? (draftText.trim() === "" ? null : Number(draftText)) : draftText;
 
+  // multi_select の編集欄は blur ではなく、編集欄の外を押した時に保存する。Safari では checkbox と label を押しても
+  // フォーカスが移らず、blur を手がかりにすると選択肢を押した瞬間に変更前の値で閉じてしまうため
+  const popover = useRef<HTMLFieldSetElement>(null);
+  const finishChoices = useRef(() => finish(draftChoices));
+  finishChoices.current = () => finish(draftChoices);
+  useEffect(() => {
+    if (property.kind.type !== "multi_select") {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node && popover.current?.contains(event.target))) {
+        finishChoices.current();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [property.kind.type]);
+
   switch (property.kind.type) {
     case "select":
       return (
@@ -631,14 +649,10 @@ function CellEditor({
     case "multi_select":
       return (
         <fieldset
+          ref={popover}
           className="cell-popover"
           aria-label={label}
           disabled={saving}
-          onBlur={(event) => {
-            if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
-              finish(draftChoices);
-            }
-          }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               cancel(event);

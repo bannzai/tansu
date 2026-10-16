@@ -31,7 +31,7 @@ type Loaded = {
 /**
  * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
  * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
- * `onSaved` は保存が成功した後に呼ぶ (パネルの時に表を読み直すため)。`savedRow` は表のセルで書いた後のこの行で、
+ * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`savedRow` は表のセルで書いた後のこの行で、
  * 書かれた値をパネルに映すために渡す。
  */
 export function RowDetail({
@@ -170,6 +170,7 @@ export function RowDetail({
     try {
       const updated = await addProperties(database.name, [`${property.name}:${property.kind.type}:${optionName}`]);
       setLoaded({ ...loaded, database: updated });
+      onSaved?.();
       const current = draft[property.name];
       setDraft({
         ...draft,
