@@ -711,6 +711,76 @@ async fn removing_the_first_of_two_same_name_items_keeps_the_row_of_the_second()
 }
 
 #[tokio::test]
+async fn adding_a_same_name_item_before_an_existing_one_keeps_the_existing_row() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    let write = |text: &str| std::fs::write(&file, text).unwrap();
+    write("## 1. 表示\n\n- [ ] **A**: X\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    let x_id = query_named(&connection, "item", &["name=A"]).await[0]["id"].clone();
+
+    write("## 1. 表示\n\n- [ ] **A**: Y\n- [ ] **A**: X\n");
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    let items = query_named(&connection, "item", &["name=A"]).await;
+    let x = items
+        .iter()
+        .find(|item| item["values"]["expected"]["value"] == "X")
+        .unwrap();
+    assert_eq!(x["id"], x_id);
+    assert_eq!(items.len(), 2);
+}
+
+#[tokio::test]
+async fn the_result_goes_to_the_run_the_readers_pick_after_moving_a_previous_format_run() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    // 同じ日付の確認が 2 つ。読み取り側 (`qa verified`・pr-summary) は同じ日付なら後に追加した行を最後とみなす
+    std::fs::write(
+        &file,
+        "## 1. 表示\n\n- [x] **一覧**: 出る\n\n#### 動作確認\n<details>\n\n### **一覧**: 出る\n\n**確認日: 2026-09-01**\n\n**再確認日: 2026-09-01**\n\n</details>\n",
+    )
+    .unwrap();
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    let item = query_named(&connection, "item", &["name=一覧"]).await;
+    let item_id = item[0]["id"].as_str().unwrap();
+    let runs = runs_of_item(&connection, item_id).await;
+    rows::delete(&connection, "run", runs[1]["id"].as_str().unwrap())
+        .await
+        .unwrap();
+    rows::upsert(
+        &connection,
+        "run",
+        &json!({"id": runs[0]["id"], "values": {"run_id": format!("import:{item_id}")}}),
+    )
+    .await
+    .unwrap();
+
+    for _ in 0..2 {
+        import(&connection, std::slice::from_ref(&file))
+            .await
+            .unwrap();
+        // 追加した順で最後の行 (読み取り側が最後とみなす行) に結果があり、ほかの行には無い
+        let results: Vec<Value> = query_named(&connection, "run", &[])
+            .await
+            .iter()
+            .map(|run| run["values"]["result"]["value"].clone())
+            .collect();
+        assert_eq!(results, [Value::Null, json!("ok")]);
+    }
+}
+
+#[tokio::test]
 async fn a_run_of_the_previous_import_format_keeps_its_row_and_added_values() {
     let home = tempfile::tempdir().unwrap();
     let connection = open(&home).await;
