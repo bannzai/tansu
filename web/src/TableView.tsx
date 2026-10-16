@@ -97,9 +97,16 @@ export function TableView({
   // 値が戻ったりする。また別のセルへ移ると、失敗した時に書きかけを持つ編集欄が消えてしまう
   const [savingCell, setSavingCell] = useState<string | null>(null);
 
+  // 最後に始めた読み込みの番号。読み込みが重なって逆の順に返った時に、古い応答で表を戻さない
+  const latestLoad = useRef(0);
   const load = useCallback(async () => {
+    latestLoad.current += 1;
+    const loadNumber = latestLoad.current;
     const table = await fetchRows(databaseName);
-    setLoaded({ table, targets: await fetchRelationTargets(table.database, databases) });
+    const targets = await fetchRelationTargets(table.database, databases);
+    if (loadNumber === latestLoad.current) {
+      setLoaded({ table, targets });
+    }
   }, [databaseName, databases]);
 
   useEffect(() => {

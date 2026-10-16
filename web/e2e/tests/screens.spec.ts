@@ -270,11 +270,27 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   await tableCheckbox.click();
   expect((await writtenAgain).ok()).toBe(true);
   await expect(peek.getByLabel("verified", { exact: true })).toBeChecked();
-  // パネルで保存した後の表の読み直しの間は、表の編集と「+ 新規」を止める
+  // 表のセルの編集を Esc で取り消しても、パネルは閉じず書きかけも残る
+  await page.getByRole("button", { name: "一覧の並び の labels を編集" }).click();
+  const labelsEditor = page.getByRole("group", { name: "一覧の並び の labels" });
+  await expect(labelsEditor).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(labelsEditor).toHaveCount(0);
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+
+  // パネルで保存した後の表の読み直しの間は、表の編集と「+ 新規」を止める。保存の後の item の行の取得は、
+  // 1 回目がパネル自身の読み直し、2 回目が表の読み直しで、2 回目の応答を確かめ終わるまで止めておく
+  let itemRowsFetches = 0;
+  let releaseTableReload: () => void = () => undefined;
+  const tableReloadReleased = new Promise<void>((resolve) => {
+    releaseTableReload = resolve;
+  });
   await page.route("**/api/databases/item/rows", async (route) => {
     if (route.request().method() === "GET") {
-      // 読み直しの間の画面を確かめるために遅らせる
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      itemRowsFetches += 1;
+      if (itemRowsFetches === 2) {
+        await tableReloadReleased;
+      }
     }
     await route.continue();
   });
@@ -282,16 +298,9 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   const newRowButton = page.getByRole("button", { name: "+ 新規", exact: true });
   await expect(newRowButton).toBeDisabled();
   await expect(page.getByRole("button", { name: "検索で絞り込める の expected を編集" })).toBeDisabled();
+  releaseTableReload();
   await expect(newRowButton).toBeEnabled();
   await page.unroute("**/api/databases/item/rows");
-  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
-
-  // 表のセルの編集を Esc で取り消しても、パネルは閉じず書きかけも残る
-  await page.getByRole("button", { name: "一覧の並び の labels を編集" }).click();
-  const labelsEditor = page.getByRole("group", { name: "一覧の並び の labels" });
-  await expect(labelsEditor).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(labelsEditor).toHaveCount(0);
   await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
 
   await page.getByRole("button", { name: "検索で絞り込める を開く" }).click();
