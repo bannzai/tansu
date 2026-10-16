@@ -286,6 +286,8 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
             "name": "note_editor",
             "verification": "agent-browser, manual",
             "path": "features/note_editor",
+            "last_verified_commit": "a1b2c3d4e5f60718293a4b5c6d7e8f90ab12cd34",
+            "last_verified_at": "2026-10-07",
         })
     );
     assert_eq!(features[0]["values"]["path"]["value"], "");

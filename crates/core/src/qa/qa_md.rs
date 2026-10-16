@@ -3,7 +3,7 @@
 //! markdown のまま入れる) のどちらかにし、どちらにもならなかった行を [`QaMd::unaccounted`] に出す
 //! (`documents/data-model.md`「QA 層」)。理解できない行で失敗しない。
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use serde::Serialize;
 
@@ -310,7 +310,7 @@ fn separate_paragraph(body: &mut String) {
 /// `⏭️ スキップ:` / `❌ 失敗:` とその下の入れ子 (併記事項)、`## 仕様チェックリスト` の表、`#### 動作確認` の details の中の
 /// `### **項目名**: 期待動作` と、`**確認日: YYYY-MM-DD**` / `**再確認日: YYYY-MM-DD**` (日付の後ろの注記は確認の本文) ごとの
 /// `<img src="URL">` と説明文。同じ名前の項目は別の項目にし、エビデンスの見出しは名前と期待動作が一致する項目に
-/// (無ければ同じ名前の k 番目の見出しを k 番目の項目に) 当てる。
+/// (無ければ同じ名前の項目に。どちらもまだ見出しを当てていない最初の項目) 当てる。
 pub fn parse(file: &str, text: &str) -> QaMd {
     let lines: Vec<&str> = text
         .lines()
@@ -333,8 +333,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     let mut current_item: Option<(usize, usize)> = None;
     let mut record_indent: Option<usize> = None;
     let mut evidence: Option<Evidence> = None;
-    // (項目名, 一致した期待動作) ごとに、当てたエビデンスの見出しの数。期待動作が一致しなかった見出しは `None` で数える
-    let mut evidence_heading_counts: HashMap<(String, Option<String>), usize> = HashMap::new();
+    // エビデンスの見出しを既に当てた項目の `items` の添字
+    let mut headed_items: HashSet<usize> = HashSet::new();
 
     for (index, line) in lines.iter().copied().enumerate() {
         let line_number = index + 1;
@@ -452,7 +452,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 match parse_bold_name(heading.trim()) {
                     Some((name, expected)) => {
                         // 名前と期待動作が一致する項目を先に当てる (同じ名前の項目の一部にしかエビデンスが無い時に、
-                        // 別の項目へ当てないため)。一致が無ければ、同じ名前の k 番目の見出しを k 番目の項目に当てる
+                        // 別の項目へ当てないため)。一致が無ければ同じ名前の項目に当てる。どちらも、まだ見出しを
+                        // 当てていない最初の項目に当て、全部に当て終えていれば最後の項目に当てる
                         let same_name: Vec<usize> = parser
                             .qa_md
                             .items
@@ -466,16 +467,17 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             .copied()
                             .filter(|index| parser.qa_md.items[*index].expected == expected)
                             .collect();
-                        let (candidates, key) = if same_expected.is_empty() {
-                            (same_name, (name, None))
+                        let candidates = if same_expected.is_empty() {
+                            same_name
                         } else {
-                            (same_expected, (name, Some(expected.clone())))
+                            same_expected
                         };
-                        let count = evidence_heading_counts.entry(key).or_default();
-                        let occurrence = *count;
-                        *count += 1;
-                        state.heading_item =
-                            candidates.get(occurrence).or(candidates.last()).copied();
+                        state.heading_item = candidates
+                            .iter()
+                            .find(|item_index| !headed_items.contains(*item_index))
+                            .or(candidates.last())
+                            .copied();
+                        headed_items.extend(state.heading_item);
                         if let Some(item_index) = state.heading_item
                             && parser.qa_md.items[item_index].expected != expected
                         {

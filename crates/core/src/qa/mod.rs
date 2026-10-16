@@ -44,6 +44,8 @@ const DATABASES: &[(&str, &[&str], &[&str])] = &[
             "name:text",
             "verification:text",
             "path:text",
+            "last_verified_commit:text",
+            "last_verified_at:date",
         ],
         &[],
     ),

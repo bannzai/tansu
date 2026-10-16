@@ -296,6 +296,8 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
                     "name": feature,
                     "verification": qa_md.verification,
                     "path": feature_directory(root, file),
+                    "last_verified_commit": qa_md.last_verified_commit,
+                    "last_verified_at": qa_md.last_verified_at,
                 },
             }),
         )
