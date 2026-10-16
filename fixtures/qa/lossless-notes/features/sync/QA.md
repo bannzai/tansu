@@ -71,10 +71,10 @@ received 1 change in 2.1s
 
 ### **競合を表示する**: 同じノートを 2 台で編集すると競合の印が出る
 
-<details><summary>動作確認スクショ</summary>
+<details><summary>動作確認スクショ (端末 A と B)</summary>
 
 **確認日: 2026-09-15**
-<img src="https://example.com/lossless-notes/sync/conflict-mark.png" width="320">
+<img src="https://example.com/lossless-notes/sync/conflict-mark.png" width="320"> 競合の印はノートの右上に出た
 
 </details>
 

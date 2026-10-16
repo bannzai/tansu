@@ -500,6 +500,12 @@ fn reconfirmations_duplicate_names_sections_and_notes_are_all_kept() {
         ]
     );
     assert_eq!(qa_md.items[2].section.as_deref(), Some("2. 競合"));
+    // 画像・summary の行に併記された文字は、タグを除いて本文に残す
+    assert_eq!(qa_md.items[2].body, "動作確認スクショ (端末 A と B)");
+    assert_eq!(
+        qa_md.items[2].confirmations[0].body,
+        "![](<https://example.com/lossless-notes/sync/conflict-mark.png>)\n競合の印はノートの右上に出た"
+    );
     // 項目の入れ子のコードブロックは項目の本文に、1 段浅くして入る
     assert_eq!(
         qa_md.items[3].body,

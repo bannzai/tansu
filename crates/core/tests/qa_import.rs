@@ -81,7 +81,8 @@ async fn imported_text(connection: &libsql::Connection) -> String {
     text
 }
 
-/// DB に値として入らない、QA.md の書式の語 (frontmatter のキー・記録と自動化の見出し・img の属性・null)。
+/// DB に値として入らない、QA.md の書式の語 (frontmatter のキー・記録と自動化の見出し・img / details / summary のタグと属性・
+/// setup-qa の書式が決めている summary の文字列・null)。
 const FORMAT_WORDS: &[&str] = &[
     "feature",
     "verification",
@@ -97,11 +98,14 @@ const FORMAT_WORDS: &[&str] = &[
     "src",
     "width",
     "320",
+    "details",
+    "summary",
+    "動作確認スクショ",
+    "動作確認エビデンス",
 ];
 
 /// `report` が読んだ QA.md の行のうち、語 (2 文字以上の、英数字・かな漢字と `.` `/` `-` `_` の並び。[`FORMAT_WORDS`] を除く)
-/// のどれかが `imported` に無い行 (`ファイル:行番号: 内容`)。空行と、`---`・`<details>`・`<summary>`・`（未実行）`・
-/// `#### 動作確認` のような書式だけの行は見ない。QA.md の各行を DB と照合した Issue #29 の実測と同じ見方。
+/// のどれかが `imported` に無い行 (`ファイル:行番号: 内容`)。空行と、`---`・`（未実行）`・`#### 動作確認` の書式だけの行は見ない。QA.md の各行を DB と照合した Issue #29 の実測と同じ見方。
 fn lines_missing_from(report: &ImportReport, imported: &str) -> Vec<String> {
     let mut missing = Vec::new();
     for file in &report.files {
@@ -112,9 +116,6 @@ fn lines_missing_from(report: &ImportReport, imported: &str) -> Vec<String> {
                 || trimmed == "---"
                 || trimmed == "（未実行）"
                 || trimmed == "#### 動作確認"
-                || trimmed.starts_with("<details")
-                || trimmed.starts_with("</details>")
-                || trimmed.starts_with("<summary")
             {
                 continue;
             }

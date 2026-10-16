@@ -546,7 +546,12 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             parser
                                 .copy(target, &format!("![]({})", markdown_link_destination(url)));
                         }
-                        parser.structured(line_number);
+                        let text = text_outside_tags(line);
+                        if text.is_empty() {
+                            parser.structured(line_number);
+                        } else {
+                            parser.keep(target, line_number, line, &text, "画像の行の説明文");
+                        }
                     }
                 }
             } else if let Some(record) = parse_record(trimmed.trim_start_matches("- ").trim()) {
@@ -572,13 +577,25 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                 }
             } else if trimmed.is_empty() {
                 parser.blank(line_number);
-            } else if trimmed == "（未実行）"
-                || trimmed == "(未実行)"
-                || trimmed.starts_with("<details")
+            } else if trimmed == "（未実行）" || trimmed == "(未実行)" {
+                parser.structured(line_number);
+            } else if trimmed.starts_with("<details")
                 || trimmed.starts_with("</details>")
                 || trimmed.starts_with("<summary")
             {
-                parser.structured(line_number);
+                // setup-qa の書式が決めている summary の文字列だけを書式として扱い、それ以外の文字は本文に残す
+                let text = text_outside_tags(line);
+                if ["", "動作確認スクショ", "動作確認エビデンス"].contains(&text.as_str()) {
+                    parser.structured(line_number);
+                } else {
+                    parser.keep(
+                        state.target(),
+                        line_number,
+                        line,
+                        &text,
+                        "details / summary の中の文字",
+                    );
+                }
             } else {
                 // 入れ子のリストの字下げと、改行を表す行末の空白を本文の markdown に残すため、行をそのまま書く
                 parser.keep(
@@ -1036,6 +1053,21 @@ fn confirmation_line(trimmed: &str) -> Option<(Option<String>, String)> {
             .trim()
             .to_owned(),
     ))
+}
+
+/// 行から HTML のタグ (`<...>`) を除き、前後の空白を外した文字列 (画像・details の行に併記された説明文)。
+fn text_outside_tags(line: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for character in line.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => text.push(character),
+            _ => {}
+        }
+    }
+    text.trim().to_owned()
 }
 
 /// 行の中のすべての `<img src="URL" ...>` の URL (出た順)。
