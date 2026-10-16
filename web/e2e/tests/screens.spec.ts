@@ -70,7 +70,7 @@ test("詳細ページでプロパティと本文を編集し、選択肢を足�
 test("表ビューで label・自動化・テキストで絞り込み、列で並べ替える", async ({ page }, testInfo) => {
   await page.goto("/db/item");
   const rows = page.getByTestId("table-row");
-  // fixture の項目: ルート 2 + note_list 5 + note_editor 3 + settings 2 (同じ名前の 2 つ目は読み飛ばす)
+  // fixture の項目: ルート 2 + note_list 5 + note_editor 3 + settings 2
   await expect(rows).toHaveCount(12);
   await expect(page.getByTestId("row-count")).toHaveText("12 行");
 
