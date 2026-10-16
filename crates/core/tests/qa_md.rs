@@ -546,6 +546,16 @@ fn fenced_code_blocks_are_not_read_as_syntax() {
 }
 
 #[test]
+fn evidence_descriptions_keep_their_indentation_and_trailing_spaces() {
+    let qa_md = parse(
+        "x/QA.md",
+        "- [x] **一覧**: 出る\n\n#### 動作確認\n<details>\n\n### **一覧**: 出る\n\n**確認日: 2026-10-09**\n- 手順  \n  - 補足\n\n</details>\n",
+    );
+    assert_eq!(qa_md.items[0].confirmations[0].body, "- 手順  \n  - 補足");
+    assert_every_line_is_accounted(&qa_md, 12);
+}
+
+#[test]
 fn spec_rows_whose_id_cannot_be_an_option_are_reported() {
     let qa_md = parse(
         "x/QA.md",

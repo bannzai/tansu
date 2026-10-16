@@ -564,11 +564,12 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             {
                 parser.structured(line_number);
             } else {
+                // 入れ子のリストの字下げと、改行を表す行末の空白を本文の markdown に残すため、行をそのまま書く
                 parser.keep(
                     state.target(),
                     line_number,
                     line,
-                    trimmed,
+                    line,
                     "エビデンスの説明文",
                 );
             }
