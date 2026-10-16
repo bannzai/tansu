@@ -120,7 +120,7 @@ fn root_qa_md_keeps_the_guide_in_the_feature_body() {
     );
     assert!(
         qa_md.body.contains(
-            "## 実行ナレッジ\n\n### 初回起動が遅い\n\n- 発見日: 2026-10-01\n- 事象: 初回の `bun run dev` は依存の解決で 30 秒かかる\n- 対処: 2 回目以降は数秒で起動する\n\n## 機能別 QA.md\n\n"
+            "## 実行ナレッジ\n\n### 初回起動が遅い\n\n- 発見日: 2026-10-01\n- 事象: 初回の `bun run dev` は依存の解決で 30 秒かかる\n- 対処: 2 回目以降は数秒で起動する\n\n## 横断確認項目\n\n## 機能別 QA.md\n\n"
         ),
         "{}",
         qa_md.body
@@ -543,6 +543,17 @@ fn fenced_code_blocks_are_not_read_as_syntax() {
         "## 実行ナレッジ\n\n```md\n- [x] **一覧**: 記述例\n## 1. 例\n```"
     );
     assert_every_line_is_accounted(&qa_md, 13);
+}
+
+#[test]
+fn an_item_section_without_items_keeps_its_heading_in_the_feature_body() {
+    let qa_md = parse(
+        "x/QA.md",
+        "## 横断確認項目\n\n## 1. 表示\n\n- [ ] **一覧**: 出る\n\n## 2. 操作\n",
+    );
+    assert_eq!(qa_md.body, "## 横断確認項目\n\n## 2. 操作");
+    assert_eq!(qa_md.items[0].section.as_deref(), Some("1. 表示"));
+    assert_every_line_is_accounted(&qa_md, 7);
 }
 
 #[test]

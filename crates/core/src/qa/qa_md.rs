@@ -214,9 +214,24 @@ struct Parser<'a> {
     /// 項目のセクションの `## ` 見出しで、まだ feature の本文に写していないもの。そのセクションの地の文を feature の本文に
     /// 書く時に先に写す (どのセクションの地の文かが本文から分かるように)。
     pending_heading: Option<String>,
+    /// 今の項目のセクションが始まった時の `items` の数。セクションに項目が 1 つも無かったかを見分ける。
+    section_first_item: usize,
 }
 
 impl Parser<'_> {
+    /// 項目のセクションが項目も地の文も無いまま終わった時に、その `## ` 見出しを feature の本文に写す
+    /// (見出しが項目の `section` にも本文にも入らず失われないように)。セクションの終わり (次の `## ` 見出しとファイルの終わり) で呼ぶ。
+    fn flush_empty_section_heading(&mut self) {
+        if self.qa_md.items.len() == self.section_first_item
+            && let Some(heading) = self.pending_heading.take()
+        {
+            separate_paragraph(&mut self.qa_md.body);
+            self.qa_md.body.push_str(&heading);
+            self.qa_md.body.push('\n');
+        }
+        self.pending_heading = None;
+    }
+
     /// `target` の本文。
     fn body_mut(&mut self, target: BodyTarget) -> &mut String {
         match target {
@@ -306,6 +321,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
         kinds: vec![None; lines.len()],
         last_target: None,
         pending_heading: None,
+        section_first_item: 0,
     };
     let mut section = Section::None;
     let mut section_name: Option<String> = None;
@@ -599,7 +615,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             let heading = heading.trim();
             current_item = None;
             record_indent = None;
-            parser.pending_heading = None;
+            parser.flush_empty_section_heading();
             section_name = Some(heading.to_owned());
             if heading == "仕様チェックリスト" {
                 section = Section::Spec;
@@ -609,6 +625,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             } else if heading == "横断確認項目" || is_numbered_heading(heading) {
                 section = Section::Items;
                 parser.pending_heading = Some(line.to_owned());
+                parser.section_first_item = parser.qa_md.items.len();
                 parser.structured(line_number);
             } else {
                 section = Section::Prose;
@@ -808,6 +825,7 @@ pub fn parse(file: &str, text: &str) -> QaMd {
         });
         parser.structured(line_number);
     }
+    parser.flush_empty_section_heading();
 
     // 仕様チェックリストの対応項目を項目側 (同じ名前の項目があれば最初の項目) に写す。項目名に一致しない行は、
     // 表の写しとして feature の本文にあるので、本文に残した行として報告する
