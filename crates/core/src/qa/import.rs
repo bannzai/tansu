@@ -421,8 +421,7 @@ async fn write_runs(
         };
         if run_id == legacy_run_id && latest_run_id.is_some() && !latest_run_exists {
             legacy_row_id = Some(run.id.clone());
-        } else if run_id.starts_with(IMPORT_RUN_ID_PREFIX)
-            && !run_ids.iter().any(|id| id == run_id)
+        } else if run_id.starts_with(IMPORT_RUN_ID_PREFIX) && !run_ids.iter().any(|id| id == run_id)
         {
             rows::delete_in(connection, RUN, &run.id.0).await?;
         }
