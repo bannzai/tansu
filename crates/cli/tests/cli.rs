@@ -945,6 +945,8 @@ fn dry_run_files(sandbox: &Sandbox, root: &Path) -> Vec<String> {
     files
 }
 
+// symlink を作るため unix に限る (CI は ubuntu)
+#[cfg(unix)]
 #[test]
 fn qa_import_skips_nested_repositories_and_gitignored_paths_in_a_git_work_tree() {
     let sandbox = sandbox();
@@ -952,12 +954,18 @@ fn qa_import_skips_nested_repositories_and_gitignored_paths_in_a_git_work_tree()
     let root = directory.path().join("notes");
     write_qa_md(&root, "QA.md");
     write_qa_md(&root, "features/removed/QA.md");
+    write_qa_md(&root, "features/linked/QA.md");
     git(&root, &["init", "-q"]);
     commit_all(&root, "first");
     // agent が作った作業用の worktree (ルートに `.git` のファイルを持つ。commit 済みの QA.md の複製が入る)
     git(&root, &["worktree", "add", "-q", ".claude/worktrees/agent"]);
     // 削除してまだ commit していない QA.md (git の index には残る)
     std::fs::remove_file(root.join("features/removed/QA.md")).unwrap();
+    // commit 済みのディレクトリを、index を更新せずにリポジトリの外への symlink に置き換える
+    write_qa_md(directory.path(), "outside/QA.md");
+    std::fs::remove_dir_all(root.join("features/linked")).unwrap();
+    std::os::unix::fs::symlink(directory.path().join("outside"), root.join("features/linked"))
+        .unwrap();
     // 未追跡で `.gitignore` の対象でない QA.md は読む
     write_qa_md(&root, "features/untracked/QA.md");
     std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();

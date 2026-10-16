@@ -320,7 +320,7 @@ fn is_excluded_directory(directory: &Path) -> bool {
 /// git の作業ツリーの中の `root` (絶対パス) の下の `QA.md`。git が追跡しているものと、未追跡で `.gitignore`
 /// (`.git/info/exclude`・global の excludes を含む) で除外されていないものを返す。`root` より下で `.git`
 /// (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下、
-/// [`is_excluded_directory`] の下、symlink、作業ツリーに無いファイル (削除してまだ commit していない等) は含めない。
+/// [`is_excluded_directory`] の下、symlink とその下、作業ツリーに無いファイル (削除してまだ commit していない等) は含めない。
 /// `root` が git の作業ツリーの外か、git を実行できなければ `None`。
 fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
     let output = Command::new("git")
@@ -347,6 +347,7 @@ fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
                     .take_while(|directory| *directory != root)
                     .any(|directory| {
                         is_excluded_directory(directory)
+                            || directory.is_symlink()
                             || std::fs::symlink_metadata(directory.join(".git")).is_ok()
                     })
             })
