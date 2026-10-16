@@ -1035,6 +1035,45 @@ fn qa_import_in_a_git_work_tree_reads_qa_md_under_a_non_utf8_directory_name() {
 }
 
 #[test]
+fn qa_import_uses_the_repository_of_the_root_even_if_git_dir_is_inherited() {
+    let sandbox = sandbox();
+    let directory = tempfile::tempdir().unwrap();
+    let other = directory.path().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    git(&other, &["init", "-q"]);
+    // 別のリポジトリの GIT_DIR が使われると、その除外の設定でルートの QA.md が 1 件も出なくなる
+    std::fs::create_dir_all(other.join(".git/info")).unwrap();
+    std::fs::write(other.join(".git/info/exclude"), "*\n").unwrap();
+    let root = directory.path().join("notes");
+    write_qa_md(&root, "QA.md");
+    git(&root, &["init", "-q"]);
+
+    let output = command(
+        &sandbox,
+        &[
+            "qa",
+            "import",
+            "--dry-run",
+            "--json",
+            root.to_str().unwrap(),
+        ],
+    )
+    .env("GIT_DIR", other.join(".git"))
+    .output()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        report["files"],
+        serde_json::json!([root.canonicalize().unwrap().join("QA.md")])
+    );
+}
+
+#[test]
 fn qa_import_of_a_gitignored_root_reads_like_outside_git() {
     let sandbox = sandbox();
     let directory = tempfile::tempdir().unwrap();

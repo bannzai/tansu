@@ -318,6 +318,22 @@ fn is_excluded_directory(directory: &Path) -> bool {
     )
 }
 
+/// `root` を起点にリポジトリを探す `git -C <root>` のコマンド。呼び出し元から受け継いだ、リポジトリ・index の場所を
+/// 決める環境変数 (git の hook の中で tansu を動かすと設定されている) を外し、`root` を含むリポジトリを使わせる。
+fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root);
+    for variable in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+    ] {
+        command.env_remove(variable);
+    }
+    command
+}
+
 /// git の作業ツリーの中の `root` (絶対パス) の下の `QA.md`。git が追跡しているものと、未追跡で `.gitignore`
 /// (`.git/info/exclude`・global の excludes を含む) で除外されていないものを返す。`root` より下で `.git`
 /// (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下、
@@ -325,18 +341,15 @@ fn is_excluded_directory(directory: &Path) -> bool {
 /// `root` が git の作業ツリーの外か、`root` 自体が `.gitignore` の対象 (`ls-files` が何も返さない) か、
 /// git を実行できなければ `None`。
 fn find_qa_md_in_git(root: &Path) -> Option<Vec<PathBuf>> {
-    if Command::new("git")
-        .arg("-C")
-        .arg(root)
+    if git_command(root)
         .args(["check-ignore", "-q", "."])
+        .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
     {
         return None;
     }
-    let output = Command::new("git")
-        .args(["-C"])
-        .arg(root)
+    let output = git_command(root)
         .args([
             "ls-files",
             "-z",
