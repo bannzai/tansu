@@ -82,9 +82,10 @@ export function TableView({
   const [adding, setAdding] = useState(false);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
-  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。保存は読み込んだ値との差分で送るため、応答の前に同じセルを
-  // 編集し直すと後の入力が「変更なし」として送られない。応答までは編集させない
-  const [savingCells, setSavingCells] = useState<ReadonlySet<string>>(new Set());
+  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず、保存を 1 つずつにする。
+  // 保存は読み込んだ値との差分で送り応答の行で置き換えるため、並べると後の入力が「変更なし」になったり古い応答で
+  // 値が戻ったりする。また別のセルへ移ると、失敗した時に書きかけを持つ編集欄が消えてしまう
+  const [savingCell, setSavingCell] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const table = await fetchRows(databaseName);
@@ -173,7 +174,7 @@ export function TableView({
       return;
     }
     setWriteError(null);
-    setSavingCells((current) => new Set(current).add(cellKey));
+    setSavingCell(cellKey);
     try {
       const written = await upsertRow(database.name, { id: row.id, values });
       replaceRow(written);
@@ -183,7 +184,7 @@ export function TableView({
       // 編集欄は開いたままにして、入力を直して送り直せるようにする
       setWriteError(errorText(caught));
     } finally {
-      setSavingCells((current) => new Set([...current].filter((key) => key !== cellKey)));
+      setSavingCell(null);
     }
   };
 
@@ -225,7 +226,8 @@ export function TableView({
       titles={titles}
       targetDatabaseName={targetName(property)}
       editing={editing?.rowId === row.id && editing.property === property.name}
-      saving={savingCells.has(`${row.id}:${property.name}`)}
+      saving={savingCell === `${row.id}:${property.name}`}
+      locked={savingCell !== null}
       onEdit={() => setEditing({ rowId: row.id, property: property.name })}
       onCancel={() => setEditing(null)}
       onWrite={(value) => writeValue(row, property, value)}
@@ -436,6 +438,7 @@ function OpenButton({ label, onOpen }: { label: string; onOpen: () => void }) {
  * 表の 1 つのセル。checkbox はその場で切り替え、relation は読み取りだけ (詳細ページと同じく編集しない)、それ以外は
  * クリックで `editing` にして編集欄を出す。`onWrite` は編集した値を保存し、`onCancel` は保存せずに編集をやめる。
  * `extra` は値の後に置く要素 (行の名前の列の「開く」)。`rowLabel` は行の名前で、操作の名前に使う。
+ * `saving` はこのセルの保存の応答を待つ間、`locked` は表のどれかのセルの保存の応答を待つ間 (編集を始めさせない)。
  */
 function Cell({
   row,
@@ -445,6 +448,7 @@ function Cell({
   targetDatabaseName,
   editing,
   saving,
+  locked,
   onEdit,
   onCancel,
   onWrite,
@@ -457,6 +461,7 @@ function Cell({
   targetDatabaseName: string | undefined;
   editing: boolean;
   saving: boolean;
+  locked: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onWrite: (value: RowValueInput) => void;
@@ -472,7 +477,7 @@ function Cell({
           type="checkbox"
           aria-label={label}
           checked={value?.type === "checkbox" && value.value}
-          disabled={saving}
+          disabled={locked}
           onChange={(event) => onWrite(event.target.checked)}
         />
       </td>
@@ -499,7 +504,7 @@ function Cell({
           type="button"
           className="cell-edit"
           aria-label={`${label} を編集`}
-          disabled={saving}
+          disabled={locked}
           onClick={onEdit}
         />
       )}
