@@ -22,6 +22,31 @@ export function changedValues(row: Row, draft: Record<string, RowValueInput>): R
   );
 }
 
+/**
+ * 行 ID に使う文字と長さ。正は `crates/core/src/model.rs` の `ID_ALPHABET` / `ID_LENGTH` (nanoid の既定から `-` を外した
+ * 63 文字・21 文字) で、画面が作る ID も CLI の ID と同じ形にするために写す。
+ */
+const ROW_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_";
+const ROW_ID_LENGTH = 21;
+
+/**
+ * 「+ 新規」で足す行の ID。upsert は `id` か unique のプロパティの値が無い入力を拒否するため、画面で作って渡す。
+ * `crypto.randomUUID` は secure context (https か localhost) でしか使えず、LAN の iPhone から http で開くと無いため、
+ * どこでも使える `crypto.getRandomValues` で作る。
+ */
+export function newRowId(): string {
+  // 256 は 63 で割り切れず剰余だと先頭の文字に偏るため、63 × 4 = 252 以上の値は捨てて引き直す
+  const characters: string[] = [];
+  while (characters.length < ROW_ID_LENGTH) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(ROW_ID_LENGTH))) {
+      if (byte < ROW_ID_ALPHABET.length * 4 && characters.length < ROW_ID_LENGTH) {
+        characters.push(ROW_ID_ALPHABET.charAt(byte % ROW_ID_ALPHABET.length));
+      }
+    }
+  }
+  return characters.join("");
+}
+
 /** relation の行 ID → 相手の行の名前 ([`rowTitle`])。 */
 export type RowTitles = ReadonlyMap<string, string>;
 

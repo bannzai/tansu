@@ -129,6 +129,53 @@ button.outline {
   color: var(--accent);
 }
 
+/* select / multi_select の札の色 (web/src/tags.ts の tagColor の番号)。Notion の選択肢の色の
+   gray・brown・orange・yellow・green・blue・purple・pink・red の順 */
+.tag-color-0 {
+  background: #e3e2e0;
+  color: #32302c;
+}
+
+.tag-color-1 {
+  background: #eee0da;
+  color: #442a1e;
+}
+
+.tag-color-2 {
+  background: #fadec9;
+  color: #49290e;
+}
+
+.tag-color-3 {
+  background: #fdecc8;
+  color: #402c1b;
+}
+
+.tag-color-4 {
+  background: #dbeddb;
+  color: #1c3829;
+}
+
+.tag-color-5 {
+  background: #d3e5ef;
+  color: #183347;
+}
+
+.tag-color-6 {
+  background: #e8deee;
+  color: #412454;
+}
+
+.tag-color-7 {
+  background: #f5e0e9;
+  color: #4c2337;
+}
+
+.tag-color-8 {
+  background: #ffe2dd;
+  color: #5d1715;
+}
+
 .tags {
   display: inline-flex;
   flex-wrap: wrap;
@@ -264,7 +311,42 @@ button.outline {
   padding: 12px 16px;
 }
 
-/* 表ビュー */
+/* 表ビュー (Notion のテーブルビューに寄せる。documents/DIRECTION.md「デザインの方向」) */
+.table-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.toolbar-button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 10px;
+  min-height: 32px;
+}
+
+.toolbar-button:hover,
+.toolbar-button[aria-expanded="true"] {
+  background: var(--sidebar);
+}
+
+.toolbar-button-active {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -301,44 +383,203 @@ button.outline {
 
 .table-scroll {
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
-table {
+/* 格子の表。外枠の左右は引かず、セルの間を罫線で区切る */
+.grid {
   width: 100%;
   min-width: 720px;
   border-collapse: collapse;
 }
 
-th {
+.grid th,
+.grid td {
+  border: 1px solid var(--border);
+}
+
+.grid tr > :first-child {
+  border-left: 0;
+}
+
+.grid tr > :last-child {
+  border-right: 0;
+}
+
+.grid th {
   text-align: left;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--muted);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  padding: 4px 8px;
+  padding: 6px 8px;
+  white-space: nowrap;
 }
 
-td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--row-border);
+.column-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.property-icon {
+  display: inline-block;
+  min-width: 18px;
+  color: var(--faint);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 値の無いセルだけの行 (「+ 新規」で足した行) も押せる高さを持たせる。表の td の height は最小の高さとして効く */
+.cell {
+  position: relative;
+  height: 34px;
+  padding: 6px 8px;
   vertical-align: top;
+  min-width: 120px;
+  max-width: 360px;
+  overflow-wrap: anywhere;
 }
 
-.sort-button {
+.cell:hover {
+  background: var(--surface);
+}
+
+/* セル全体を押せる編集のボタン。値のリンク (url・relation) だけはその上に出して押せるようにする */
+.cell-edit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 0;
   border: 0;
+  border-radius: 0;
+  padding: 0;
   background: transparent;
-  color: inherit;
-  font-weight: 500;
-  padding: 0 4px;
-  min-height: 32px;
+}
+
+.cell-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.cell-value {
+  position: relative;
+  pointer-events: none;
+}
+
+.cell-value a {
+  pointer-events: auto;
+}
+
+.cell.cell-editing {
+  padding: 0;
+}
+
+.cell-input {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+
+.cell-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .row-title {
   color: var(--text);
   font-weight: 500;
-  text-decoration: none;
+}
+
+.title-cell {
+  padding-right: 56px;
+}
+
+/* 行の名前の列の「開く」。マウスを乗せた行だけに出し、hover の無い端末 (iPhone) では常に出す */
+.open-button {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  min-height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+@media (hover: none) {
+  .open-button {
+    opacity: 1;
+  }
+}
+
+tr:hover .open-button,
+.open-button:focus-visible {
+  opacity: 1;
+}
+
+.row-peeked > td {
+  background: var(--accent-soft);
+}
+
+.new-row-cell {
+  padding: 0;
+}
+
+.new-row-button {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--faint);
+  text-align: left;
+  padding: 0 8px;
+}
+
+.new-row-button:hover {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+/* 表の右に開く行のページ (Notion のサイドピーク)。幅は詳細ページの本文の列 (.detail-body の 460px) と余白が
+   収まる 560px で、狭い画面でも表の左側 (行の名前の列) が半分ほど残るよう画面の 45% までにする。
+   表はパネルの幅だけ右を空け、パネルの下に隠れる行を作らない */
+.table-view-peeking {
+  margin-right: min(560px, 45vw);
+}
+
+.peek {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  width: min(560px, 45vw);
+  overflow-y: auto;
+  background: #ffffff;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgb(15 15 15 / 0.08);
+}
+
+.icon-button {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
 }
 
 /* 行の詳細と QA の入力の上の帯 */
@@ -730,6 +971,15 @@ td {
 
   .qa-list {
     display: none;
+  }
+
+  .table-view-peeking {
+    margin-right: 0;
+  }
+
+  .peek {
+    width: 100%;
+    border-left: 0;
   }
 
   .qa-footer {
