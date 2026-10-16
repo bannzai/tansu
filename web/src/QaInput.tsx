@@ -170,7 +170,7 @@ export function QaInput({ repo, feature }: { repo: string | null; feature: strin
   return (
     <div className="qa">
       <header className="bar">
-        <Link to={routePath({ page: "table", database: "item" })}>← item</Link>
+        <Link to={routePath({ page: "table", database: "item", peek: null })}>← item</Link>
         <h1 className="qa-title">QA の入力</h1>
         <select
           aria-label="project"

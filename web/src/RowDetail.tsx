@@ -28,15 +28,23 @@ type Loaded = {
   backlinks: { database: Database; property: Property; rows: Row[] }[];
 };
 
-/** データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。 */
+/**
+ * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
+ * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
+ * `onSaved` は保存が成功した後に呼ぶ (パネルの時に表を読み直すため)。
+ */
 export function RowDetail({
   databaseName,
   rowId,
   databases,
+  onClose,
+  onSaved,
 }: {
   databaseName: string;
   rowId: string;
   databases: Database[];
+  onClose?: () => void;
+  onSaved?: () => void;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState<Record<string, RowValueInput>>({});
@@ -117,6 +125,7 @@ export function RowDetail({
       await load();
       setEditingBody(false);
       setStatus("保存しました");
+      onSaved?.();
     } catch (caught) {
       setError(errorText(caught));
     } finally {
@@ -146,7 +155,16 @@ export function RowDetail({
   return (
     <div className="detail">
       <header className="bar">
-        <Link to={routePath({ page: "table", database: database.name })}>← {database.name}</Link>
+        {onClose === undefined ? (
+          <Link to={routePath({ page: "table", database: database.name, peek: null })}>← {database.name}</Link>
+        ) : (
+          <>
+            <button type="button" className="icon-button" aria-label="閉じる" onClick={onClose}>
+              ×
+            </button>
+            <Link to={routePath({ page: "row", database: database.name, rowId: row.id })}>全画面で開く</Link>
+          </>
+        )}
         <div className="spacer" />
         <span className="muted small">
           ID {row.id} · 更新 {row.updated_at}

@@ -1,7 +1,8 @@
 /** 画面の URL が指す画面。 */
 export type Route =
   | { page: "home" }
-  | { page: "table"; database: string }
+  /** `peek` は表の右のパネル (サイドピーク) に開いている行の ID。開いていなければ null。 */
+  | { page: "table"; database: string; peek: string | null }
   | { page: "row"; database: string; rowId: string }
   | { page: "qa"; repo: string | null; feature: string | null }
   | { page: "not_found" };
@@ -21,7 +22,9 @@ export function parseRoute(pathname: string, search: string): Route {
     return { page: "qa", repo: params.get("repo"), feature: params.get("feature") };
   }
   if (first === "db" && database !== undefined && rest.length === 0) {
-    return rowId === undefined ? { page: "table", database } : { page: "row", database, rowId };
+    return rowId === undefined
+      ? { page: "table", database, peek: new URLSearchParams(search).get("peek") || null }
+      : { page: "row", database, rowId };
   }
   return { page: "not_found" };
 }
@@ -32,8 +35,10 @@ export function routePath(route: Route): string {
     case "home":
     case "not_found":
       return "/";
-    case "table":
-      return `/db/${encodeURIComponent(route.database)}`;
+    case "table": {
+      const path = `/db/${encodeURIComponent(route.database)}`;
+      return route.peek === null ? path : `${path}?${new URLSearchParams({ peek: route.peek })}`;
+    }
     case "row":
       return `/db/${encodeURIComponent(route.database)}/${encodeURIComponent(route.rowId)}`;
     case "qa": {
