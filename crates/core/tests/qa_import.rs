@@ -100,6 +100,8 @@ const FORMAT_WORDS: &[&str] = &[
     "320",
     "details",
     "summary",
+    "/details",
+    "/summary",
     "動作確認スクショ",
     "動作確認エビデンス",
 ];
