@@ -444,10 +444,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             .filter(|(_, item)| item.name == name)
                             .map(|(item_index, _)| item_index)
                             .collect();
-                        state.heading_item = same_name
-                            .get(occurrence)
-                            .or(same_name.last())
-                            .copied();
+                        state.heading_item =
+                            same_name.get(occurrence).or(same_name.last()).copied();
                         if state.heading_item.is_some() {
                             parser.structured(line_number);
                         } else {
@@ -529,7 +527,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
                             }
                         }
                         for url in &urls {
-                            parser.copy(target, &format!("![]({})", markdown_link_destination(url)));
+                            parser
+                                .copy(target, &format!("![]({})", markdown_link_destination(url)));
                         }
                         parser.structured(line_number);
                     }
@@ -1012,7 +1011,11 @@ fn confirmation_line(trimmed: &str) -> Option<(Option<String>, String)> {
         .unwrap_or(value.len());
     Some((
         normalize_date(&value[..date_length]),
-        value[date_length..].trim().trim_matches('*').trim().to_owned(),
+        value[date_length..]
+            .trim()
+            .trim_matches('*')
+            .trim()
+            .to_owned(),
     ))
 }
 

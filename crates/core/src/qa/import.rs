@@ -153,7 +153,14 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
                     };
                 }
             }
-            parsed.push((root.clone(), repo.clone(), file.clone(), feature, text, qa_md));
+            parsed.push((
+                root.clone(),
+                repo.clone(),
+                file.clone(),
+                feature,
+                text,
+                qa_md,
+            ));
         }
     }
     Ok(parsed)
@@ -373,8 +380,14 @@ async fn write_runs(
         .map(|run_number| format!("{IMPORT_RUN_ID_PREFIX}{}:{run_number}", item_id.0))
         .collect();
 
-    let (run_database, existing_runs) =
-        rows::query_in(connection, RUN, &[format!("item={}", item_id.0)], None, None).await?;
+    let (run_database, existing_runs) = rows::query_in(
+        connection,
+        RUN,
+        &[format!("item={}", item_id.0)],
+        None,
+        None,
+    )
+    .await?;
     for run in &existing_runs {
         if text_of(&run_database, run, "run_id").is_some_and(|run_id| {
             run_id.starts_with(IMPORT_RUN_ID_PREFIX) && !run_ids.iter().any(|id| id == run_id)

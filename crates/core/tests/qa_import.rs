@@ -583,10 +583,7 @@ async fn a_second_file_with_the_same_feature_name_is_skipped_as_a_whole() {
         .iter()
         .map(|line| {
             assert!(line.file.ends_with("features/other/QA.md"), "{line:?}");
-            assert!(
-                line.reason.contains("features/note_list/QA.md"),
-                "{line:?}"
-            );
+            assert!(line.reason.contains("features/note_list/QA.md"), "{line:?}");
             (line.line, line.content.as_str())
         })
         .collect();
@@ -674,7 +671,12 @@ async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
 /// 行 ID が `item_id` の項目の run を `run_id` の順に返す。
 async fn runs_of_item(connection: &libsql::Connection, item_id: &str) -> Vec<Value> {
     let mut runs = query_named(connection, "run", &[format!("item={item_id}").as_str()]).await;
-    runs.sort_by_key(|run| run["values"]["run_id"]["value"].as_str().unwrap().to_owned());
+    runs.sort_by_key(|run| {
+        run["values"]["run_id"]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    });
     runs
 }
 
@@ -707,10 +709,7 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
     let send = query_named(&connection, "item", &["name=編集が別の端末に届く"]).await;
     assert_eq!(send.len(), 1);
     assert_eq!(send[0]["values"]["section"]["value"], "1. 送信");
-    assert_eq!(
-        send[0]["body"],
-        "- 補足: 端末 B は画面を開いたままにする"
-    );
+    assert_eq!(send[0]["body"], "- 補足: 端末 B は画面を開いたままにする");
     let send_id = send[0]["id"].as_str().unwrap();
     let send_runs = runs_of_item(&connection, send_id).await;
     let summaries: Vec<Value> = send_runs
@@ -782,10 +781,19 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
     for conflict in &conflicts {
         let runs = runs_of_item(&connection, conflict["id"].as_str().unwrap()).await;
         conflict_summaries.push((
-            conflict["values"]["expected"]["value"].as_str().unwrap().to_owned(),
-            conflict["values"]["section"]["value"].as_str().unwrap().to_owned(),
+            conflict["values"]["expected"]["value"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            conflict["values"]["section"]["value"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
             runs.len(),
-            runs[0]["values"]["image_url"]["value"].as_str().unwrap().to_owned(),
+            runs[0]["values"]["image_url"]["value"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
         ));
     }
     assert_eq!(
@@ -826,7 +834,11 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
         "## 同期の方式の変更に関する注記\n\n2026-09-10 に差分の送り方を変えた。",
     ] {
         assert!(
-            sync_body.split("## QA.md の原文").next().unwrap().contains(paragraph),
+            sync_body
+                .split("## QA.md の原文")
+                .next()
+                .unwrap()
+                .contains(paragraph),
             "{paragraph}"
         );
     }
@@ -867,10 +879,7 @@ async fn importing_the_lossless_fixture_twice_changes_nothing() {
         after.push(all_rows(&connection, database).await);
     }
     assert_eq!(after, before);
-    assert_eq!(
-        after.iter().map(Vec::len).collect::<Vec<_>>(),
-        [1, 2, 4, 6]
-    );
+    assert_eq!(after.iter().map(Vec::len).collect::<Vec<_>>(), [1, 2, 4, 6]);
 }
 
 #[tokio::test]
