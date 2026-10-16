@@ -635,7 +635,7 @@ async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
     )
     .await
     .unwrap();
-    // 前の版の取り込みが作った `import:<item の行 ID>` の run は、今の版の run と重ならないよう消す
+    // 前の版の取り込みが作った `import:<item の行 ID>` の run は、今の版の run が既にあれば重ならないよう消す
     rows::upsert(
         &connection,
         "run",
@@ -666,6 +666,67 @@ async fn an_import_run_is_removed_when_the_record_disappears_from_qa_md() {
     assert!(
         run_ids.contains(&format!("import:{}:1", detail[0]["id"].as_str().unwrap())),
         "{run_ids:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_run_of_the_previous_import_format_keeps_its_row_and_added_values() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    std::fs::write(
+        &file,
+        "## 1. 表示\n\n- [x] **一覧**: 出る\n\n#### 動作確認\n<details>\n\n### **一覧**: 出る\n\n**確認日: 2026-09-01**\n\n**再確認日: 2026-09-10**\n\n</details>\n",
+    )
+    .unwrap();
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+    // 前の版の取り込みが作った 1 項目 1 run の状態にし、利用者が env を書き足したことにする
+    let item = query_named(&connection, "item", &["name=一覧"]).await;
+    let item_id = item[0]["id"].as_str().unwrap();
+    let runs = runs_of_item(&connection, item_id).await;
+    let legacy_id = runs[0]["id"].as_str().unwrap().to_owned();
+    rows::delete(&connection, "run", runs[1]["id"].as_str().unwrap())
+        .await
+        .unwrap();
+    rows::upsert(
+        &connection,
+        "run",
+        &json!({"id": legacy_id, "values": {"run_id": format!("import:{item_id}"), "env": "staging"}}),
+    )
+    .await
+    .unwrap();
+
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    // 前の版の run は消えずに、結果を持つ最後の確認の run になり、書き足した env が残る
+    let runs = runs_of_item(&connection, item_id).await;
+    let summaries: Vec<(&Value, &Value, &Value, &Value)> = runs
+        .iter()
+        .map(|run| {
+            (
+                &run["id"],
+                &run["values"]["run_id"]["value"],
+                &run["values"]["result"]["value"],
+                &run["values"]["env"]["value"],
+            )
+        })
+        .collect();
+    assert_eq!(summaries.len(), 2);
+    assert_eq!(summaries[0].1, &json!(format!("import:{item_id}:1")));
+    assert_eq!(summaries[0].2, &Value::Null);
+    assert_eq!(
+        summaries[1],
+        (
+            &json!(legacy_id),
+            &json!(format!("import:{item_id}:2")),
+            &json!("ok"),
+            &json!("staging")
+        )
     );
 }
 

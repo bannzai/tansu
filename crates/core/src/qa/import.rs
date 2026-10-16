@@ -354,8 +354,9 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
 /// - 項目の結果 (`ok` / `skip` / `ng`)・⏭️ / ❌ の本文 (`note`)・frontmatter の `last_verified_commit` (`commit`) は、
 ///   [`super::RepoTables::latest`] と同じ順 (`recorded_at`、同じなら後の確認) で最後になる確認の run にだけ書く。
 ///   QA.md は項目の今の結果と最後の確認の commit しか持たず、それより前の確認の結果と commit は分からないため
-/// - その項目の run のうち、`run_id` が `import:` で始まり今回作らないもの (QA.md で記録・確認が消えたもの、
-///   前の版の `import:<item の行 ID>`) は消す。`qa record` と Web 画面の run は消さない
+/// - 前の版の `import:<item の行 ID>` の run は、行 ID と取り込みが書かない値 (`env` 等) を保ったまま、結果を書く run に移す
+/// - その項目の run のうち、`run_id` が `import:` で始まり今回作らないもの (QA.md で記録・確認が消えたもの) は消す。
+///   `qa record` と Web 画面の run は消さない
 async fn write_runs(
     connection: &Connection,
     qa_md: &QaMd,
@@ -388,19 +389,34 @@ async fn write_runs(
         None,
     )
     .await?;
-    for run in &existing_runs {
-        if text_of(&run_database, run, "run_id").is_some_and(|run_id| {
-            run_id.starts_with(IMPORT_RUN_ID_PREFIX) && !run_ids.iter().any(|id| id == run_id)
-        }) {
-            rows::delete_in(connection, RUN, &run.id.0).await?;
-        }
-    }
-
     let latest = recorded_at
         .iter()
         .enumerate()
         .max_by_key(|(index, recorded_at)| (recorded_instant(**recorded_at), *index))
         .map(|(index, _)| index);
+    // 前の版の `import:<item の行 ID>` (1 項目 1 run) は、項目の結果を持つ最後の確認の run に移す。消して作り直すと、
+    // Web 画面・CLI で書き足した値 (`env` 等) と、ほかの行からその run への relation が失われるため
+    let legacy_run_id = format!("{IMPORT_RUN_ID_PREFIX}{}", item_id.0);
+    let latest_run_id = latest.and_then(|index| run_ids.get(index));
+    let latest_run_exists = latest_run_id.is_some_and(|latest_run_id| {
+        existing_runs
+            .iter()
+            .any(|run| text_of(&run_database, run, "run_id") == Some(latest_run_id.as_str()))
+    });
+    let mut legacy_row_id = None;
+    for run in &existing_runs {
+        let Some(run_id) = text_of(&run_database, run, "run_id") else {
+            continue;
+        };
+        if run_id == legacy_run_id && latest_run_id.is_some() && !latest_run_exists {
+            legacy_row_id = Some(run.id.clone());
+        } else if run_id.starts_with(IMPORT_RUN_ID_PREFIX)
+            && !run_ids.iter().any(|id| id == run_id)
+        {
+            rows::delete_in(connection, RUN, &run.id.0).await?;
+        }
+    }
+
     for (index, run_id) in run_ids.iter().enumerate() {
         let confirmation = item.confirmations.get(index);
         let is_latest = Some(index) == latest;
@@ -408,6 +424,7 @@ async fn write_runs(
             connection,
             RUN,
             &json!({
+                "id": legacy_row_id.as_ref().filter(|_| is_latest),
                 "body": confirmation.map_or("", |confirmation| confirmation.body.as_str()),
                 "values": {
                     "run_id": run_id,
