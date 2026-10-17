@@ -181,20 +181,25 @@ export function TableView({
   const activeFilterCount = Object.values(choiceFilters).filter((value) => value !== "").length + (text === "" ? 0 : 1);
   const targetName = (property: Property) =>
     property.kind.type === "relation" ? loaded.targets.get(property.kind.target_database_id)?.database.name : undefined;
+  // 書いた行を表に映す。自分のデータベースを指す relation があれば、relation の相手 (表示名・絞り込みの選択肢) にも映す
   const replaceRow = (written: Row) =>
-    setLoaded((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            table: {
-              ...current.table,
-              rows: current.table.rows.some((row) => row.id === written.id)
-                ? current.table.rows.map((row) => (row.id === written.id ? written : row))
-                : [...current.table.rows, written],
-            },
-          },
-    );
+    setLoaded((current) => {
+      if (current === null) {
+        return current;
+      }
+      const withWritten = (rows: Row[]) =>
+        rows.some((row) => row.id === written.id)
+          ? rows.map((row) => (row.id === written.id ? written : row))
+          : [...rows, written];
+      const self = current.targets.get(current.table.database.id);
+      return {
+        table: { ...current.table, rows: withWritten(current.table.rows) },
+        targets:
+          self === undefined
+            ? current.targets
+            : new Map(current.targets).set(current.table.database.id, { ...self, rows: withWritten(self.rows) }),
+      };
+    });
 
   // `tableWriting` は表のセルの保存・行の追加・読み直しのどれかの途中で、パネルにも渡してパネルの保存を止める。
   // `writing` はそれにパネルの保存の途中を加えたもので、その間は表の編集も「+ 新規」も始めさせない

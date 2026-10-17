@@ -64,12 +64,12 @@ export function RowDetail({
   // 保存・選択肢の追加の応答を待つ間は編集欄を無効にする。応答の後に読み直した値で編集欄を置き換えるため、
   // 待つ間の入力を受け付けると消えてしまう
   const [writing, setWriting] = useState(false);
-
-  useEffect(() => {
-    onWritingChange?.(writing);
-    // パネルを閉じた時に、書き込みの途中のまま表の書き込みを止め続けないようにする
-    return () => onWritingChange?.(false);
-  }, [writing, onWritingChange]);
+  // 書き込みの始まりと終わりを表にも伝える。パネルを閉じたり別の行に切り替えたりしても送った書き込みは続くため、
+  // 描画ではなく書き込みの完了で伝える
+  const setWritingAndNotify = (value: boolean) => {
+    setWriting(value);
+    onWritingChange?.(value);
+  };
 
   const load = useCallback(async () => {
     const { database, rows } = await fetchRows(databaseName);
@@ -171,7 +171,7 @@ export function RowDetail({
   const save = async () => {
     setError(null);
     setStatus(null);
-    setWriting(true);
+    setWritingAndNotify(true);
     try {
       // 開いた後に CLI や別のタブが書いた値を消さないよう、この画面で変えた値と本文だけを送る
       await upsertRow(database.name, {
@@ -186,13 +186,13 @@ export function RowDetail({
     } catch (caught) {
       setError(errorText(caught));
     } finally {
-      setWriting(false);
+      setWritingAndNotify(false);
     }
   };
 
   const addOption = async (property: Property, optionName: string) => {
     setError(null);
-    setWriting(true);
+    setWritingAndNotify(true);
     try {
       const updated = await addProperties(database.name, [`${property.name}:${property.kind.type}:${optionName}`]);
       setLoaded({ ...loaded, database: updated });
@@ -206,7 +206,7 @@ export function RowDetail({
     } catch (caught) {
       setError(errorText(caught));
     } finally {
-      setWriting(false);
+      setWritingAndNotify(false);
     }
   };
 
