@@ -641,8 +641,18 @@ function CellEditor({
     event.stopPropagation();
     finish(undefined);
   };
-  const textValue = () =>
-    property.kind.type === "number" ? (draftText.trim() === "" ? null : Number(draftText)) : draftText;
+  // number の入力欄は 1e999 のような値も受け付け、Number にすると Infinity になる。JSON では null になって保存済みの値を
+  // 消してしまうため、有限でない値は保存せずに取り消す (undefined)
+  const textValue = (): RowValueInput | undefined => {
+    if (property.kind.type !== "number") {
+      return draftText;
+    }
+    if (draftText.trim() === "") {
+      return null;
+    }
+    const parsed = Number(draftText);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
 
   // multi_select の編集欄は、編集欄の外を押した時と、移り先の分かる blur で外へ出た時に保存し、Esc はフォーカスの
   // 場所を問わず取り消す。Safari では checkbox と label を押してもフォーカスが移らず (それまでの要素は移り先の無い

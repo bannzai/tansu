@@ -153,6 +153,18 @@ test("表の列見出しに型のアイコンが出て、セルが型に合わ�
   await expect(row.locator('time[datetime="2026-10-20"]')).toHaveText("2026-10-20");
   await expect(row.getByRole("link", { name: "note_list", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("table-types.png"), fullPage: true });
+
+  // 有限でない数 (Infinity になる 1e999) は保存せずに取り消し、保存済みの値を消さない
+  await page.getByRole("button", { name: "一覧の並び の points を編集" }).click();
+  const pointsEditor = page.getByLabel("一覧の並び の points", { exact: true });
+  await pointsEditor.fill("1e999");
+  await pointsEditor.press("Enter");
+  await expect(pointsEditor).toHaveCount(0);
+  const rowsResponse = await page.request.get("/api/databases/item/rows");
+  const { rows: itemRows } = (await rowsResponse.json()) as {
+    rows: { values: { name?: { value: string }; points?: { value: number } } }[];
+  };
+  expect(itemRows.find((candidate) => candidate.values.name?.value === "一覧の並び")?.values.points?.value).toBe(3);
 });
 
 test("表のセルをその場で編集し、checkbox をクリックで切り替えると、読み込み直しても残る", async ({
