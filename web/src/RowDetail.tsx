@@ -31,7 +31,9 @@ type Loaded = {
 /**
  * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
  * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
- * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`onWritingChange` は保存・選択肢の追加の途中か (その後の読み直しを含む) が変わるたびに呼ぶ (表がその間の書き込みを止めるため)。`savedRow` は表のセルで書いた後のこの行で、
+ * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`onWritingChange` は保存・選択肢の追加の途中か (その後の読み直しを含む) が変わるたびに呼ぶ (表がその間の書き込みを止めるため)。`locked` は表の書き込み (セルの保存・行の追加・表の読み直し) の途中で、その間は保存と選択肢の追加をさせない
+ * (同じ行への書き込みが重なると、後から届いた応答で保存した値が戻るため。全画面の詳細ページでは表が無いので既定の
+ * false)。`savedRow` は表のセルで書いた後のこの行で、
  * 書かれた値をパネルに映すために渡す。
  */
 export function RowDetail({
@@ -42,6 +44,7 @@ export function RowDetail({
   onSaved,
   onWritingChange,
   savedRow,
+  locked = false,
 }: {
   databaseName: string;
   rowId: string;
@@ -50,6 +53,7 @@ export function RowDetail({
   onSaved?: () => void;
   onWritingChange?: (writing: boolean) => void;
   savedRow?: Row;
+  locked?: boolean;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState<Record<string, RowValueInput>>({});
@@ -247,6 +251,7 @@ export function RowDetail({
                         value={draft[property.name] ?? null}
                         onChange={(value) => setDraft({ ...draft, [property.name]: value })}
                         onAddOption={(optionName) => addOption(property, optionName)}
+                        locked={locked}
                       />
                     )}
                   </div>
@@ -275,7 +280,7 @@ export function RowDetail({
               )}
             </div>
             <div className="actions">
-              <button type="button" className="primary" onClick={save}>
+              <button type="button" className="primary" disabled={locked} onClick={save}>
                 保存
               </button>
               {status !== null && (
@@ -368,17 +373,22 @@ function BacklinkCard({
   );
 }
 
-/** relation 以外のプロパティの編集欄。select / multi_select は選択肢を足せる。 */
+/**
+ * relation 以外のプロパティの編集欄。select / multi_select は選択肢を足せる。`locked` の間は選択肢を足させない
+ * (表の書き込みの途中。`RowDetail` の `locked`)。
+ */
 function PropertyEditor({
   property,
   value,
   onChange,
   onAddOption,
+  locked,
 }: {
   property: Property;
   value: RowValueInput;
   onChange: (value: RowValueInput) => void;
   onAddOption: (optionName: string) => void;
+  locked: boolean;
 }) {
   const [newOption, setNewOption] = useState("");
   const addOptionInput = (
@@ -391,7 +401,7 @@ function PropertyEditor({
       />
       <button
         type="button"
-        disabled={newOption.trim() === "" || newOption.includes(",")}
+        disabled={locked || newOption.trim() === "" || newOption.includes(",")}
         onClick={() => {
           onAddOption(newOption.trim());
           setNewOption("");

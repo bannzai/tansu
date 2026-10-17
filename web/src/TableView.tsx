@@ -196,8 +196,11 @@ export function TableView({
           },
     );
 
-  // セルの保存・行の追加・読み直しのどれかの途中。書き込みを 1 つずつにするため、その間は編集も「+ 新規」も始めさせない
-  const writing = savingCell !== null || adding || reloadRequested || reloadCount > 0 || panelWriting;
+  // `tableWriting` は表のセルの保存・行の追加・読み直しのどれかの途中で、パネルにも渡してパネルの保存を止める。
+  // `writing` はそれにパネルの保存の途中を加えたもので、その間は表の編集も「+ 新規」も始めさせない
+  // (同じ行への書き込みを、表とパネルの両方向で 1 つずつにする)
+  const tableWriting = savingCell !== null || adding || reloadRequested || reloadCount > 0;
+  const writing = tableWriting || panelWriting;
 
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
     const cellKey = `${row.id}:${property.name}`;
@@ -446,6 +449,7 @@ export function TableView({
             onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
             onSaved={() => setReloadRequested(true)}
             onWritingChange={setPanelWriting}
+            locked={tableWriting}
           />
         </section>
       )}
