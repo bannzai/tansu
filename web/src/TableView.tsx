@@ -641,11 +641,15 @@ function CellEditor({
     event.stopPropagation();
     finish(undefined);
   };
-  // number の入力欄は 1e999 のような値も受け付け、Number にすると Infinity になる。JSON では null になって保存済みの値を
-  // 消してしまうため、有限でない値は保存せずに取り消す (undefined)
-  const textValue = (): RowValueInput | undefined => {
+  // number の入力欄に数として読めない文字 (1e・1.2.3・Chromium では有限でない 1e999 も) を入れると、value は空文字に
+  // なり (validity.badInput)、そのまま送ると空にする (null) として保存済みの値を消してしまう。読めても有限でない値は
+  // JSON で null になって同じことが起きる。どちらも保存せずに取り消す (undefined)。`input` は編集している入力欄
+  const textValue = (input: HTMLInputElement): RowValueInput | undefined => {
     if (property.kind.type !== "number") {
       return draftText;
+    }
+    if (input.validity.badInput) {
+      return undefined;
     }
     if (draftText.trim() === "") {
       return null;
@@ -785,10 +789,10 @@ function CellEditor({
           value={draftText}
           disabled={saving}
           onChange={(event) => setDraftText(event.target.value)}
-          onBlur={() => finish(textValue())}
+          onBlur={(event) => finish(textValue(event.currentTarget))}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !isComposing(event)) {
-              finish(textValue());
+              finish(textValue(event.currentTarget));
             } else if (event.key === "Escape" && !isComposing(event)) {
               cancel(event);
             }
