@@ -56,7 +56,8 @@ QA.md 群を QA 層の 4 つのデータベース (project / feature / item / ru
 
 - ルートの下で探す QA.md: ルートが git の作業ツリーの中なら、git が追跡している QA.md と、未追跡で `.gitignore` (`.git/info/exclude`・global の excludes を含む) の対象でない QA.md (`git ls-files --cached --others --exclude-standard`)。ルートより下で `.git` (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下と、作業ツリーに無いファイル (削除してまだ commit していない等) は読まない。ルートが git の作業ツリーの外か、ルート自体が `.gitignore` の対象か、git を実行できない時は、`.gitignore` と入れ子の `.git` を見ずに配下をすべて探す。どちらでも `.git` / `node_modules` / `target` という名前のディレクトリの下と symlink は読まない。読まなかった QA.md は `files` に出さない
 - `--dry-run`: DB を開かず何も書かない (利用記録は足す)。出力は取り込んだ時と同じ
-- 出力 (`--json`): 下の object。`--json` 無しは件数の 1 行と、読み飛ばした行を 1 行ずつ
+- 出力 (`--json`): 下の object。`--json` 無しは件数の 1 行、行の扱いの内訳の 1 行と、どこにも入らなかった行・本文に残した行を 1 行ずつ
+- QA.md の各行は、構造として読んだ行 (`lines.structured`) か、構造として読めず feature・item・run の本文に残した行 (`skipped`) のどちらか 1 つになる。どちらにもならなかった行は `unaccounted` に出る。`unaccounted` が空なら、取り込んだ QA.md の内容は DB から読める (QA.md を消してよいかの判定に使う)
 - exit code: 成功 0、失敗 1 (読めないパス等。その時は何も書かない)
 
 | キー | 型 | 内容 |
@@ -64,7 +65,9 @@ QA.md 群を QA 層の 4 つのデータベース (project / feature / item / ru
 | `dry_run` | bool | `--dry-run` なら true |
 | `files` | string の配列 | 読んだ QA.md の絶対パス |
 | `counts` | object | 入力に含まれる行の数 (新しく足した数ではない)。`project` / `feature` / `item` / `run` (number) |
-| `skipped` | object の配列 | 解釈できずに読み飛ばした行。`file` (string)、`line` (number。1 始まり)、`content` (string。行の内容)、`reason` (string) |
+| `lines` | object | 読んだ QA.md の行の扱いの内訳 (全ファイルの合計)。`structured` (number。値に入れた行と、空行・`<details>`・`---` のような書式だけの行)、`body` (number。`skipped` の数) |
+| `skipped` | object の配列 | 構造として読めず、本文に残した行。`file` (string)、`line` (number。1 始まり)、`content` (string。行の内容)、`reason` (string。構造として読めなかった理由) |
+| `unaccounted` | object の配列 | 構造としても本文としても取り込まなかった行 (空であるべき)。要素のキーは `skipped` と同じ。同じ project の同じ feature 名の 2 つ目以降のファイル (取り込まない) は全行がここに入る |
 
 ## `tansu qa record`
 
@@ -82,7 +85,8 @@ QA を実行した結果を run に 1 行足す。
 - `source` は `record`、`recorded_at` は実行した時刻 (時差付き ISO 8601、秒の精度)
 - QA 層の 4 つのデータベースが無ければ、記録と同じトランザクションで作る (失敗した時は何も作らない。`qa import` の前は項目が無いので失敗する)
 - 出力: `--json` なら書いた run の行の JSON (上の「行の JSON」)。無ければ `run <行 ID> を記録しました` の 1 行
-- exit code: 成功 0、失敗 1 (項目が無い・`--commit` が full SHA でない・`--result` が選択肢に無い・`--run-id` が空か `import:` で始まる・`--image-url` が上の条件に合わない)、引数の誤り 2
+- `--repo --feature --item-name` で指す項目が 2 つ以上ある (同じ feature に同じ名前の項目がある。`qa import` は別の item として残す) 時は記録せず失敗する。`--item` で item の行 ID を渡す
+- exit code: 成功 0、失敗 1 (項目が無い・`--item-name` の項目が 2 つ以上ある・`--commit` が full SHA でない・`--result` が選択肢に無い・`--run-id` が空か `import:` で始まる・`--image-url` が上の条件に合わない)、引数の誤り 2
 
 ## `tansu qa verified --repo <owner/repo> --commit <full SHA> [--diff-base <commit>] --json`
 

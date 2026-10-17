@@ -60,7 +60,7 @@
 | データベース | 内容 |
 | --- | --- |
 | project | リポジトリ (`owner/repo`)、ローカルの checkout のパス |
-| feature | project への relation、feature 名、QA.md の `verification` (動作確認手段)、QA.md があったディレクトリ `path` (project の checkout からの相対パス。`qa verified` が変更を見る範囲) |
+| feature | project への relation、feature 名、QA.md の `verification` (動作確認手段)、QA.md があったディレクトリ `path` (project の checkout からの相対パス。`qa verified` が変更を見る範囲)、QA.md の frontmatter の `last_verified_commit` / `last_verified_at` (取り込んだ時点の値) |
 | item | feature への relation、項目名、期待動作、自動化ステータス (`auto(<flow のパス>)` / `manual(<理由>)` / `todo`)、仕様 ID (S1, S2, ...) の紐付け、label (multi-select) |
 | run | item への relation、結果 (OK / NG / あとで / スキップ)、メモ、記録日時 `recorded_at` (時差付きの ISO 8601。QA.md から取り込んだ記録は `**確認日:**` の日付)、記録の経路 `source` (select: `record` = `qa record` / Web 画面で記録、`import` = `qa import` で取り込み)、画像 URL、検証環境、検証した commit SHA (full) |
 
@@ -68,14 +68,14 @@
 
 | コマンド | 役割 |
 | --- | --- |
-| `tansu qa import <QA.md のパスまたはリポジトリのルート>... [--json] [--dry-run]` | QA.md 群を DB に取り込む (4 つの表が無ければ作る)。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む。同じファイルを 2 回取り込んでも行が増えない (冪等)。`--json` は取り込んだ件数と読み飛ばした行を JSON で出し、`--dry-run` は書かずに同じ出力を出す。読み替えの規則は `documents/data-model.md`「QA 層」 |
+| `tansu qa import <QA.md のパスまたはリポジトリのルート>... [--json] [--dry-run]` | QA.md 群を DB に取り込む (4 つの表が無ければ作る)。項目と自動化ステータスに加え、記録済みのエビデンス (`**確認日:**` と `<img src>`)・frontmatter の `last_verified_commit` / `last_verified_at`・⏭️ スキップ / ❌ 失敗の記録も run として取り込む (frontmatter の 2 つは feature の行にも写す)。同じファイルを 2 回取り込んでも行が増えない (冪等)。`--json` は取り込んだ件数と行の扱いの内訳 (本文に残した行・どこにも入らなかった行) を JSON で出し、`--dry-run` は書かずに同じ出力を出す。読み替えの規則は `documents/data-model.md`「QA 層」 |
 | `tansu qa record (--item <ID> \| --repo <owner/repo> --feature <名前> --item-name <項目名>) --result ok\|ng\|later\|skip --commit <full SHA> [--note ...] [--image-url ...]... [--env ...] [--run-id <ID>] [--json]` | agent が実行結果を書く。実行のたびに run を 1 行足す (冪等性の扱いは「制約」) |
 | `tansu qa verified --repo <owner/repo> --commit <full SHA> [--diff-base <commit>] --json` | その commit 以降に変更された feature と未検証の項目を返す。run の commit と `git diff` を突き合わせる。exit code は判定が通れば 0、再テストが要れば 1、エラーは 2。castle の release-app / auto-merge-pr のゲートがこれを呼ぶ |
 | `tansu qa export --repo <owner/repo> --format pr-summary [--since <commit>]` | PR body に貼る「何をどう確認したか」の要約 |
 
 ### QA.md の形式
 
-取り込む QA.md の形式は castle の `~/.claude/skills/setup-qa/references/qa-md-format.md` が SSOT (frontmatter の `feature` / `verification` / `last_verified_commit` / `last_verified_at`、`## N. セクション` の見出し、`- [ ] **項目名**: 期待動作`、入れ子の `自動化:`、`⏭️ スキップ:` / `❌ 失敗:`、`#### 動作確認` の details 内のエビデンスブロック)。パーサはこの文書の構文をすべて扱い、理解できない行で失敗せず、読み飛ばした行を報告する。
+取り込む QA.md の形式は castle の `~/.claude/skills/setup-qa/references/qa-md-format.md` が SSOT (frontmatter の `feature` / `verification` / `last_verified_commit` / `last_verified_at`、`## N. セクション` の見出し、`- [ ] **項目名**: 期待動作`、入れ子の `自動化:`、`⏭️ スキップ:` / `❌ 失敗:`、`#### 動作確認` の details 内のエビデンスブロック)。パーサはこの文書の構文をすべて扱い、理解できない行で失敗せず、その行を本文に残して報告する (1 行も落とさない。規則は `documents/data-model.md`「QA 層」)。
 
 ### QA.md の廃止後も残す性質
 

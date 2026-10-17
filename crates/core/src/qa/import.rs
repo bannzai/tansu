@@ -1,6 +1,6 @@
 //! `tansu qa import`: QA.md 群を QA 層の 4 つのデータベースに取り込む。
-//! 同じファイルを 2 回取り込んでも行が増えない (project は `repo`、feature は project + 名前、item は feature + 名前、
-//! run は `run_id` を自然キーにして upsert する。`documents/PROJECT.md`「制約」の冪等)。
+//! 同じファイルを 2 回取り込んでも行が増えない (project は `repo`、feature は project + 名前、item は feature + 名前 +
+//! 同じ名前の中での順番、run は `run_id` を自然キーにして upsert する。`documents/PROJECT.md`「制約」の冪等)。
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,10 +12,13 @@ use serde::Serialize;
 use serde_json::json;
 
 use super::qa_md::{self, QaMd, QaMdItem, QaMdRecordKind, SkippedLine};
-use super::{FEATURE, ITEM, PROJECT, RUN, ensure_schema, find_row_id};
+use super::{
+    FEATURE, IMPORT_RUN_ID_PREFIX, ITEM, PROJECT, RUN, ensure_schema, find_row_id,
+    recorded_instant, text_of,
+};
 use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
-use crate::model::Id;
+use crate::model::{Id, Row};
 
 /// 取り込んだ行の数 (データベースごと)。同じ QA.md の 2 回目でも、`--dry-run` でも同じ数になる
 /// (入力に含まれる project / feature / item / run の数で、新しく足した行の数ではない)。
@@ -27,8 +30,17 @@ pub struct ImportCounts {
     pub feature: usize,
     /// 取り込んだチェック項目の数。
     pub item: usize,
-    /// 取り込んだ記録 (チェック済み・⏭️・❌) の数。
+    /// 取り込んだ記録 (チェック済み・⏭️・❌ の項目の、エビデンスの確認ごと) の数。
     pub run: usize,
+}
+
+/// 読んだ QA.md の行の扱いの内訳 (全ファイルの合計)。どちらにも入らなかった行は [`ImportReport::unaccounted`]。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportLines {
+    /// 構造として読んだ行 (値に入れた行と、空行・`<details>`・`---` のような書式だけの行) の数。
+    pub structured: usize,
+    /// 構造として読めず、feature・item・run の本文に残した行の数 ([`ImportReport::skipped`] の数)。
+    pub body: usize,
 }
 
 /// `qa import` の結果 (`--json` の出力)。
@@ -40,14 +52,18 @@ pub struct ImportReport {
     pub files: Vec<String>,
     /// 取り込んだ行の数。
     pub counts: ImportCounts,
-    /// 解釈できずに読み飛ばした行。
+    /// 読んだ QA.md の行の扱いの内訳。
+    pub lines: ImportLines,
+    /// 構造として読めず、本文に残した行。
     pub skipped: Vec<SkippedLine>,
+    /// 構造としても本文としても取り込まなかった行。空でなければ、QA.md を消すと失われる情報がある。
+    pub unaccounted: Vec<SkippedLine>,
 }
 
-/// 読んだ QA.md。取り込みの単位 (ルート, project の `repo`, ファイル, feature 名, パース結果)。
-type ParsedFile = (PathBuf, String, PathBuf, String, QaMd);
+/// 読んだ QA.md。取り込みの単位 (ルート, project の `repo`, ファイル, feature 名, ファイルの内容, パース結果)。
+type ParsedFile = (PathBuf, String, PathBuf, String, String, QaMd);
 
-/// `paths` の QA.md を読むだけで、DB を開かず何も書かない (`--dry-run`)。結果は [`import`] と同じ件数と読み飛ばした行。
+/// `paths` の QA.md を読むだけで、DB を開かず何も書かない (`--dry-run`)。結果は [`import`] と同じ。
 pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
     Ok(report(&parse_all(paths)?, true))
 }
@@ -57,11 +73,10 @@ pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
 ///
 /// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
 /// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)。
-///   `path` は QA.md のディレクトリ ([`feature_directory`])
-/// - item: 項目名・期待動作・自動化・仕様 ID。`labels` は QA.md に無いため触らない
-/// - run: チェック済み (`ok`)・⏭️ (`skip`)・❌ (`ng`) の項目に 1 行。`source` は `import`、`run_id` は `import:<item の行 ID>`、
-///   `recorded_at` はエビデンスの確認日 (無ければ frontmatter の `last_verified_at`、それも無ければ値なし)、
-///   `commit` は frontmatter の `last_verified_commit`
+///   `path` は QA.md のディレクトリ ([`feature_directory`])、本文は [`feature_body`]
+/// - item: 項目名・セクション・期待動作・自動化・仕様 ID・本文。`labels` は QA.md に無いため触らない
+/// - run: チェック済み (`ok`)・⏭️ (`skip`)・❌ (`ng`) の項目に、エビデンスの確認ごとに 1 行 (確認が無ければ 1 行)。
+///   規則は [`write_runs`]
 ///
 /// 4 つのデータベースが無ければ作る。全部を 1 つのトランザクションで書き、途中で失敗したら何も書かない。
 pub async fn import(connection: &Connection, paths: &[PathBuf]) -> Result<ImportReport, Error> {
@@ -100,7 +115,7 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
 
     let mut parsed: Vec<ParsedFile> = Vec::new();
     // 同じ project の同じ feature 名を持つファイルは、後のファイルの項目が先のファイルの項目を黙って上書きしないよう、
-    // 2 つ目以降をファイルごと読み飛ばして報告する (feature は project + 名前で行を決めるため)
+    // 2 つ目以降をファイルごと取り込まず、全行をどこにも入らなかった行として報告する (feature は project + 名前で行を決めるため)
     let mut first_file_by_feature: BTreeMap<(String, String), PathBuf> = BTreeMap::new();
     for (root, files) in &files_by_root {
         let repo = repo_name(root);
@@ -119,49 +134,67 @@ fn parse_all(paths: &[PathBuf]) -> Result<Vec<ParsedFile>, Error> {
                     entry.insert(file.clone());
                 }
                 Entry::Occupied(entry) => {
+                    let reason = format!(
+                        "同じ project の feature `{feature}` が既に {} にある (このファイルは取り込まない)",
+                        entry.get().display()
+                    );
                     qa_md = QaMd {
-                        skipped: vec![SkippedLine {
-                            file: file_name,
-                            line: 1,
-                            content: format!("feature: {feature}"),
-                            reason: format!(
-                                "同じ project の feature `{feature}` が既に {} にある (このファイルは取り込まない)",
-                                entry.get().display()
-                            ),
-                        }],
+                        unaccounted: text
+                            .lines()
+                            .enumerate()
+                            .map(|(index, line)| SkippedLine {
+                                file: file_name.clone(),
+                                line: index + 1,
+                                content: line.trim_end_matches('\r').to_owned(),
+                                reason: reason.clone(),
+                            })
+                            .collect(),
                         ..QaMd::default()
                     };
                 }
             }
-            parsed.push((root.clone(), repo.clone(), file.clone(), feature, qa_md));
+            parsed.push((
+                root.clone(),
+                repo.clone(),
+                file.clone(),
+                feature,
+                text,
+                qa_md,
+            ));
         }
     }
     Ok(parsed)
 }
 
-/// 読んだ QA.md から、取り込みの件数 (入力に含まれる project / feature / item / run の数) と読み飛ばした行をまとめる。
+/// 読んだ QA.md から、取り込みの件数 (入力に含まれる project / feature / item / run の数)・行の扱いの内訳・
+/// 本文に残した行・どこにも入らなかった行をまとめる。
 fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
     let mut projects = BTreeSet::new();
     let mut features = BTreeSet::new();
     let mut items = BTreeSet::new();
     let mut runs = BTreeSet::new();
-    // 書き込みと同じ自然キー (project は repo、feature は repo + 名前、item は feature + 名前) で数える。
-    // 同じ origin の worktree を 2 つ渡しても DB には 1 組しか入らないため、root のパスでは数えない
-    for (_, repo, _, feature, qa_md) in parsed {
+    // 書き込みと同じ自然キー (project は repo、feature は repo + 名前、item は feature + 名前 + 同じ名前の中での順番、
+    // run は item + 確認の順番) で数える。同じ origin の worktree を 2 つ渡しても DB には 1 組しか入らないため、
+    // root のパスでは数えない
+    for (_, repo, _, feature, _, qa_md) in parsed {
         projects.insert(repo);
         features.insert((repo, feature));
-        for item in &qa_md.items {
-            items.insert((repo, feature, &item.name));
-            if run_result(item).is_some() {
-                runs.insert((repo, feature, &item.name));
+        for (item, occurrence) in qa_md.items.iter().zip(occurrences(&qa_md.items)) {
+            items.insert((repo, feature, &item.name, occurrence));
+            for run_number in 1..=run_count(item) {
+                runs.insert((repo, feature, &item.name, occurrence, run_number));
             }
         }
     }
+    let skipped: Vec<SkippedLine> = parsed
+        .iter()
+        .flat_map(|(_, _, _, _, _, qa_md)| qa_md.skipped.iter().cloned())
+        .collect();
     ImportReport {
         dry_run,
         files: parsed
             .iter()
-            .map(|(_, _, file, _, _)| file.display().to_string())
+            .map(|(_, _, file, _, _, _)| file.display().to_string())
             .collect(),
         counts: ImportCounts {
             project: projects.len(),
@@ -169,10 +202,39 @@ fn report(parsed: &[ParsedFile], dry_run: bool) -> ImportReport {
             item: items.len(),
             run: runs.len(),
         },
-        skipped: parsed
+        lines: ImportLines {
+            structured: parsed
+                .iter()
+                .map(|(_, _, _, _, _, qa_md)| qa_md.structured_lines)
+                .sum(),
+            body: skipped.len(),
+        },
+        skipped,
+        unaccounted: parsed
             .iter()
-            .flat_map(|(_, _, _, _, qa_md)| qa_md.skipped.iter().cloned())
+            .flat_map(|(_, _, _, _, _, qa_md)| qa_md.unaccounted.iter().cloned())
             .collect(),
+    }
+}
+
+/// 各項目が、同じ名前の項目の中で何番目か (0 始まり)。`items` と同じ順。
+fn occurrences(items: &[QaMdItem]) -> Vec<usize> {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    items
+        .iter()
+        .map(|item| {
+            let count = counts.entry(item.name.as_str()).or_default();
+            *count += 1;
+            *count - 1
+        })
+        .collect()
+}
+
+/// 項目から作る run の数。記録 (チェック済み・⏭️・❌) が無ければ 0、あればエビデンスの確認の数 (確認が無ければ 1)。
+fn run_count(item: &QaMdItem) -> usize {
+    match run_result(item) {
+        Some(_) => item.confirmations.len().max(1),
+        None => 0,
     }
 }
 
@@ -182,7 +244,7 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     // multi_select の値は定義にある選択肢しか書けないため、仕様 ID を選択肢として先に足す (無いものだけが足される)
     let spec_ids: BTreeSet<&str> = parsed
         .iter()
-        .flat_map(|(_, _, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))
+        .flat_map(|(_, _, _, _, _, qa_md)| qa_md.spec_rows.iter().map(|row| row.id.as_str()))
         .collect();
     if !spec_ids.is_empty() {
         let spec = format!(
@@ -193,10 +255,10 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
     }
 
     let mut project_ids: BTreeMap<&str, Id> = BTreeMap::new();
-    // 同じ project の同じ feature 名の 2 つ目以降のファイルは `parse_all` が読み飛ばした行として報告済み。
+    // 同じ project の同じ feature 名の 2 つ目以降のファイルは `parse_all` がどこにも入らなかった行として報告済み。
     // 書くと空の値で 1 つ目のファイルの feature (verification) を消すため、書かない
     let mut written_features: BTreeSet<(&str, &str)> = BTreeSet::new();
-    for (root, repo, file, feature, qa_md) in parsed {
+    for (root, repo, file, feature, text, qa_md) in parsed {
         if !written_features.insert((repo.as_str(), feature.as_str())) {
             continue;
         }
@@ -228,34 +290,64 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
             FEATURE,
             &json!({
                 "id": feature_id,
+                "body": feature_body(&qa_md.body, text),
                 "values": {
                     "project": [project_id],
                     "name": feature,
                     "verification": qa_md.verification,
                     "path": feature_directory(root, file),
+                    "last_verified_commit": qa_md.last_verified_commit,
+                    "last_verified_at": qa_md.last_verified_at,
                 },
             }),
         )
         .await?;
-        for item in &qa_md.items {
-            let item_id = find_row_id(
-                connection,
-                ITEM,
-                &[
-                    format!("feature={}", feature_id.0),
-                    format!("name={}", item.name),
-                ],
-            )
-            .await?
-            .unwrap_or_else(Id::generate);
+        // 同じ名前の項目は名前で 1 行に決まらないため、名前と期待動作が一致する行を先に当て、無ければ名前が一致する行
+        // (追加した順) のうちまだ当てていないものに当てる。順番だけで当てると、前の項目を QA.md から消した時に
+        // その行 (と `qa record` の run) が後ろの項目に移るため
+        let (item_database, existing_items) = rows::query_in(
+            connection,
+            ITEM,
+            &[format!("feature={}", feature_id.0)],
+            None,
+            None,
+        )
+        .await?;
+        // 1 周目で全項目の名前と期待動作の一致を当ててから、2 周目で残りを名前だけで当てる (先に名前だけで当てると、
+        // 後ろの項目の一致する行を前の項目が取ってしまうため)
+        let mut claimed_item_ids: BTreeSet<&Id> = BTreeSet::new();
+        let mut item_ids: Vec<Option<Id>> = vec![None; qa_md.items.len()];
+        for match_expected in [true, false] {
+            for (item, item_id) in qa_md.items.iter().zip(item_ids.iter_mut()) {
+                if item_id.is_some() {
+                    continue;
+                }
+                let matched = existing_items.iter().find(|row| {
+                    let same_expected =
+                        text_of(&item_database, row, "expected") == Some(item.expected.as_str());
+                    !claimed_item_ids.contains(&row.id)
+                        && text_of(&item_database, row, "name") == Some(item.name.as_str())
+                        && (same_expected || !match_expected)
+                });
+                if let Some(row) = matched {
+                    claimed_item_ids.insert(&row.id);
+                    *item_id = Some(row.id.clone());
+                }
+            }
+        }
+        for (item, item_id) in qa_md.items.iter().zip(item_ids) {
+            let item_id = item_id.unwrap_or_else(Id::generate);
+            let has_runs = run_count(item) > 0;
             rows::upsert_in(
                 connection,
                 ITEM,
                 &json!({
                     "id": item_id,
+                    "body": item_body(item, !has_runs),
                     "values": {
                         "feature": [feature_id],
                         "name": item.name,
+                        "section": item.section,
                         "expected": item.expected,
                         "automation": item.automation.map(|automation| automation.name()),
                         "automation_detail": item.automation_detail,
@@ -264,37 +356,217 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
                 }),
             )
             .await?;
-            let run_id = format!("import:{}", item_id.0);
-            let Some(result) = run_result(item) else {
-                // QA.md で記録が消えた項目は、前回の取り込みで作った run も消す (QA.md の現状と DB を合わせる)。
-                // `source=record` の run は run_id が `import:` で始まらないので消さない
-                if let Some(stale_run_id) =
-                    find_row_id(connection, RUN, &[format!("run_id={run_id}")]).await?
-                {
-                    rows::delete_in(connection, RUN, &stale_run_id.0).await?;
-                }
+            write_runs(connection, qa_md, item, &item_id).await?;
+        }
+    }
+    Ok(())
+}
+
+/// 項目 `item` (行 ID `item_id`) の run を書く。`qa_md` は項目があるファイルの読んだ結果 (frontmatter の値を使う)。
+///
+/// - 記録 (チェック済み・⏭️・❌) のある項目に、エビデンスの確認ごとに 1 行 (確認が無ければ 1 行)。`run_id` は
+///   `import:<item の行 ID>:<確認の順番 (1 始まり)>`、`source` は `import`、本文・`image_url` は確認の本文と最初の画像
+/// - `recorded_at` は確認日 (無ければ frontmatter の `last_verified_at`、それも無ければ値なし)
+/// - 項目の結果 (`ok` / `skip` / `ng`)・⏭️ / ❌ の本文 (`note`)・frontmatter の `last_verified_commit` (`commit`) は、
+///   [`super::RepoTables::latest`] と同じ順 (`recorded_at`、同じなら行を追加した順) で最後になる確認の run にだけ書く。
+///   QA.md は項目の今の結果と最後の確認の commit しか持たず、それより前の確認の結果と commit は分からないため
+/// - 既にある取り込みの run の行は、確認の内容 (確認日と本文) で確認に当て、行 ID と取り込みが書かない値 (`env` 等) を保つ。
+///   前の版の `import:<item の行 ID>` の run は、日付が最後の確認の run に移す
+/// - その項目の取り込みの run (`run_id` が `import:` で始まる) のうち、どの確認にも当たらなかったもの (QA.md で記録・確認が
+///   消えたもの) は消す。`qa record` と Web 画面の run は消さない
+async fn write_runs(
+    connection: &Connection,
+    qa_md: &QaMd,
+    item: &QaMdItem,
+    item_id: &Id,
+) -> Result<(), Error> {
+    let recorded_at: Vec<Option<&str>> = if item.confirmations.is_empty() {
+        vec![qa_md.last_verified_at.as_deref()]
+    } else {
+        item.confirmations
+            .iter()
+            .map(|confirmation| {
+                confirmation
+                    .date
+                    .as_deref()
+                    .or(qa_md.last_verified_at.as_deref())
+            })
+            .collect()
+    };
+    let result = run_result(item);
+    let run_ids: Vec<String> = (1..=run_count(item))
+        .map(|run_number| format!("{IMPORT_RUN_ID_PREFIX}{}:{run_number}", item_id.0))
+        .collect();
+
+    let (run_database, existing_runs) = rows::query_in(
+        connection,
+        RUN,
+        &[format!("item={}", item_id.0)],
+        None,
+        None,
+    )
+    .await?;
+    let bodies: Vec<&str> = (0..run_ids.len())
+        .map(|index| {
+            item.confirmations
+                .get(index)
+                .map_or("", |confirmation| confirmation.body.as_str())
+        })
+        .collect();
+    let item_run_prefix = format!("{IMPORT_RUN_ID_PREFIX}{}:", item_id.0);
+    // 確認ごとに、既にある取り込みの run の行を当てる。行 ID と、取り込みが書かない値 (`env` 等) と、ほかの行からの
+    // relation を保つため、確認の順番ではなく内容で当てる (前の確認を QA.md から消すと順番がずれるため):
+    // 1. 確認日・本文・`run_id` が同じ行 2. 確認日と本文が同じ行 3. 同じ `run_id` の行 (確認の本文を書き換えた時)
+    // 4. 前の版の `import:<item の行 ID>` (1 項目 1 run) の行を、日付が最後の確認に
+    let mut row_for_index: Vec<Option<&Row>> = vec![None; run_ids.len()];
+    let mut claimed: BTreeSet<&Id> = BTreeSet::new();
+    for (match_content, match_run_id) in [(true, true), (true, false), (false, true)] {
+        for index in 0..run_ids.len() {
+            if row_for_index[index].is_some() {
                 continue;
-            };
+            }
+            let matched = existing_runs.iter().find(|run| {
+                let run_id = text_of(&run_database, run, "run_id").unwrap_or_default();
+                let same_content = text_of(&run_database, run, "recorded_at") == recorded_at[index]
+                    && run.body == bodies[index];
+                run_id.starts_with(&item_run_prefix)
+                    && (same_content || !match_content)
+                    && (run_id == run_ids[index] || !match_run_id)
+                    && !claimed.contains(&run.id)
+            });
+            if let Some(run) = matched {
+                claimed.insert(&run.id);
+                row_for_index[index] = Some(run);
+            }
+        }
+    }
+    let legacy_run_id = format!("{IMPORT_RUN_ID_PREFIX}{}", item_id.0);
+    let legacy_index = recorded_at
+        .iter()
+        .enumerate()
+        .max_by_key(|(index, recorded_at)| (recorded_instant(**recorded_at), *index))
+        .map(|(index, _)| index)
+        .filter(|index| *index < run_ids.len() && row_for_index[*index].is_none());
+    let legacy_run = existing_runs
+        .iter()
+        .find(|run| text_of(&run_database, run, "run_id") == Some(legacy_run_id.as_str()));
+    if let (Some(index), Some(run)) = (legacy_index, legacy_run) {
+        claimed.insert(&run.id);
+        row_for_index[index] = Some(run);
+    }
+    // 当てなかった取り込みの run (QA.md で記録・確認が消えたもの) は消す。`qa record` と Web 画面の run は消さない
+    for run in &existing_runs {
+        if !claimed.contains(&run.id)
+            && text_of(&run_database, run, "run_id")
+                .is_some_and(|run_id| run_id.starts_with(IMPORT_RUN_ID_PREFIX))
+        {
+            rows::delete_in(connection, RUN, &run.id.0).await?;
+        }
+    }
+    // 当てた行の `run_id` を付け替える前に、付け替える行を一時的な `run_id` に退避する (確認の順番が入れ替わった時に、
+    // 付け替えの途中で `run_id` の unique が重ならないように)。付け替えの無い行は書かない (2 回目の取り込みで行を変えないため)
+    for (index, run) in row_for_index.iter().enumerate() {
+        if let Some(run) = run
+            && text_of(&run_database, run, "run_id") != Some(run_ids[index].as_str())
+        {
             rows::upsert_in(
                 connection,
                 RUN,
-                &json!({
-                    "values": {
-                        "run_id": run_id,
-                        "item": [item_id],
-                        "result": result,
-                        "note": item.record.as_ref().map(|record| record.note.as_str()).filter(|note| !note.is_empty()),
-                        "recorded_at": item.verified_at.as_deref().or(qa_md.last_verified_at.as_deref()),
-                        "source": "import",
-                        "image_url": item.image_url,
-                        "commit": qa_md.last_verified_commit,
-                    },
-                }),
+                &json!({"id": run.id, "values": {"run_id": format!("{item_run_prefix}moving:{}", run.id.0)}}),
             )
             .await?;
         }
     }
+
+    // 結果を書く run は、`RepoTables::latest` が選ぶものと同じにする: `recorded_at` が最後で、同じなら行の追加順
+    // (rowid) が後のもの。既にある行はその位置、これから足す行は既存の行の後ろに確認の順で並ぶ
+    let row_position = |index: usize| {
+        row_for_index[index]
+            .and_then(|row| existing_runs.iter().position(|run| run.id == row.id))
+            .unwrap_or(existing_runs.len() + index)
+    };
+    let latest = (0..run_ids.len())
+        .max_by_key(|index| (recorded_instant(recorded_at[*index]), row_position(*index)));
+    for (index, run_id) in run_ids.iter().enumerate() {
+        let confirmation = item.confirmations.get(index);
+        let is_latest = Some(index) == latest;
+        rows::upsert_in(
+            connection,
+            RUN,
+            &json!({
+                "id": row_for_index[index].map(|run| &run.id),
+                "body": bodies[index],
+                "values": {
+                    "run_id": run_id,
+                    "item": [item_id],
+                    "result": result.filter(|_| is_latest),
+                    "note": item.record.as_ref().map(|record| record.note.as_str()).filter(|note| is_latest && !note.is_empty()),
+                    "recorded_at": recorded_at[index],
+                    "source": "import",
+                    "image_url": confirmation.and_then(|confirmation| confirmation.image_url.as_deref()),
+                    "commit": qa_md.last_verified_commit.as_deref().filter(|_| is_latest),
+                },
+            }),
+        )
+        .await?;
+    }
     Ok(())
+}
+
+/// feature の行の本文: QA.md の項目・エビデンスに当たらない本文 (`prose`。[`QaMd::body`]) の後ろに、`## QA.md の原文` の
+/// 見出しと、ファイルの内容 `qa_md_text` をそのまま入れた fenced code block を置いたもの。原文はほかの規則で拾えない
+/// 行があっても QA.md を復元できるようにする最後の受け皿で、`qa_md_text` は本文の部分文字列としてそのまま入る
+/// (末尾に改行が無ければ、閉じのフェンスの前に改行を足す)。フェンスは原文のどのバッククォートの並びより長くする
+/// (原文の中のフェンスで閉じないように)。
+pub fn feature_body(prose: &str, qa_md_text: &str) -> String {
+    let longest_backticks = qa_md_text
+        .split(|character| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    let fence = "`".repeat(longest_backticks.max(3) + 1);
+    let mut body = String::new();
+    if !prose.is_empty() {
+        body.push_str(prose);
+        body.push_str("\n\n");
+    }
+    body.push_str("## QA.md の原文\n\n");
+    body.push_str(&fence);
+    body.push_str("markdown\n");
+    body.push_str(qa_md_text);
+    if !qa_md_text.is_empty() && !qa_md_text.ends_with('\n') {
+        body.push('\n');
+    }
+    body.push_str(&fence);
+    body
+}
+
+/// item の行の本文: 項目の本文 ([`QaMdItem::body`])。`with_confirmations` (記録が無く run を作らない項目) なら、
+/// エビデンスの確認 (`**確認日: YYYY-MM-DD**` と確認の本文) を後ろに足す (run にしない確認も落とさないため)。
+fn item_body(item: &QaMdItem, with_confirmations: bool) -> String {
+    let mut sections: Vec<String> = Vec::new();
+    if !item.body.is_empty() {
+        sections.push(item.body.clone());
+    }
+    if with_confirmations {
+        for confirmation in &item.confirmations {
+            let parts: Vec<String> = [
+                confirmation
+                    .date
+                    .as_deref()
+                    .map(|date| format!("**確認日: {date}**"))
+                    .unwrap_or_default(),
+                confirmation.body.clone(),
+            ]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect();
+            if !parts.is_empty() {
+                sections.push(parts.join("\n"));
+            }
+        }
+    }
+    sections.join("\n\n")
 }
 
 /// 項目の記録から run の `result` を決める。❌ は `ng`、⏭️ は `skip`、チェック済みは `ok`。記録が無ければ `None` (run を作らない)。
@@ -539,6 +811,19 @@ mod tests {
         assert_eq!(
             feature_directory(root, Path::new("/r/features/notes/QA.md")),
             "features/notes"
+        );
+    }
+
+    #[test]
+    fn feature_body_fences_the_original_longer_than_any_backticks_in_it() {
+        let original = "# QA\n\n````md\n```sh\nls\n```\n````\n";
+        assert_eq!(
+            feature_body("前提: 2 台使う", original),
+            format!("前提: 2 台使う\n\n## QA.md の原文\n\n`````markdown\n{original}`````")
+        );
+        assert_eq!(
+            feature_body("", "# QA"),
+            "## QA.md の原文\n\n````markdown\n# QA\n````"
         );
     }
 

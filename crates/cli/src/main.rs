@@ -96,10 +96,10 @@ enum QaCommand {
         /// リポジトリのルート (配下の QA.md をすべて探す) か QA.md のファイル
         #[arg(required = true, value_name = "パス")]
         paths: Vec<PathBuf>,
-        /// 取り込んだ件数と読み飛ばした行を JSON で出す
+        /// 取り込んだ件数・行の扱いの内訳・本文に残した行・どこにも入らなかった行を JSON で出す
         #[arg(long)]
         json: bool,
-        /// 書き込まずに、取り込んだ時と同じ件数と読み飛ばした行を出す
+        /// 書き込まずに、取り込んだ時と同じ結果を出す
         #[arg(long)]
         dry_run: bool,
     },
@@ -449,23 +449,32 @@ fn import_output(report: &ImportReport, json: bool) -> Result<String, serde_json
     }
 }
 
-/// `qa import` の `--json` 無しの出力。件数を 1 行と、読み飛ばした行を 1 行ずつ。
+/// `qa import` の `--json` 無しの出力。件数を 1 行、行の扱いの内訳を 1 行と、どこにも入らなかった行・本文に残した行を 1 行ずつ。
 fn import_summary(report: &ImportReport) -> String {
     let mut summary = format!(
-        "{}project: {}, feature: {}, item: {}, run: {} ({} ファイル)",
+        "{}project: {}, feature: {}, item: {}, run: {} ({} ファイル)\n行: 構造として読んだ {} 行、本文に残した {} 行、どこにも入らなかった {} 行",
         if report.dry_run { "[dry-run] " } else { "" },
         report.counts.project,
         report.counts.feature,
         report.counts.item,
         report.counts.run,
-        report.files.len()
+        report.files.len(),
+        report.lines.structured,
+        report.lines.body,
+        report.unaccounted.len()
     );
-    if !report.skipped.is_empty() {
-        summary.push_str(&format!("\n読み飛ばした行: {} 行", report.skipped.len()));
-        for skipped in &report.skipped {
+    for (heading, lines) in [
+        ("どこにも入らなかった行", &report.unaccounted),
+        ("本文に残した行", &report.skipped),
+    ] {
+        if lines.is_empty() {
+            continue;
+        }
+        summary.push_str(&format!("\n{heading}:"));
+        for line in lines {
             summary.push_str(&format!(
                 "\n  {}:{}: {} ({})",
-                skipped.file, skipped.line, skipped.content, skipped.reason
+                line.file, line.line, line.content, line.reason
             ));
         }
     }

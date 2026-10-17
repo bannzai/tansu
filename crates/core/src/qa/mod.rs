@@ -28,6 +28,10 @@ pub const ITEM: &str = "item";
 /// データベース `run` の名前 (実行結果の記録)。
 pub const RUN: &str = "run";
 
+/// `qa import` が作る run の `run_id` の接頭辞。`qa record` の `run_id` には使わせない
+/// (取り込みが QA.md の現状に合わせて消す run と取り違えないため)。
+pub(crate) const IMPORT_RUN_ID_PREFIX: &str = "import:";
+
 /// QA 層の 4 つのデータベースの定義。(名前, `db schema --add` の指定, `--unique` にするプロパティ)。
 /// relation の相手が先に無いと作れないため、この順で作る。automation は union のプロパティが汎用層に無いので
 /// select `automation` + text `automation_detail` の 2 列に平たくする (`documents/data-model.md`「QA 層」)。
@@ -40,6 +44,8 @@ const DATABASES: &[(&str, &[&str], &[&str])] = &[
             "name:text",
             "verification:text",
             "path:text",
+            "last_verified_commit:text",
+            "last_verified_at:date",
         ],
         &[],
     ),
@@ -48,6 +54,7 @@ const DATABASES: &[(&str, &[&str], &[&str])] = &[
         &[
             "feature:relation:feature",
             "name:text",
+            "section:text",
             "expected:text",
             "automation:select:auto,manual,todo",
             "automation_detail:text",
@@ -248,7 +255,7 @@ const EARLIEST_UTC_OFFSET_SECONDS: i32 = 14 * 60 * 60;
 /// 日付だけの値 (`qa import` の run。QA.md の確認日で時差が分からない) は、どの時差で書かれた同じ日付の時刻よりも
 /// 前になるよう、その日付が UTC+14 で始まる時刻に置く (同じ日の朝に記録した run を、取り込みの run より前と
 /// 取り違えないため)。無い・読めない値は `None` (どの値よりも前)。
-fn recorded_instant(recorded_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
+pub(crate) fn recorded_instant(recorded_at: Option<&str>) -> Option<chrono::DateTime<chrono::Utc>> {
     let recorded_at = recorded_at?;
     if let Ok(date) = chrono::NaiveDate::parse_from_str(recorded_at, "%Y-%m-%d") {
         return date
