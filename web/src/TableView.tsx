@@ -93,6 +93,9 @@ export function TableView({
   // パネルで保存・選択肢の追加をして、まだ始めていない表の読み直し。セルの保存や行の追加の途中に読み直すと、その
   // 書き込みより前の応答で表を置き換えてしまうため、それらが終わってから始める
   const [reloadRequested, setReloadRequested] = useState(false);
+  // パネルが保存・選択肢の追加の途中か (パネル自身の読み直しを含む)。その間に表で書くと、パネルの読み直しの古い
+  // 応答で、パネルに映した表の書き込みが戻ってしまうため、表の書き込みを止める
+  const [panelWriting, setPanelWriting] = useState(false);
   // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
   // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
@@ -194,7 +197,7 @@ export function TableView({
     );
 
   // セルの保存・行の追加・読み直しのどれかの途中。書き込みを 1 つずつにするため、その間は編集も「+ 新規」も始めさせない
-  const writing = savingCell !== null || adding || reloadRequested || reloadCount > 0;
+  const writing = savingCell !== null || adding || reloadRequested || reloadCount > 0 || panelWriting;
 
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
     const cellKey = `${row.id}:${property.name}`;
@@ -442,6 +445,7 @@ export function TableView({
             databases={databases}
             onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
             onSaved={() => setReloadRequested(true)}
+            onWritingChange={setPanelWriting}
           />
         </section>
       )}

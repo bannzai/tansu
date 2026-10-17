@@ -31,7 +31,7 @@ type Loaded = {
 /**
  * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
  * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
- * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`savedRow` は表のセルで書いた後のこの行で、
+ * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`onWritingChange` は保存・選択肢の追加の途中か (その後の読み直しを含む) が変わるたびに呼ぶ (表がその間の書き込みを止めるため)。`savedRow` は表のセルで書いた後のこの行で、
  * 書かれた値をパネルに映すために渡す。
  */
 export function RowDetail({
@@ -40,6 +40,7 @@ export function RowDetail({
   databases,
   onClose,
   onSaved,
+  onWritingChange,
   savedRow,
 }: {
   databaseName: string;
@@ -47,6 +48,7 @@ export function RowDetail({
   databases: Database[];
   onClose?: () => void;
   onSaved?: () => void;
+  onWritingChange?: (writing: boolean) => void;
   savedRow?: Row;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -58,6 +60,12 @@ export function RowDetail({
   // 保存・選択肢の追加の応答を待つ間は編集欄を無効にする。応答の後に読み直した値で編集欄を置き換えるため、
   // 待つ間の入力を受け付けると消えてしまう
   const [writing, setWriting] = useState(false);
+
+  useEffect(() => {
+    onWritingChange?.(writing);
+    // パネルを閉じた時に、書き込みの途中のまま表の書き込みを止め続けないようにする
+    return () => onWritingChange?.(false);
+  }, [writing, onWritingChange]);
 
   const load = useCallback(async () => {
     const { database, rows } = await fetchRows(databaseName);
@@ -106,8 +114,9 @@ export function RowDetail({
   // 区別できない)。開く前に書いた行は読み込みに含まれるので、映し済みとして始める
   const appliedSavedRow = useRef(savedRow);
 
-  // 表のセルで同じ行が書かれた時は、書かれたプロパティの編集欄と (まだ触っていなければ) 本文だけを置き換え、
-  // この画面でまだ保存していない入力は残す
+  // 表のセルで同じ行が書かれた時は、この画面でまだ触っていないプロパティの編集欄と本文だけを書かれた後の値に
+  // 置き換え、この画面でまだ保存していない入力は残す (書かれた行には CLI や別のタブが書いた値も入っているため、
+  // 値が変わったかではなく、この画面で触ったかで分ける)
   useEffect(() => {
     if (savedRow === undefined || savedRow === appliedSavedRow.current || savedRow.id !== rowId || loaded === null) {
       return;
@@ -121,7 +130,7 @@ export function RowDetail({
           .filter(
             (property) =>
               property.kind.type !== "relation" &&
-              JSON.stringify(savedRow.values[property.name]) !== JSON.stringify(previous.values[property.name]),
+              JSON.stringify(current[property.name]) === JSON.stringify(inputValue(previous.values[property.name])),
           )
           .map((property) => [property.name, inputValue(savedRow.values[property.name])]),
       ),
