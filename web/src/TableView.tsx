@@ -93,9 +93,14 @@ export function TableView({
   // パネルで保存・選択肢の追加をして、まだ始めていない表の読み直し。セルの保存や行の追加の途中に読み直すと、その
   // 書き込みより前の応答で表を置き換えてしまうため、それらが終わってから始める
   const [reloadRequested, setReloadRequested] = useState(false);
-  // パネルが保存・選択肢の追加の途中か (パネル自身の読み直しを含む)。その間に表で書くと、パネルの読み直しの古い
-  // 応答で、パネルに映した表の書き込みが戻ってしまうため、表の書き込みを止める
-  const [panelWriting, setPanelWriting] = useState(false);
+  // パネルの保存・選択肢の追加 (パネル自身の読み直しを含む) の、終わっていない数。その間に表で書くと、パネルの
+  // 読み直しの古い応答で、パネルに映した表の書き込みが戻ってしまうため、表の書き込みを止める。保存の途中で閉じて
+  // 開き直したパネルの書き込みと重なることがあるため、真偽値ではなく数で持つ
+  const [panelWritingCount, setPanelWritingCount] = useState(0);
+  const onPanelWritingChange = useCallback(
+    (panelWriting: boolean) => setPanelWritingCount((count) => count + (panelWriting ? 1 : -1)),
+    [],
+  );
   // 表のセルで最後に書いた行か、パネルの保存の後に読み直したパネルの行。パネルに開いている行なら、その値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
   // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
@@ -211,11 +216,9 @@ export function TableView({
       };
     });
 
-  // `tableWriting` は表のセルの保存・行の追加・読み直しのどれかの途中で、パネルにも渡してパネルの保存を止める。
-  // `writing` はそれにパネルの保存の途中を加えたもので、その間は表の編集も「+ 新規」も始めさせない
-  // (同じ行への書き込みを、表とパネルの両方向で 1 つずつにする)
-  const tableWriting = savingCell !== null || adding || reloadRequested || reloadCount > 0;
-  const writing = tableWriting || panelWriting;
+  // 表のセルの保存・行の追加・読み直し・パネルの保存のどれかの途中。その間は表の編集も「+ 新規」も、パネルの保存も
+  // 始めさせない (同じ行への書き込みを、表とパネル、閉じて開き直したパネルのあいだで 1 つずつにする)
+  const writing = savingCell !== null || adding || reloadRequested || reloadCount > 0 || panelWritingCount > 0;
 
   const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
     const cellKey = `${row.id}:${property.name}`;
@@ -463,8 +466,8 @@ export function TableView({
             databases={databases}
             onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
             onSaved={() => setReloadRequested(true)}
-            onWritingChange={setPanelWriting}
-            locked={tableWriting}
+            onWritingChange={onPanelWritingChange}
+            locked={writing}
           />
         </section>
       )}
