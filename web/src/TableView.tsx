@@ -96,7 +96,7 @@ export function TableView({
   // パネルが保存・選択肢の追加の途中か (パネル自身の読み直しを含む)。その間に表で書くと、パネルの読み直しの古い
   // 応答で、パネルに映した表の書き込みが戻ってしまうため、表の書き込みを止める
   const [panelWriting, setPanelWriting] = useState(false);
-  // 表のセルで最後に書いた行。パネルに開いている行なら、書いた値をパネルに映す
+  // 表のセルで最後に書いた行か、パネルの保存の後に読み直したパネルの行。パネルに開いている行なら、その値をパネルに映す
   const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
   // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
   // 保存は読み込んだ値との差分で送り応答の行で置き換えるため、並べると後の入力が「変更なし」になったり古い応答で
@@ -110,9 +110,11 @@ export function TableView({
     const loadNumber = latestLoad.current;
     const table = await fetchRows(databaseName);
     const targets = await fetchRelationTargets(table.database, databases);
-    if (loadNumber === latestLoad.current) {
-      setLoaded({ table, targets });
+    if (loadNumber !== latestLoad.current) {
+      return undefined;
     }
+    setLoaded({ table, targets });
+    return table;
   }, [databaseName, databases]);
 
   useEffect(() => {
@@ -126,9 +128,17 @@ export function TableView({
     setReloadRequested(false);
     setReloadCount((count) => count + 1);
     load()
+      .then((table) => {
+        // 保存したパネルを閉じて同じ行を開き直していると、開き直したパネルは保存の前の値を読んでいることがあるため、
+        // 読み直した行をパネルにも映す
+        const peekedRow = table?.rows.find((row) => row.id === peek);
+        if (peekedRow !== undefined) {
+          setLastWrittenRow(peekedRow);
+        }
+      })
       .catch((caught: unknown) => setWriteError(errorText(caught)))
       .finally(() => setReloadCount((count) => count - 1));
-  }, [reloadRequested, savingCell, adding, load]);
+  }, [reloadRequested, savingCell, adding, load, peek]);
 
   useEffect(() => {
     if (peek === null) {
