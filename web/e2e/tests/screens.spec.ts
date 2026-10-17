@@ -35,11 +35,31 @@ test("画面を読み込むと利用記録に web_open が 1 行足される", a
   await page.screenshot({ path: testInfo.outputPath("home.png"), fullPage: true });
 });
 
+/** item の行 `name` の行 ID (API から読む)。 */
+async function itemRowId(page: Page, name: string): Promise<string> {
+  const response = await page.request.get("/api/databases/item/rows");
+  const { rows } = (await response.json()) as { rows: { id: string; values: { name?: { value: string } } }[] };
+  const row = rows.find((candidate) => candidate.values.name?.value === name);
+  if (row === undefined) {
+    throw new Error(`item に ${name} がありません`);
+  }
+  return row.id;
+}
+
+/** 次の item の行の書き込み (POST /api/databases/item/rows) の応答を待つ。 */
+function itemRowWritten(page: Page) {
+  return page.waitForResponse(
+    (response) => response.url().endsWith("/api/databases/item/rows") && response.request().method() === "POST",
+  );
+}
+
 test("詳細ページでプロパティと本文を編集し、選択肢を足して保存すると、読み込み直しても残る", async ({
   page,
 }, testInfo) => {
   await page.goto("/db/item");
-  await page.getByRole("link", { name: "一覧の並び", exact: true }).click();
+  await page.getByRole("button", { name: "一覧の並び を開く" }).click();
+  await page.getByTestId("peek").getByRole("link", { name: "全画面で開く" }).click();
+  await expect(page).toHaveURL(/\/db\/item\/[^/?]+$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("一覧の並び");
   // 取り込んだ run が、この item を参照している行として並ぶ
   await expect(page.getByTestId("backlink")).toHaveCount(1);
@@ -67,17 +87,20 @@ test("詳細ページでプロパティと本文を編集し、選択肢を足�
   await page.screenshot({ path: testInfo.outputPath("row-detail.png"), fullPage: true });
 });
 
-test("表ビューで label・自動化・テキストで絞り込み、列で並べ替える", async ({ page }, testInfo) => {
+test("表ビューのツールバーで label・自動化・テキストで絞り込み、列で並べ替える", async ({ page }, testInfo) => {
   await page.goto("/db/item");
   const rows = page.getByTestId("table-row");
   // fixture の項目: ルート 2 + note_list 5 + note_editor 3 + settings 2
   await expect(rows).toHaveCount(12);
   await expect(page.getByTestId("row-count")).toHaveText("12 行");
 
+  await page.getByRole("button", { name: "フィルター", exact: true }).click();
   await page.getByLabel("labels", { exact: true }).selectOption("課金");
   await expect(rows).toHaveCount(1);
   expect(await rowTitles(page)).toEqual(["一覧の並び"]);
   await expect(page.getByTestId("row-count")).toHaveText("1 / 12 行");
+  // ツールバーのボタンに、効いている絞り込みの数が出る
+  await expect(page.getByRole("button", { name: "フィルター 1", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("table-filter-label.png"), fullPage: true });
 
   await page.getByRole("button", { name: "絞り込みを消す" }).click();
@@ -91,14 +114,287 @@ test("表ビューで label・自動化・テキストで絞り込み、列で�
   await page.getByRole("button", { name: "絞り込みを消す" }).click();
   await expect(rows).toHaveCount(12);
 
-  const nameHeader = page.getByRole("columnheader", { name: "name" });
-  await nameHeader.getByRole("button").click();
+  await page.getByRole("button", { name: "並べ替え", exact: true }).click();
+  const nameHeader = page.getByRole("columnheader", { name: "name", exact: true });
+  await page.getByLabel("並べ替えるプロパティ", { exact: true }).selectOption("name");
   await expect(nameHeader).toHaveAttribute("aria-sort", "ascending");
   const ascending = await rowTitles(page);
-  await nameHeader.getByRole("button").click();
+  await page.getByLabel("並べ替えの向き", { exact: true }).selectOption("desc");
   await expect(nameHeader).toHaveAttribute("aria-sort", "descending");
   expect(await rowTitles(page)).toEqual([...ascending].reverse());
   await page.screenshot({ path: testInfo.outputPath("table-sort.png"), fullPage: true });
+});
+
+test("表の列見出しに型のアイコンが出て、セルが型に合わせて描かれる", async ({ page }, testInfo) => {
+  // QA 層の表には number・checkbox・url・date のプロパティが無いため、item に足して値を書く
+  const schema = await page.request.post("/api/databases/item/schema", {
+    data: { add: ["points:number", "verified:checkbox", "reference:url", "due:date"] },
+  });
+  expect(schema.ok()).toBe(true);
+  const written = await page.request.post("/api/databases/item/rows", {
+    data: {
+      id: await itemRowId(page, "一覧の並び"),
+      values: { points: 3, verified: true, reference: "https://example.com/spec/note-list", due: "2026-10-20" },
+    },
+  });
+  expect(written.ok()).toBe(true);
+
+  // 足した列まで 1 枚のスクリーンショットに収める幅
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto("/db/item");
+  for (const type of ["text", "number", "select", "multi_select", "checkbox", "url", "date", "relation"]) {
+    await expect(page.locator(`th[data-property-type="${type}"] .property-icon`).first()).toBeVisible();
+  }
+  const row = page.getByTestId("table-row").filter({ has: page.getByRole("button", { name: "一覧の並び を開く" }) });
+  await expect(row.locator(".tag", { hasText: /^auto$/ })).toBeVisible();
+  await expect(row.locator(".tag", { hasText: "課金" })).toBeVisible();
+  await expect(row.getByRole("checkbox", { name: "一覧の並び の verified" })).toBeChecked();
+  await expect(row.getByRole("link", { name: "https://example.com/spec/note-list" })).toBeVisible();
+  await expect(row.locator('time[datetime="2026-10-20"]')).toHaveText("2026-10-20");
+  await expect(row.getByRole("link", { name: "note_list", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("table-types.png"), fullPage: true });
+
+  // 数として保存できない入力 (Chromium では有限でない 1e999 は badInput で value が空になる) は保存せずに取り消し、
+  // 保存済みの値を消さない
+  await page.getByRole("button", { name: "一覧の並び の points を編集" }).click();
+  const pointsEditor = page.getByLabel("一覧の並び の points", { exact: true });
+  await pointsEditor.fill("1e999");
+  await pointsEditor.press("Enter");
+  await expect(pointsEditor).toHaveCount(0);
+  const rowsResponse = await page.request.get("/api/databases/item/rows");
+  const { rows: itemRows } = (await rowsResponse.json()) as {
+    rows: { values: { name?: { value: string }; points?: { value: number } } }[];
+  };
+  expect(itemRows.find((candidate) => candidate.values.name?.value === "一覧の並び")?.values.points?.value).toBe(3);
+});
+
+test("表のセルをその場で編集し、checkbox をクリックで切り替えると、読み込み直しても残る", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/db/item");
+  const expected = "ライト・ダーク・端末に合わせるの 3 つから選べる";
+  await page.getByRole("button", { name: "テーマを切り替えられる の expected を編集" }).click();
+  const editor = page.getByLabel("テーマを切り替えられる の expected", { exact: true });
+  await expect(editor).toBeFocused();
+  await editor.fill(expected);
+  await page.screenshot({ path: testInfo.outputPath("table-cell-editing.png"), fullPage: true });
+
+  // 保存の応答を待つ間はほかのセルの編集を始められず、保存に失敗しても編集欄と入力は残り、そのまま送り直せる
+  // 応答を待つ間の画面を確かめ終わるまで、失敗の応答を返さずに止めておく
+  let releaseFailure: () => void = () => undefined;
+  const failureReleased = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
+  await page.route("**/api/databases/item/rows", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await failureReleased;
+    await route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"E2E で失敗させた"}' });
+  });
+  const failed = itemRowWritten(page);
+  await editor.press("Enter");
+  await expect(page.getByRole("button", { name: "言語を切り替えられる の expected を編集" })).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: "言語を切り替えられる の verified" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "+ 新規", exact: true })).toBeDisabled();
+  releaseFailure();
+  expect((await failed).status()).toBe(500);
+  await expect(page.getByRole("alert")).toHaveText("E2E で失敗させた");
+  await expect(editor).toHaveValue(expected);
+  await expect(editor).toBeEnabled();
+  await page.unroute("**/api/databases/item/rows");
+
+  const savedText = itemRowWritten(page);
+  await editor.press("Enter");
+  expect((await savedText).ok()).toBe(true);
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByTestId("table-row").getByText(expected)).toBeVisible();
+
+  const checkbox = page.getByRole("checkbox", { name: "テーマを切り替えられる の verified" });
+  await expect(checkbox).not.toBeChecked();
+  const savedCheckbox = itemRowWritten(page);
+  await checkbox.click();
+  expect((await savedCheckbox).ok()).toBe(true);
+  await expect(checkbox).toBeChecked();
+
+  // multi_select は選択肢の文字を押して変え、「完了」か編集欄の外を押すと保存する
+  const themeRow = page
+    .getByTestId("table-row")
+    .filter({ has: page.getByRole("button", { name: "テーマを切り替えられる を開く" }) });
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  const specIdsEditor = page.getByRole("group", { name: "テーマを切り替えられる の spec_ids" });
+  await specIdsEditor.getByText("S3", { exact: true }).click();
+  await specIdsEditor.getByText("S5", { exact: true }).click();
+  await expect(specIdsEditor).toBeVisible();
+  const savedChoices = itemRowWritten(page);
+  await specIdsEditor.getByRole("button", { name: "完了" }).click();
+  expect((await savedChoices).ok()).toBe(true);
+  await expect(themeRow.locator(".tag", { hasText: /^S3$/ })).toBeVisible();
+  await expect(themeRow.locator(".tag", { hasText: /^S5$/ })).toBeVisible();
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S5", { exact: true }).click();
+  const savedOutside = itemRowWritten(page);
+  await page.getByRole("heading", { level: 1 }).click();
+  expect((await savedOutside).ok()).toBe(true);
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S5$/ })).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S3$/ })).toBeVisible();
+  // 選択肢を押した後の Esc は保存せずに取り消す
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S1", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S1$/ })).toHaveCount(0);
+  // キーボードで編集欄の外へ移っても保存する
+  await page.getByRole("button", { name: "テーマを切り替えられる の spec_ids を編集" }).click();
+  await specIdsEditor.getByText("S2", { exact: true }).click();
+  const savedByTab = itemRowWritten(page);
+  await specIdsEditor.getByRole("button", { name: "完了" }).focus();
+  await page.keyboard.press("Tab");
+  expect((await savedByTab).ok()).toBe(true);
+  await expect(specIdsEditor).toHaveCount(0);
+  await expect(themeRow.locator(".tag", { hasText: /^S2$/ })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId("table-row").getByText(expected)).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "テーマを切り替えられる の verified" })).toBeChecked();
+  await page.screenshot({ path: testInfo.outputPath("table-cell-edited.png"), fullPage: true });
+});
+
+test("表の最後の「+ 新規」で空の行が足され、絞り込み中でもその場で名前を付けられる", async ({ page }, testInfo) => {
+  await page.goto("/db/item");
+  const rows = page.getByTestId("table-row");
+  await expect(rows).toHaveCount(12);
+  // 足す空の行は labels に「課金」を持たず絞り込みに合わないが、名前を入れ終わるまでは表に残る
+  await page.getByRole("button", { name: "フィルター", exact: true }).click();
+  await page.getByLabel("labels", { exact: true }).selectOption("課金");
+  await expect(rows).toHaveCount(1);
+  const created = itemRowWritten(page);
+  await page.getByRole("button", { name: "+ 新規", exact: true }).click();
+  expect((await created).ok()).toBe(true);
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("row-count")).toHaveText("1 / 13 行");
+
+  // 足した行は名前の編集欄が開いた状態になる
+  const nameEditor = page.getByRole("textbox", { name: / の name$/ });
+  await expect(nameEditor).toBeFocused();
+  await nameEditor.fill("E2E で足した項目");
+  const named = itemRowWritten(page);
+  await nameEditor.press("Enter");
+  expect((await named).ok()).toBe(true);
+  await expect(rows).toHaveCount(1);
+
+  await page.reload();
+  await expect(rows).toHaveCount(13);
+  expect(await rowTitles(page)).toContain("E2E で足した項目");
+  await page.screenshot({ path: testInfo.outputPath("table-new-row.png"), fullPage: true });
+});
+
+test("表の行を開くと表を残したまま右にパネルが開き、切り替え・Esc・URL での復元・スマホ幅の全画面ができる", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/db/item");
+  await page.getByRole("button", { name: "一覧の並び を開く" }).click();
+  await expect(page).toHaveURL(/\/db\/item\?peek=[^&]+$/);
+  const peek = page.getByTestId("peek");
+  await expect(peek.getByRole("heading", { level: 1 })).toHaveText("一覧の並び");
+  // プロパティ (その場で編集できる)・本文・この item を参照している run
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(
+    "ノートが更新日時の新しい順に並び、ピン留めは先頭に残る",
+  );
+  await expect(peek.getByTestId("row-body").getByRole("heading", { name: "確認の順" })).toBeVisible();
+  await expect(peek.getByTestId("backlink")).toHaveCount(1);
+  // 表は左に残る
+  await expect(page.getByTestId("table-row")).toHaveCount(13);
+  await expect(page.getByRole("button", { name: "検索で絞り込める を開く" })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("peek.png") });
+  // パネルの中をスクロールして、本文と参照している run の履歴もスクリーンショットに残す
+  const peekBody = peek.getByTestId("row-body");
+  await peekBody.scrollIntoViewIfNeeded();
+  await expect(peekBody).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("peek-body.png") });
+  const peekBacklink = peek.getByTestId("backlink");
+  await peekBacklink.scrollIntoViewIfNeeded();
+  await expect(peekBacklink).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("peek-backlinks.png") });
+  const peekUrl = page.url();
+
+  // パネルでまだ保存していない入力は、表のセルで同じ行を書いても残り、表で書いた値はパネルに映る
+  const draft = "パネルで書きかけの期待値";
+  await peek.getByLabel("expected", { exact: true }).fill(draft);
+  const tableCheckbox = page.getByRole("checkbox", { name: "一覧の並び の verified" });
+  await expect(tableCheckbox).toBeChecked();
+  const written = itemRowWritten(page);
+  await tableCheckbox.click();
+  expect((await written).ok()).toBe(true);
+  await expect(peek.getByLabel("verified", { exact: true })).not.toBeChecked();
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+  // 続けて書くと (更新時刻が秒単位で同じでも) 後の値がパネルに映る
+  const writtenAgain = itemRowWritten(page);
+  await tableCheckbox.click();
+  expect((await writtenAgain).ok()).toBe(true);
+  await expect(peek.getByLabel("verified", { exact: true })).toBeChecked();
+  // 表のセルの編集を Esc で取り消しても、パネルは閉じず書きかけも残る
+  await page.getByRole("button", { name: "一覧の並び の labels を編集" }).click();
+  const labelsEditor = page.getByRole("group", { name: "一覧の並び の labels" });
+  await expect(labelsEditor).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(labelsEditor).toHaveCount(0);
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+
+  // パネルで保存した後の表の読み直しの間は、表の編集と「+ 新規」を止める。保存の後の item の行の取得は、
+  // 1 回目がパネル自身の読み直し、2 回目が表の読み直しで、2 回目の応答を確かめ終わるまで止めておく
+  let itemRowsFetches = 0;
+  let releaseTableReload: () => void = () => undefined;
+  const tableReloadReleased = new Promise<void>((resolve) => {
+    releaseTableReload = resolve;
+  });
+  await page.route("**/api/databases/item/rows", async (route) => {
+    if (route.request().method() === "GET") {
+      itemRowsFetches += 1;
+      if (itemRowsFetches === 2) {
+        await tableReloadReleased;
+      }
+    }
+    await route.continue();
+  });
+  await peek.getByRole("button", { name: "保存", exact: true }).click();
+  const newRowButton = page.getByRole("button", { name: "+ 新規", exact: true });
+  await expect(newRowButton).toBeDisabled();
+  await expect(page.getByRole("button", { name: "検索で絞り込める の expected を編集" })).toBeDisabled();
+  releaseTableReload();
+  await expect(newRowButton).toBeEnabled();
+  await page.unroute("**/api/databases/item/rows");
+  await expect(peek.getByLabel("expected", { exact: true })).toHaveValue(draft);
+
+  await page.getByRole("button", { name: "検索で絞り込める を開く" }).click();
+  await expect(peek.getByRole("heading", { level: 1 })).toHaveText("検索で絞り込める");
+  expect(page.url()).not.toBe(peekUrl);
+
+  await page.keyboard.press("Escape");
+  await expect(peek).toHaveCount(0);
+  await expect(page).toHaveURL(/\/db\/item$/);
+
+  await page.goto(peekUrl);
+  await expect(peek.getByRole("heading", { level: 1 })).toHaveText("一覧の並び");
+
+  // 同じ LAN の iPhone から開いた時の幅
+  await page.setViewportSize({ width: 390, height: 844 });
+  const box = await peek.boundingBox();
+  expect(box?.x).toBe(0);
+  expect(box?.width).toBeGreaterThan(360);
+  await page.screenshot({ path: testInfo.outputPath("peek-phone.png") });
+
+  await peek.getByRole("button", { name: "閉じる" }).click();
+  await expect(peek).toHaveCount(0);
+
+  // 無い行の URL で開いても、スマホ幅の全画面のパネルを閉じて表に戻れる
+  await page.goto("/db/item?peek=missing-row-id");
+  await expect(peek.getByRole("alert")).toContainText("missing-row-id");
+  await peek.getByRole("button", { name: "閉じる" }).click();
+  await expect(peek).toHaveCount(0);
+  await expect(page).toHaveURL(/\/db\/item$/);
 });
 
 test("QA の入力で OK / NG / あとで を記録するとフッターの件数が変わり、全部コピーが未入力と NG を markdown にする", async ({

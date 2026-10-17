@@ -1,6 +1,14 @@
 import { expect, test } from "vitest";
 import type { Database, Row } from "./api.ts";
-import { changedValues, filterRows, rowTitle, sortRows, valueText } from "./rows.ts";
+import { changedValues, filterRows, newRowId, rowTitle, sortRows, valueText } from "./rows.ts";
+
+test("画面が作る行 ID は CLI と同じ 21 文字で、- を含まず、毎回違う", () => {
+  const ids = Array.from({ length: 200 }, newRowId);
+  for (const id of ids) {
+    expect(id).toMatch(/^[0-9A-Za-z_]{21}$/);
+  }
+  expect(new Set(ids).size).toBe(ids.length);
+});
 
 const item: Database = {
   id: "db_item",

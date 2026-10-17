@@ -1,13 +1,51 @@
-import { useEffect, useState } from "react";
-import { type Database, type DatabaseRows, fetchRows, type Property } from "./api.ts";
-import { Link } from "./Link.tsx";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  type Database,
+  type DatabaseRows,
+  fetchRows,
+  type Property,
+  type PropertyKind,
+  type Row,
+  type RowValueInput,
+  upsertRow,
+} from "./api.ts";
+import { RowDetail } from "./RowDetail.tsx";
 import { errorText, fetchRelationTargets, relationTitles } from "./relations.ts";
-import { routePath } from "./route.ts";
-import { filterRows, type RowSort, rowTitle, sortRows, titleProperty } from "./rows.ts";
+import { navigate, routePath } from "./route.ts";
+import {
+  changedValues,
+  filterRows,
+  inputValue,
+  newRowId,
+  type RowSort,
+  type RowTitles,
+  rowTitle,
+  sortRows,
+  titleProperty,
+} from "./rows.ts";
 import { ValueView } from "./ValueView.tsx";
 
 /** 選択肢で絞り込むプロパティの型 (選んだ値と一致・含む行に絞る)。それ以外の型は文字の部分一致で絞り込む。 */
 const CHOICE_TYPES: ReadonlySet<string> = new Set(["select", "multi_select", "relation"]);
+
+/** 列見出しに出すプロパティの型のアイコン (Notion のテーブルビューの列見出しに合わせ、文字で描く)。 */
+const PROPERTY_ICONS: Record<PropertyKind["type"], string> = {
+  text: "Aa",
+  number: "#",
+  select: "◉",
+  multi_select: "☰",
+  checkbox: "☑",
+  url: "↗",
+  date: "▦",
+  relation: "⇄",
+};
 
 /** 表ビューが読み込んだ内容。 */
 type Loaded = {
@@ -17,32 +55,110 @@ type Loaded = {
   targets: Map<string, DatabaseRows>;
 };
 
-/** データベース `databaseName` の表ビュー。プロパティの列、選択肢とテキストでの絞り込み、列の並べ替え。 */
-export function TableView({ databaseName, databases }: { databaseName: string; databases: Database[] }) {
+/** その場で編集しているセル。 */
+type EditingCell = {
+  /** 行 ID。 */
+  rowId: string;
+  /** プロパティの名前。 */
+  property: string;
+};
+
+/**
+ * データベース `databaseName` の表ビュー (Notion のテーブルビューに寄せた格子の表)。列見出しに型のアイコン、セルは型に
+ * 合わせて描き、クリックでその場で編集する。絞り込みと並べ替えは表の上のツールバー、最後の行の「+ 新規」で空の行を足す。
+ * `peek` は右のパネル (サイドピーク) に開いている行の ID (URL の `?peek=`)。
+ */
+export function TableView({
+  databaseName,
+  databases,
+  peek,
+}: {
+  databaseName: string;
+  databases: Database[];
+  peek: string | null;
+}) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
   const [choiceFilters, setChoiceFilters] = useState<Record<string, string>>({});
   const [textProperty, setTextProperty] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [sort, setSort] = useState<RowSort | null>(null);
+  const [toolbarPanel, setToolbarPanel] = useState<"filter" | "sort" | null>(null);
+  const [editing, setEditing] = useState<EditingCell | null>(null);
+  const [adding, setAdding] = useState(false);
+  // パネルで保存・選択肢の追加をした後の表の読み直しの、終わっていない数。読み直しは最後に表全体を置き換えるため、その間の書き込みを
+  // 止める。パネルは読み直しの途中でも続けて保存できるので、重なった読み直しがすべて終わるまで止めるために数で持つ
+  const [reloadCount, setReloadCount] = useState(0);
+  // パネルで保存・選択肢の追加をして、まだ始めていない表の読み直し。セルの保存や行の追加の途中に読み直すと、その
+  // 書き込みより前の応答で表を置き換えてしまうため、それらが終わってから始める
+  const [reloadRequested, setReloadRequested] = useState(false);
+  // パネルの保存・選択肢の追加 (パネル自身の読み直しを含む) の、終わっていない数。その間に表で書くと、パネルの
+  // 読み直しの古い応答で、パネルに映した表の書き込みが戻ってしまうため、表の書き込みを止める。保存の途中で閉じて
+  // 開き直したパネルの書き込みと重なることがあるため、真偽値ではなく数で持つ
+  const [panelWritingCount, setPanelWritingCount] = useState(0);
+  const onPanelWritingChange = useCallback(
+    (panelWriting: boolean) => setPanelWritingCount((count) => count + (panelWriting ? 1 : -1)),
+    [],
+  );
+  // 表のセルで最後に書いた行か、パネルの保存の後に読み直したパネルの行。パネルに開いている行なら、その値をパネルに映す
+  const [lastWrittenRow, setLastWrittenRow] = useState<Row | undefined>(undefined);
+  // 保存の応答を待っているセル (`行 ID:プロパティ名`)。応答までは表のどのセルも編集させず (下の `writing`)、保存を 1 つずつにする。
+  // 保存は読み込んだ値との差分で送り応答の行で置き換えるため、並べると後の入力が「変更なし」になったり古い応答で
+  // 値が戻ったりする。また別のセルへ移ると、失敗した時に書きかけを持つ編集欄が消えてしまう
+  const [savingCell, setSavingCell] = useState<string | null>(null);
+
+  // 最後に始めた読み込みの番号。読み込みが重なって逆の順に返った時に、古い応答で表を戻さない
+  const latestLoad = useRef(0);
+  const load = useCallback(async () => {
+    latestLoad.current += 1;
+    const loadNumber = latestLoad.current;
+    const table = await fetchRows(databaseName);
+    const targets = await fetchRelationTargets(table.database, databases);
+    if (loadNumber !== latestLoad.current) {
+      return undefined;
+    }
+    setLoaded({ table, targets });
+    return table;
+  }, [databaseName, databases]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const table = await fetchRows(databaseName);
-      const targets = await fetchRelationTargets(table.database, databases);
-      if (!cancelled) {
-        setLoaded({ table, targets });
+    load().catch((caught: unknown) => setError(errorText(caught)));
+  }, [load]);
+
+  useEffect(() => {
+    if (!reloadRequested || savingCell !== null || adding) {
+      return;
+    }
+    setReloadRequested(false);
+    setReloadCount((count) => count + 1);
+    load()
+      .then((table) => {
+        // 保存したパネルを閉じて同じ行を開き直していると、開き直したパネルは保存の前の値を読んでいることがあるため、
+        // 読み直した行をパネルにも映す
+        const peekedRow = table?.rows.find((row) => row.id === peek);
+        if (peekedRow !== undefined) {
+          setLastWrittenRow(peekedRow);
+        }
+      })
+      .catch((caught: unknown) => setWriteError(errorText(caught)))
+      .finally(() => setReloadCount((count) => count - 1));
+  }, [reloadRequested, savingCell, adding, load, peek]);
+
+  useEffect(() => {
+    if (peek === null) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      // 編集欄の Esc はその編集の取消に使うため、パネルを閉じない
+      if (event.key !== "Escape" || isTextEntry(event.target)) {
+        return;
       }
-    })().catch((caught: unknown) => {
-      if (!cancelled) {
-        setError(errorText(caught));
-      }
-    });
-    return () => {
-      cancelled = true;
+      navigate(routePath({ page: "table", database: databaseName, peek: null }));
     };
-  }, [databaseName, databases]);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [peek, databaseName]);
 
   if (error !== null) {
     return (
@@ -71,118 +187,619 @@ export function TableView({ databaseName, databases }: { databaseName: string; d
     ],
     titles,
   );
-  const shown = sort === null ? filtered : sortRows(filtered, sort, titles);
+  // 編集中の行は絞り込みに合わなくなっても残す (「+ 新規」で足した空の行に名前を入れられるように)
+  const visible =
+    editing === null || filtered.some((row) => row.id === editing.rowId)
+      ? filtered
+      : [...filtered, ...rows.filter((row) => row.id === editing.rowId)];
+  const shown = sort === null ? visible : sortRows(visible, sort, titles);
+  const activeFilterCount = Object.values(choiceFilters).filter((value) => value !== "").length + (text === "" ? 0 : 1);
   const targetName = (property: Property) =>
     property.kind.type === "relation" ? loaded.targets.get(property.kind.target_database_id)?.database.name : undefined;
-  const toggleSort = (propertyName: string) =>
-    setSort((current) =>
-      current?.property === propertyName && current.direction === "asc"
-        ? { property: propertyName, direction: "desc" }
-        : { property: propertyName, direction: "asc" },
-    );
-  const sortHeader = (propertyName: string) => (
-    <th
-      key={propertyName}
-      aria-sort={sort?.property !== propertyName ? "none" : sort.direction === "asc" ? "ascending" : "descending"}
-    >
-      <button type="button" className="sort-button" onClick={() => toggleSort(propertyName)}>
-        {propertyName}
-        {sort?.property === propertyName ? (sort.direction === "asc" ? " ↑" : " ↓") : ""}
-      </button>
+  // 書いた行を表に映す。自分のデータベースを指す relation があれば、relation の相手 (表示名・絞り込みの選択肢) にも映す
+  const replaceRow = (written: Row) =>
+    setLoaded((current) => {
+      if (current === null) {
+        return current;
+      }
+      const withWritten = (rows: Row[]) =>
+        rows.some((row) => row.id === written.id)
+          ? rows.map((row) => (row.id === written.id ? written : row))
+          : [...rows, written];
+      const self = current.targets.get(current.table.database.id);
+      return {
+        table: { ...current.table, rows: withWritten(current.table.rows) },
+        targets:
+          self === undefined
+            ? current.targets
+            : new Map(current.targets).set(current.table.database.id, { ...self, rows: withWritten(self.rows) }),
+      };
+    });
+
+  // 表のセルの保存・行の追加・読み直し・パネルの保存のどれかの途中。その間は表の編集も「+ 新規」も、パネルの保存も
+  // 始めさせない (同じ行への書き込みを、表とパネル、閉じて開き直したパネルのあいだで 1 つずつにする)
+  const writing = savingCell !== null || adding || reloadRequested || reloadCount > 0 || panelWritingCount > 0;
+
+  const writeValue = async (row: Row, property: Property, value: RowValueInput) => {
+    const cellKey = `${row.id}:${property.name}`;
+    // 応答を待つ間に別のセルを開いていたら、そちらは閉じない
+    const closeEditor = () =>
+      setEditing((current) => (current?.rowId === row.id && current.property === property.name ? null : current));
+    // 表を読み込んだ後に CLI や別のタブが書いた値を消さないよう、変えたプロパティだけを送る
+    const values = changedValues(row, { [property.name]: value });
+    if (Object.keys(values).length === 0) {
+      closeEditor();
+      return;
+    }
+    setWriteError(null);
+    setSavingCell(cellKey);
+    try {
+      const written = await upsertRow(database.name, { id: row.id, values });
+      replaceRow(written);
+      setLastWrittenRow(written);
+      closeEditor();
+    } catch (caught) {
+      // 編集欄は開いたままにして、入力を直して送り直せるようにする
+      setWriteError(errorText(caught));
+    } finally {
+      setSavingCell(null);
+    }
+  };
+
+  const addRow = async () => {
+    setWriteError(null);
+    setAdding(true);
+    try {
+      const written = await upsertRow(database.name, { id: newRowId(), values: {} });
+      replaceRow(written);
+      if (title !== undefined) {
+        setEditing({ rowId: written.id, property: title.name });
+      }
+    } catch (caught) {
+      setWriteError(errorText(caught));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const ariaSort = (propertyName: string) =>
+    sort?.property !== propertyName ? "none" : sort.direction === "asc" ? "ascending" : "descending";
+  const header = (property: Property) => (
+    <th key={property.id} aria-sort={ariaSort(property.name)} data-property-type={property.kind.type}>
+      <span className="column-header">
+        <span className="property-icon" aria-hidden="true">
+          {PROPERTY_ICONS[property.kind.type]}
+        </span>
+        {property.name}
+        {sort?.property === property.name && <span aria-hidden="true">{sort.direction === "asc" ? " ↑" : " ↓"}</span>}
+      </span>
     </th>
+  );
+  const cell = (row: Row, property: Property, extra?: ReactNode) => (
+    <Cell
+      key={property.id}
+      row={row}
+      rowLabel={rowTitle(database, row)}
+      property={property}
+      titles={titles}
+      targetDatabaseName={targetName(property)}
+      editing={editing?.rowId === row.id && editing.property === property.name}
+      saving={savingCell === `${row.id}:${property.name}`}
+      locked={writing}
+      onEdit={() => setEditing({ rowId: row.id, property: property.name })}
+      onCancel={() => setEditing(null)}
+      onWrite={(value) => writeValue(row, property, value)}
+      extra={extra}
+    />
   );
 
   return (
-    <div className="table-view">
+    <div className={peek === null ? "table-view" : "table-view table-view-peeking"}>
       <header className="page-header">
         <h1>{database.name}</h1>
         <span className="muted" data-testid="row-count">
           {filtered.length === rows.length ? `${rows.length} 行` : `${filtered.length} / ${rows.length} 行`}
         </span>
       </header>
-      <div className="filters">
-        {choiceProperties.map((property) => (
-          <div key={property.id} className={choiceFilters[property.name] ? "filter filter-active" : "filter"}>
-            <span aria-hidden="true">{property.name}</span>
+      <div className="toolbar">
+        <button
+          type="button"
+          className={activeFilterCount > 0 ? "toolbar-button toolbar-button-active" : "toolbar-button"}
+          aria-expanded={toolbarPanel === "filter"}
+          onClick={() => setToolbarPanel(toolbarPanel === "filter" ? null : "filter")}
+        >
+          フィルター{activeFilterCount > 0 && ` ${activeFilterCount}`}
+        </button>
+        <button
+          type="button"
+          className={sort === null ? "toolbar-button" : "toolbar-button toolbar-button-active"}
+          aria-expanded={toolbarPanel === "sort"}
+          onClick={() => setToolbarPanel(toolbarPanel === "sort" ? null : "sort")}
+        >
+          並べ替え
+        </button>
+        {writeError !== null && (
+          <span role="alert" className="error">
+            {writeError}
+          </span>
+        )}
+      </div>
+      {toolbarPanel === "filter" && (
+        <div className="filters">
+          {choiceProperties.map((property) => (
+            <div key={property.id} className={choiceFilters[property.name] ? "filter filter-active" : "filter"}>
+              <span aria-hidden="true">{property.name}</span>
+              <select
+                aria-label={property.name}
+                value={choiceFilters[property.name] ?? ""}
+                onChange={(event) => setChoiceFilters({ ...choiceFilters, [property.name]: event.target.value })}
+              >
+                <option value="">すべて</option>
+                {choiceOptions(property, loaded.targets).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+          {searchedProperty !== undefined && (
+            <div className={text === "" ? "filter" : "filter filter-active"}>
+              <select
+                aria-label="テキストで絞り込むプロパティ"
+                value={searchedProperty}
+                onChange={(event) => setTextProperty(event.target.value)}
+              >
+                {textProperties.map((property) => (
+                  <option key={property.id} value={property.name}>
+                    {property.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="テキスト"
+                placeholder="含む文字"
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+              />
+            </div>
+          )}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              setChoiceFilters({});
+              setText("");
+            }}
+          >
+            絞り込みを消す
+          </button>
+        </div>
+      )}
+      {toolbarPanel === "sort" && (
+        <div className="filters">
+          <div className={sort === null ? "filter" : "filter filter-active"}>
             <select
-              aria-label={property.name}
-              value={choiceFilters[property.name] ?? ""}
-              onChange={(event) => setChoiceFilters({ ...choiceFilters, [property.name]: event.target.value })}
+              aria-label="並べ替えるプロパティ"
+              value={sort?.property ?? ""}
+              onChange={(event) =>
+                setSort(
+                  event.target.value === ""
+                    ? null
+                    : { property: event.target.value, direction: sort?.direction ?? "asc" },
+                )
+              }
             >
-              <option value="">すべて</option>
-              {choiceOptions(property, loaded.targets).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
-        {searchedProperty !== undefined && (
-          <div className={text === "" ? "filter" : "filter filter-active"}>
-            <select
-              aria-label="テキストで絞り込むプロパティ"
-              value={searchedProperty}
-              onChange={(event) => setTextProperty(event.target.value)}
-            >
-              {textProperties.map((property) => (
+              <option value="">(並べ替えない)</option>
+              {database.properties.map((property) => (
                 <option key={property.id} value={property.name}>
                   {property.name}
                 </option>
               ))}
             </select>
-            <input
-              aria-label="テキスト"
-              placeholder="含む文字"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-            />
+            <select
+              aria-label="並べ替えの向き"
+              value={sort?.direction ?? "asc"}
+              disabled={sort === null}
+              onChange={(event) =>
+                setSort(sort === null ? null : { ...sort, direction: event.target.value === "desc" ? "desc" : "asc" })
+              }
+            >
+              <option value="asc">昇順</option>
+              <option value="desc">降順</option>
+            </select>
           </div>
-        )}
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => {
-            setChoiceFilters({});
-            setText("");
-          }}
-        >
-          絞り込みを消す
-        </button>
-      </div>
+        </div>
+      )}
       <div className="table-scroll">
-        <table>
+        <table className="grid">
           <thead>
             <tr>
-              {title === undefined ? <th>ID</th> : sortHeader(title.name)}
-              {columns.map((property) => sortHeader(property.name))}
+              {title === undefined ? <th>ID</th> : header(title)}
+              {columns.map(header)}
             </tr>
           </thead>
           <tbody>
-            {shown.map((row) => (
-              <tr key={row.id} data-testid="table-row" data-row-id={row.id}>
-                <td>
-                  <Link className="row-title" to={routePath({ page: "row", database: database.name, rowId: row.id })}>
-                    {rowTitle(database, row)}
-                  </Link>
-                </td>
-                {columns.map((property) => (
-                  <td key={property.id}>
-                    <ValueView
-                      propertyName={property.name}
-                      value={row.values[property.name]}
-                      titles={titles}
-                      targetDatabaseName={targetName(property)}
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {shown.map((row) => {
+              const openButton = (
+                <OpenButton
+                  label={rowTitle(database, row)}
+                  onOpen={() => navigate(routePath({ page: "table", database: database.name, peek: row.id }))}
+                />
+              );
+              return (
+                <tr
+                  key={row.id}
+                  data-testid="table-row"
+                  data-row-id={row.id}
+                  className={row.id === peek ? "row-peeked" : undefined}
+                >
+                  {title === undefined ? (
+                    <td className="cell title-cell">
+                      <span className="cell-value row-title">{row.id}</span>
+                      {openButton}
+                    </td>
+                  ) : (
+                    cell(row, title, openButton)
+                  )}
+                  {columns.map((property) => cell(row, property))}
+                </tr>
+              );
+            })}
+            <tr>
+              <td colSpan={columns.length + 1} className="new-row-cell">
+                <button type="button" className="new-row-button" disabled={writing} onClick={addRow}>
+                  + 新規
+                </button>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
+      {peek !== null && (
+        <section className="peek" aria-label="行のページ" data-testid="peek">
+          <RowDetail
+            key={peek}
+            savedRow={lastWrittenRow}
+            databaseName={database.name}
+            rowId={peek}
+            databases={databases}
+            onClose={() => navigate(routePath({ page: "table", database: database.name, peek: null }))}
+            onSaved={() => setReloadRequested(true)}
+            onWritingChange={onPanelWritingChange}
+            locked={writing}
+          />
+        </section>
+      )}
     </div>
   );
+}
+
+/** キー入力が文字の入力に使われる要素か (Esc をその要素の編集の取消に残すため)。 */
+function isTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.matches("textarea, select, input:not([type=checkbox])") || target.isContentEditable)
+  );
+}
+
+/** 行の名前の列の行頭に出す「開く」。押すと右のパネルにその行のページを開く。`label` は行の名前。 */
+function OpenButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <button type="button" className="open-button" aria-label={`${label} を開く`} onClick={onOpen}>
+      開く
+    </button>
+  );
+}
+
+/**
+ * 表の 1 つのセル。checkbox はその場で切り替え、relation は読み取りだけ (詳細ページと同じく編集しない)、それ以外は
+ * クリックで `editing` にして編集欄を出す。`onWrite` は編集した値を保存し、`onCancel` は保存せずに編集をやめる。
+ * `extra` は値の後に置く要素 (行の名前の列の「開く」)。`rowLabel` は行の名前で、操作の名前に使う。
+ * `saving` はこのセルの保存の応答を待つ間、`locked` は表のどこかで書き込み (セルの保存・行の追加・読み直し) の途中の間 (編集を始めさせない)。
+ */
+function Cell({
+  row,
+  rowLabel,
+  property,
+  titles,
+  targetDatabaseName,
+  editing,
+  saving,
+  locked,
+  onEdit,
+  onCancel,
+  onWrite,
+  extra,
+}: {
+  row: Row;
+  rowLabel: string;
+  property: Property;
+  titles: RowTitles;
+  targetDatabaseName: string | undefined;
+  editing: boolean;
+  saving: boolean;
+  locked: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onWrite: (value: RowValueInput) => void;
+  extra?: ReactNode;
+}) {
+  const value = row.values[property.name];
+  const label = `${rowLabel} の ${property.name}`;
+  const className = extra === undefined ? "cell" : "cell title-cell";
+  if (property.kind.type === "checkbox") {
+    return (
+      <td className={className}>
+        <input
+          type="checkbox"
+          aria-label={label}
+          checked={value?.type === "checkbox" && value.value}
+          disabled={locked}
+          onChange={(event) => onWrite(event.target.checked)}
+        />
+      </td>
+    );
+  }
+  if (editing && property.kind.type !== "relation") {
+    return (
+      <td className={`${className} cell-editing`}>
+        <CellEditor
+          property={property}
+          initial={inputValue(value)}
+          label={label}
+          saving={saving}
+          onWrite={onWrite}
+          onCancel={onCancel}
+        />
+      </td>
+    );
+  }
+  return (
+    <td className={className}>
+      {property.kind.type !== "relation" && (
+        <button type="button" className="cell-edit" aria-label={`${label} を編集`} disabled={locked} onClick={onEdit} />
+      )}
+      <span className={extra === undefined ? "cell-value" : "cell-value row-title"}>
+        {extra !== undefined && (value === undefined || (value.type === "text" && value.value === "")) ? (
+          <span className="muted">無題</span>
+        ) : (
+          <ValueView
+            propertyName={property.name}
+            value={value}
+            titles={titles}
+            targetDatabaseName={targetDatabaseName}
+          />
+        )}
+      </span>
+      {extra}
+    </td>
+  );
+}
+
+/**
+ * キー入力が日本語の変換の途中 (確定の Enter を含む) か。Safari は確定の Enter の keydown より先に compositionend を
+ * 送り、その keydown の isComposing が false になるため、keyCode 229 でも見分ける
+ * (https://bugs.webkit.org/show_bug.cgi?id=165004)。
+ */
+function isComposing(event: ReactKeyboardEvent): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
+/** 編集欄を描いた時にフォーカスを移す ref。 */
+function focusOnMount(element: HTMLElement | null) {
+  element?.focus();
+}
+
+/**
+ * セルの編集欄。text / number / url / date は入力欄で Enter (text は Shift + Enter で改行) かフォーカスを外すと保存、
+ * select は選ぶと保存、multi_select はチェックを変えて「完了」か編集欄の外を押すと保存する。Esc は保存せずにやめる。
+ * `initial` は編集前の値 (upsert に渡す形)。`label` は編集欄の名前。`saving` は保存の応答を待つ間で、その間は入力を
+ * 受け付けない。保存に失敗すると編集欄は開いたまま `saving` が戻り、入力を直して送り直せる。
+ */
+function CellEditor({
+  property,
+  initial,
+  label,
+  saving,
+  onWrite,
+  onCancel,
+}: {
+  property: Property;
+  initial: RowValueInput;
+  label: string;
+  saving: boolean;
+  onWrite: (value: RowValueInput) => void;
+  onCancel: () => void;
+}) {
+  const [draftText, setDraftText] = useState(
+    typeof initial === "string" || typeof initial === "number" ? String(initial) : "",
+  );
+  const [draftChoices, setDraftChoices] = useState(Array.isArray(initial) ? initial : []);
+  // 保存か取消をした後に、編集欄が消える時の blur でもう一度保存しないようにする
+  const finished = useRef(false);
+  // 保存に失敗して編集欄が残った時は、もう一度保存できるようにする
+  useEffect(() => {
+    if (!saving) {
+      finished.current = false;
+    }
+  }, [saving]);
+  const finish = (value: RowValueInput | undefined) => {
+    if (finished.current) {
+      return;
+    }
+    finished.current = true;
+    if (value === undefined) {
+      onCancel();
+    } else {
+      onWrite(value);
+    }
+  };
+  // 編集欄の Esc はこの編集の取消だけに使い、パネルを閉じる window の Esc まで届けない (window 側も isTextEntry で
+  // 見分けるが、編集欄が決める方を正にする。multi_select の Esc は下の document で受ける)
+  const cancel = (event: ReactKeyboardEvent) => {
+    event.stopPropagation();
+    finish(undefined);
+  };
+  // number の入力欄に数として読めない文字 (1e・1.2.3・Chromium では有限でない 1e999 も) を入れると、value は空文字に
+  // なり (validity.badInput)、そのまま送ると空にする (null) として保存済みの値を消してしまう。読めても有限でない値は
+  // JSON で null になって同じことが起きる。どちらも保存せずに取り消す (undefined)。`input` は編集している入力欄
+  const textValue = (input: HTMLInputElement): RowValueInput | undefined => {
+    if (property.kind.type !== "number") {
+      return draftText;
+    }
+    if (input.validity.badInput) {
+      return undefined;
+    }
+    if (draftText.trim() === "") {
+      return null;
+    }
+    const parsed = Number(draftText);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+
+  // multi_select の編集欄は、編集欄の外を押した時と、移り先の分かる blur で外へ出た時に保存し、Esc はフォーカスの
+  // 場所を問わず取り消す。Safari では checkbox と label を押してもフォーカスが移らず (それまでの要素は移り先の無い
+  // blur をする)、どんな blur でも保存したり編集欄の keydown だけで Esc を受けたりすると、選択肢を押した瞬間に
+  // 閉じたり、その後の Esc が届かなかったりするため
+  const popover = useRef<HTMLFieldSetElement>(null);
+  // document の listener から、最新の選択で保存 (`save` が true) か取消をする
+  const finishChoices = useRef((save: boolean) => finish(save ? draftChoices : undefined));
+  finishChoices.current = (save) => finish(save ? draftChoices : undefined);
+  useEffect(() => {
+    if (property.kind.type !== "multi_select") {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      // 右クリックなど主ボタン以外の操作では閉じない
+      if (event.button !== 0) {
+        return;
+      }
+      if (!(event.target instanceof Node && popover.current?.contains(event.target))) {
+        finishChoices.current(true);
+      }
+    };
+    // capture で受けて止め、パネルを閉じる window の Esc まで届けない
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        finishChoices.current(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [property.kind.type]);
+
+  switch (property.kind.type) {
+    case "select":
+      return (
+        <select
+          ref={focusOnMount}
+          aria-label={label}
+          className="cell-input"
+          // 保存済みの値を出し続け、保存に失敗した時に同じ選択肢を選び直せる (change が起きる) ようにする
+          value={typeof initial === "string" ? initial : ""}
+          disabled={saving}
+          onChange={(event) => finish(event.target.value === "" ? null : event.target.value)}
+          onBlur={() => finish(undefined)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              cancel(event);
+            }
+          }}
+        >
+          <option value="">(なし)</option>
+          {property.kind.options.map((option) => (
+            <option key={option.id} value={option.name}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      );
+    case "multi_select":
+      return (
+        <fieldset
+          ref={popover}
+          className="cell-popover"
+          aria-label={label}
+          disabled={saving}
+          onBlur={(event) => {
+            // Tab などキーボードでフォーカスが編集欄の外へ移った時も保存する。移り先が無い (null の) blur は Safari で
+            // 選択肢を押した時にも起きるため、移り先が分かる時だけにする
+            if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) {
+              finish(draftChoices);
+            }
+          }}
+        >
+          {property.kind.options.length === 0 && <span className="muted small">選択肢はまだありません</span>}
+          {property.kind.options.map((option) => (
+            <label key={option.id} className="check">
+              <input
+                type="checkbox"
+                checked={draftChoices.includes(option.name)}
+                onChange={(event) =>
+                  setDraftChoices(
+                    event.target.checked
+                      ? [...draftChoices, option.name]
+                      : draftChoices.filter((name) => name !== option.name),
+                  )
+                }
+              />
+              {option.name}
+            </label>
+          ))}
+          <button type="button" ref={focusOnMount} className="link-button" onClick={() => finish(draftChoices)}>
+            完了
+          </button>
+        </fieldset>
+      );
+    case "text":
+      return (
+        <textarea
+          ref={focusOnMount}
+          aria-label={label}
+          className="cell-input"
+          rows={3}
+          value={draftText}
+          disabled={saving}
+          onChange={(event) => setDraftText(event.target.value)}
+          onBlur={() => finish(draftText)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !isComposing(event)) {
+              event.preventDefault();
+              finish(draftText);
+            } else if (event.key === "Escape" && !isComposing(event)) {
+              cancel(event);
+            }
+          }}
+        />
+      );
+    default:
+      return (
+        <input
+          ref={focusOnMount}
+          aria-label={label}
+          className="cell-input"
+          type={property.kind.type === "number" ? "number" : "text"}
+          placeholder={property.kind.type === "date" ? "2026-10-12" : property.kind.type === "url" ? "https://" : ""}
+          value={draftText}
+          disabled={saving}
+          onChange={(event) => setDraftText(event.target.value)}
+          onBlur={(event) => finish(textValue(event.currentTarget))}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !isComposing(event)) {
+              finish(textValue(event.currentTarget));
+            } else if (event.key === "Escape" && !isComposing(event)) {
+              cancel(event);
+            }
+          }}
+        />
+      );
+  }
 }
 
 /** 選択肢で絞り込むプロパティの (絞り込みの値, 見せる名前) の一覧。relation は相手の行 ID と行の名前。 */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import {
   addProperties,
@@ -28,15 +28,32 @@ type Loaded = {
   backlinks: { database: Database; property: Property; rows: Row[] }[];
 };
 
-/** データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。 */
+/**
+ * データベース `databaseName` の行 `rowId` の詳細ページ。プロパティと markdown の本文を編集し、参照している行を並べる。
+ * `onClose` を渡すと表の右のパネル (サイドピーク) の中身として描き、上の帯に閉じるボタンと「全画面で開く」を出す。
+ * `onSaved` は保存か選択肢の追加が成功した後に呼ぶ (パネルの時に表を読み直し、行の値と選択肢を表に映すため)。`onWritingChange` は保存・選択肢の追加の途中か (その後の読み直しを含む) が変わるたびに呼ぶ (表がその間の書き込みを止めるため)。`locked` は表の書き込み (セルの保存・行の追加・表の読み直し) かパネルの書き込み (閉じる前のパネルの分を含む) の途中で、その間は保存と選択肢の追加をさせない
+ * (同じ行への書き込みが重なると、後から届いた応答で保存した値が戻るため。全画面の詳細ページでは表が無いので既定の
+ * false)。`savedRow` は表のセルで書いた後のこの行で、
+ * 書かれた値をパネルに映すために渡す。
+ */
 export function RowDetail({
   databaseName,
   rowId,
   databases,
+  onClose,
+  onSaved,
+  onWritingChange,
+  savedRow,
+  locked = false,
 }: {
   databaseName: string;
   rowId: string;
   databases: Database[];
+  onClose?: () => void;
+  onSaved?: () => void;
+  onWritingChange?: (writing: boolean) => void;
+  savedRow?: Row;
+  locked?: boolean;
 }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [draft, setDraft] = useState<Record<string, RowValueInput>>({});
@@ -47,6 +64,12 @@ export function RowDetail({
   // 保存・選択肢の追加の応答を待つ間は編集欄を無効にする。応答の後に読み直した値で編集欄を置き換えるため、
   // 待つ間の入力を受け付けると消えてしまう
   const [writing, setWriting] = useState(false);
+  // 書き込みの始まりと終わりを表にも伝える。パネルを閉じたり別の行に切り替えたりしても送った書き込みは続くため、
+  // 描画ではなく書き込みの完了で伝える
+  const setWritingAndNotify = (value: boolean) => {
+    setWriting(value);
+    onWritingChange?.(value);
+  };
 
   const load = useCallback(async () => {
     const { database, rows } = await fetchRows(databaseName);
@@ -91,22 +114,64 @@ export function RowDetail({
     load().catch((caught: unknown) => setError(errorText(caught)));
   }, [load]);
 
+  // 映した `savedRow`。書き込みごとに別の値が来るため同じ値かで見分ける (updated_at は秒単位で、同じ秒の書き込みを
+  // 区別できない)。開く前に書いた行は読み込みに含まれるので、映し済みとして始める
+  const appliedSavedRow = useRef(savedRow);
+
+  // 表のセルで同じ行が書かれた時は、この画面でまだ触っていないプロパティの編集欄と本文だけを書かれた後の値に
+  // 置き換え、この画面でまだ保存していない入力は残す (書かれた行には CLI や別のタブが書いた値も入っているため、
+  // 値が変わったかではなく、この画面で触ったかで分ける)
+  useEffect(() => {
+    if (savedRow === undefined || savedRow === appliedSavedRow.current || savedRow.id !== rowId || loaded === null) {
+      return;
+    }
+    appliedSavedRow.current = savedRow;
+    const previous = loaded.row;
+    setDraft((current) => ({
+      ...current,
+      ...Object.fromEntries(
+        loaded.database.properties
+          .filter(
+            (property) =>
+              property.kind.type !== "relation" &&
+              JSON.stringify(current[property.name]) === JSON.stringify(inputValue(previous.values[property.name])),
+          )
+          .map((property) => [property.name, inputValue(savedRow.values[property.name])]),
+      ),
+    }));
+    setBody((current) => (current === previous.body ? savedRow.body : current));
+    setLoaded({ ...loaded, row: savedRow });
+  }, [savedRow, rowId, loaded]);
+
   if (loaded === null) {
-    return error === null ? (
-      <p className="muted">読み込み中</p>
-    ) : (
-      <p role="alert" className="error">
-        {error}
-      </p>
+    return (
+      <>
+        {/* 消した行や古い URL でパネルを開いた時も、スマホ幅の全画面のパネルから抜けられるようにする */}
+        {onClose !== undefined && (
+          <header className="bar">
+            <button type="button" className="icon-button" aria-label="閉じる" onClick={onClose}>
+              ×
+            </button>
+          </header>
+        )}
+        {error === null ? (
+          <p className="muted">読み込み中</p>
+        ) : (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+      </>
     );
   }
   const { database, row } = loaded;
+  const DetailMain = onClose === undefined ? "main" : "div";
   const titles = relationTitles(loaded.targets);
 
   const save = async () => {
     setError(null);
     setStatus(null);
-    setWriting(true);
+    setWritingAndNotify(true);
     try {
       // 開いた後に CLI や別のタブが書いた値を消さないよう、この画面で変えた値と本文だけを送る
       await upsertRow(database.name, {
@@ -117,19 +182,21 @@ export function RowDetail({
       await load();
       setEditingBody(false);
       setStatus("保存しました");
+      onSaved?.();
     } catch (caught) {
       setError(errorText(caught));
     } finally {
-      setWriting(false);
+      setWritingAndNotify(false);
     }
   };
 
   const addOption = async (property: Property, optionName: string) => {
     setError(null);
-    setWriting(true);
+    setWritingAndNotify(true);
     try {
       const updated = await addProperties(database.name, [`${property.name}:${property.kind.type}:${optionName}`]);
       setLoaded({ ...loaded, database: updated });
+      onSaved?.();
       const current = draft[property.name];
       setDraft({
         ...draft,
@@ -139,20 +206,30 @@ export function RowDetail({
     } catch (caught) {
       setError(errorText(caught));
     } finally {
-      setWriting(false);
+      setWritingAndNotify(false);
     }
   };
 
   return (
     <div className="detail">
       <header className="bar">
-        <Link to={routePath({ page: "table", database: database.name })}>← {database.name}</Link>
+        {onClose === undefined ? (
+          <Link to={routePath({ page: "table", database: database.name, peek: null })}>← {database.name}</Link>
+        ) : (
+          <>
+            <button type="button" className="icon-button" aria-label="閉じる" onClick={onClose}>
+              ×
+            </button>
+            <Link to={routePath({ page: "row", database: database.name, rowId: row.id })}>全画面で開く</Link>
+          </>
+        )}
         <div className="spacer" />
         <span className="muted small">
           ID {row.id} · 更新 {row.updated_at}
         </span>
       </header>
-      <main className="detail-main">
+      {/* 全画面の詳細ページでは main のランドマークにし、パネルでは表の画面の main の中なので入れ子にしない */}
+      <DetailMain className="detail-main">
         <section className="detail-body">
           <h1>{rowTitle(database, row)}</h1>
           <fieldset className="editor" disabled={writing}>
@@ -174,6 +251,7 @@ export function RowDetail({
                         value={draft[property.name] ?? null}
                         onChange={(value) => setDraft({ ...draft, [property.name]: value })}
                         onAddOption={(optionName) => addOption(property, optionName)}
+                        locked={locked}
                       />
                     )}
                   </div>
@@ -202,7 +280,7 @@ export function RowDetail({
               )}
             </div>
             <div className="actions">
-              <button type="button" className="primary" onClick={save}>
+              <button type="button" className="primary" disabled={locked} onClick={save}>
                 保存
               </button>
               {status !== null && (
@@ -230,7 +308,7 @@ export function RowDetail({
             </section>
           ))}
         </aside>
-      </main>
+      </DetailMain>
     </div>
   );
 }
@@ -295,17 +373,22 @@ function BacklinkCard({
   );
 }
 
-/** relation 以外のプロパティの編集欄。select / multi_select は選択肢を足せる。 */
+/**
+ * relation 以外のプロパティの編集欄。select / multi_select は選択肢を足せる。`locked` の間は選択肢を足させない
+ * (表の書き込みの途中。`RowDetail` の `locked`)。
+ */
 function PropertyEditor({
   property,
   value,
   onChange,
   onAddOption,
+  locked,
 }: {
   property: Property;
   value: RowValueInput;
   onChange: (value: RowValueInput) => void;
   onAddOption: (optionName: string) => void;
+  locked: boolean;
 }) {
   const [newOption, setNewOption] = useState("");
   const addOptionInput = (
@@ -318,7 +401,7 @@ function PropertyEditor({
       />
       <button
         type="button"
-        disabled={newOption.trim() === "" || newOption.includes(",")}
+        disabled={locked || newOption.trim() === "" || newOption.includes(",")}
         onClick={() => {
           onAddOption(newOption.trim());
           setNewOption("");

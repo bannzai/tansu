@@ -15,7 +15,8 @@ function currentRoute(): Route {
 
 /**
  * Web 画面のルート。URL で画面を選ぶ。一覧と表ビューは左にデータベースの一覧を出し、行の詳細と QA の入力は
- * 画面いっぱいに出す (documents/design/mock-2026-10-11/ のモック)。
+ * 画面いっぱいに出す (documents/design/mock-2026-10-11/ のモック)。表ビューから開いた行は、表を残したまま
+ * 右のパネル (サイドピーク) に出す。
  */
 export function App() {
   const [route, setRoute] = useState(currentRoute);
@@ -55,7 +56,7 @@ export function App() {
             <ul className="database-list">
               {databases.map((database) => (
                 <li key={database.id}>
-                  <Link to={routePath({ page: "table", database: database.name })}>{database.name}</Link>
+                  <Link to={routePath({ page: "table", database: database.name, peek: null })}>{database.name}</Link>
                   <span className="muted small">
                     {database.properties.map((property) => property.name).join(" · ")}
                   </span>
@@ -68,7 +69,7 @@ export function App() {
     case "table":
       return (
         <Sidebar databases={databases} current={route.database}>
-          <TableView key={route.database} databaseName={route.database} databases={databases} />
+          <TableView key={route.database} databaseName={route.database} databases={databases} peek={route.peek} />
         </Sidebar>
       );
     case "row":
@@ -113,7 +114,7 @@ function Sidebar({
             key={database.id}
             className={database.name === current ? "nav-link nav-link-current" : "nav-link"}
             aria-current={database.name === current ? "page" : undefined}
-            to={routePath({ page: "table", database: database.name })}
+            to={routePath({ page: "table", database: database.name, peek: null })}
           >
             {database.name}
           </Link>
