@@ -296,6 +296,15 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   await expect(page.getByTestId("table-row")).toHaveCount(13);
   await expect(page.getByRole("button", { name: "検索で絞り込める を開く" })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("peek.png") });
+  // パネルの中をスクロールして、本文と参照している run の履歴もスクリーンショットに残す
+  const peekBody = peek.getByTestId("row-body");
+  await peekBody.scrollIntoViewIfNeeded();
+  await expect(peekBody).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("peek-body.png") });
+  const peekBacklink = peek.getByTestId("backlink");
+  await peekBacklink.scrollIntoViewIfNeeded();
+  await expect(peekBacklink).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("peek-backlinks.png") });
   const peekUrl = page.url();
 
   // パネルでまだ保存していない入力は、表のセルで同じ行を書いても残り、表で書いた値はパネルに映る
