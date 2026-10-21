@@ -56,7 +56,7 @@ QA.md 群を QA 層の 4 つのデータベース (project / feature / item / ru
 
 - ルートの下で探す QA.md: ルートが git の作業ツリーの中なら、git が追跡している QA.md と、未追跡で `.gitignore` (`.git/info/exclude`・global の excludes を含む) の対象でない QA.md (`git ls-files --cached --others --exclude-standard`)。ルートより下で `.git` (ファイルでもディレクトリでも) を持つディレクトリ (入れ子の worktree・サブモジュール・別のリポジトリ) の下と、作業ツリーに無いファイル (削除してまだ commit していない等) は読まない。ルートが git の作業ツリーの外か、ルート自体が `.gitignore` の対象か、git を実行できない時は、`.gitignore` と入れ子の `.git` を見ずに配下をすべて探す。どちらでも `.git` / `node_modules` / `target` という名前のディレクトリの下と symlink は読まない。読まなかった QA.md は `files` に出さない
 - `--dry-run`: DB を開かず何も書かない (利用記録は足す)。出力は取り込んだ時と同じ
-- 出力 (`--json`): 下の object。`--json` 無しは件数の 1 行、行の扱いの内訳の 1 行と、どこにも入らなかった行・本文に残した行を 1 行ずつ
+- 出力 (`--json`): 下の object。`--json` 無しは件数の 1 行、行の扱いの内訳の 1 行と、どこにも入らなかった行・本文に残した行を 1 行ずつ。行の `file`・`content`・`reason` の制御文字 (Unicode の Cc。C0・DEL・C1) は、C0 と DEL は `\x1b`、C1 は `\u{9b}` の形の可視表現に置き換えて出す
 - QA.md の各行は、構造として読んだ行 (`lines.structured`) か、構造として読めず feature・item・run の本文に残した行 (`skipped`) のどちらか 1 つになる。どちらにもならなかった行は `unaccounted` に出る。`unaccounted` が空なら、取り込んだ QA.md の内容は DB から読める (QA.md を消してよいかの判定に使う)
 - exit code: 成功 0、失敗 1 (読めないパス等。その時は何も書かない)
 
