@@ -26,6 +26,15 @@ test("トークンを受け取っていない画面は API が 401 になり、�
   expect((await databases).status()).toBe(401);
   await expect(page.getByRole("alert")).toContainText("#token=");
   await page.screenshot({ path: testInfo.outputPath("unauthorized.png"), fullPage: true });
+
+  // 案内どおり同じタブで #token= 付きの URL を開くと (fragment だけの遷移)、読み込み直してトークンで API を呼べる
+  const authorized = page.waitForResponse(
+    (response) => response.url().endsWith("/api/databases") && response.status() === 200,
+  );
+  await page.goto(withToken("/"));
+  await authorized;
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/$/);
 });
 
 /** 利用記録 (usage.jsonl) の `web_open` の行の数。 */
