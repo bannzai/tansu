@@ -450,6 +450,7 @@ fn import_output(report: &ImportReport, json: bool) -> Result<String, serde_json
 }
 
 /// `qa import` の `--json` 無しの出力。件数を 1 行、行の扱いの内訳を 1 行と、どこにも入らなかった行・本文に残した行を 1 行ずつ。
+/// 行のファイル名・内容・理由は QA.md 由来のため、[`escape_control_characters`] を通して端末の制御を解釈させない。
 fn import_summary(report: &ImportReport) -> String {
     let mut summary = format!(
         "{}project: {}, feature: {}, item: {}, run: {} ({} ファイル)\n行: 構造として読んだ {} 行、本文に残した {} 行、どこにも入らなかった {} 行",
@@ -474,11 +475,30 @@ fn import_summary(report: &ImportReport) -> String {
         for line in lines {
             summary.push_str(&format!(
                 "\n  {}:{}: {} ({})",
-                line.file, line.line, line.content, line.reason
+                escape_control_characters(&line.file),
+                line.line,
+                escape_control_characters(&line.content),
+                escape_control_characters(&line.reason)
             ));
         }
     }
     summary
+}
+
+/// `text` の制御文字 (Unicode の Cc。C0・DEL・C1) を、C0 と DEL は `\x1b`、C1 は `\u{9b}` の形の可視表現に置き換えた文字列。
+/// それ以外の文字 (日本語などの ASCII 以外を含む) はそのまま残す。
+fn escape_control_characters(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if !character.is_control() {
+                character.to_string()
+            } else if character.is_ascii() {
+                format!("\\x{:02x}", u32::from(character))
+            } else {
+                format!("\\u{{{:x}}}", u32::from(character))
+            }
+        })
+        .collect()
 }
 
 /// stdout に出す整形した JSON。
@@ -519,6 +539,8 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use clap::error::ErrorKind;
+    use tansu_core::qa::import::{ImportCounts, ImportLines};
+    use tansu_core::qa::qa_md::SkippedLine;
 
     use super::*;
 
@@ -703,6 +725,55 @@ mod tests {
                 "markdown"
             ])
             .is_err()
+        );
+    }
+
+    /// QA.md 由来の ESC・BEL・NUL・DEL・C1 の CSI・行の途中の CR・タブを、端末に制御として届けず可視表現で出す。
+    #[test]
+    fn import_summary_escapes_control_characters() {
+        let skipped_line = |file: &str, content: &str, reason: &str| SkippedLine {
+            file: file.into(),
+            line: 3,
+            content: content.into(),
+            reason: reason.into(),
+        };
+        let summary = import_summary(&ImportReport {
+            dry_run: false,
+            files: vec![],
+            counts: ImportCounts {
+                project: 0,
+                feature: 0,
+                item: 0,
+                run: 0,
+            },
+            lines: ImportLines {
+                structured: 0,
+                body: 1,
+            },
+            skipped: vec![skipped_line(
+                "a/QA.md",
+                "\u{1b}[31m赤\u{7}\0\u{7f}\u{9b}2J\r偽\tタブ",
+                "理由",
+            )],
+            unaccounted: vec![skipped_line(
+                "b\u{1b}]0;x\u{7}/QA.md",
+                "行",
+                "feature `\u{1b}[2J` が既にある",
+            )],
+        });
+        assert!(
+            !summary.chars().any(|c| c.is_control() && c != '\n'),
+            "{summary:?}"
+        );
+        assert!(
+            summary.contains(
+                "\n  a/QA.md:3: \\x1b[31m赤\\x07\\x00\\x7f\\u{9b}2J\\x0d偽\\x09タブ (理由)"
+            ),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("\n  b\\x1b]0;x\\x07/QA.md:3: 行 (feature `\\x1b[2J` が既にある)"),
+            "{summary}"
         );
     }
 
