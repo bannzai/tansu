@@ -2,6 +2,8 @@
 // 型の正は Rust の serde の表現 (crates/core/src/model.rs と named_json.rs、qa/input.rs)。生成の仕組みが無いため、
 // 画面が読むキーだけを写す。
 
+import { storedToken } from "./token.ts";
+
 /** select / multi_select の選択肢 (model.rs の `SelectOption`)。 */
 export type SelectOption = {
   /** 選択肢の ID。 */
@@ -88,9 +90,15 @@ async function errorMessage(response: Response): Promise<string> {
   return `HTTP ${response.status}`;
 }
 
+/** API の要求に付けるトークンのヘッダー。トークンが無ければ付けない (サーバーが 401 と開き直す案内を返す)。 */
+function authorizationHeader(): Record<string, string> {
+  const token = storedToken();
+  return token === null ? {} : { Authorization: `Bearer ${token}` };
+}
+
 /** `path` を取得して JSON を返す。失敗した時は API のエラーの理由で reject する。 */
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetch(path, { headers: authorizationHeader() });
   if (!response.ok) {
     throw new Error(await errorMessage(response));
   }
@@ -104,7 +112,7 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...authorizationHeader(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!response.ok) {

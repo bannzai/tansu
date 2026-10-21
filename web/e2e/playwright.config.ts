@@ -18,7 +18,9 @@ export default defineConfig({
     // fixtures/ の合成 QA.md を取り込んだサーバー (.claude/rules/synthetic-fixtures.md)。作業ディレクトリは web/
     command: "bash e2e/start-server.sh",
     cwd: "..",
-    url: `http://127.0.0.1:${port}/api/databases`,
+    // API はトークンが無いと 401 を返すため、トークン無しで返る画面の入口で起動を待つ (サーバーは DB を開いてトークンを
+    // 書き終えてから待ち受ける。crates/server/src/lib.rs の serve)
+    url: `http://127.0.0.1:${port}/`,
     reuseExistingServer: false,
     env: {
       TANSU_HOME: tansuHome,

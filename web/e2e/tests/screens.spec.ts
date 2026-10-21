@@ -1,11 +1,32 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { tansuHome } from "../paths.ts";
+import { tansuHome, tansuToken } from "../paths.ts";
 
 // fixtures/qa/sample-notes を取り込んだ 1 つの DB を、上のテストから順に書き換えながら確かめる
 // (詳細ページで足した label を、表ビューの絞り込みが使う)。
 test.describe.configure({ mode: "serial" });
+
+/**
+ * tansu serve が表示する URL と同じく `#token=` を付けた `pagePath`。テストごとにブラウザの localStorage が空になるため、
+ * 各テストの最初の画面はこれで開いて画面にトークンを渡す (同じテストの中の 2 回目からは付けなくてよい)。
+ */
+function withToken(pagePath: string): string {
+  return `${pagePath}#token=${tansuToken()}`;
+}
+
+/** テストから API を直接呼ぶ時に付けるトークンのヘッダー。 */
+function apiHeaders(): Record<string, string> {
+  return { Authorization: `Bearer ${tansuToken()}` };
+}
+
+test("トークンを受け取っていない画面は API が 401 になり、開き直す案内を出す", async ({ page }, testInfo) => {
+  const databases = page.waitForResponse((response) => response.url().endsWith("/api/databases"));
+  await page.goto("/");
+  expect((await databases).status()).toBe(401);
+  await expect(page.getByRole("alert")).toContainText("#token=");
+  await page.screenshot({ path: testInfo.outputPath("unauthorized.png"), fullPage: true });
+});
 
 /** 利用記録 (usage.jsonl) の `web_open` の行の数。 */
 function webOpenCount(): number {
@@ -24,9 +45,11 @@ test("画面を読み込むと利用記録に web_open が 1 行足される", a
   const webOpen = page.waitForResponse(
     (response) => response.url().endsWith("/api/usage/web-open") && response.request().method() === "POST",
   );
-  await page.goto("/");
+  await page.goto(withToken("/"));
   expect((await webOpen).status()).toBe(204);
   expect(webOpenCount()).toBe(before + 1);
+  // 受け取ったトークンはアドレスバーと履歴に残さない
+  await expect(page).toHaveURL(/\/$/);
 
   const navigation = page.getByRole("navigation");
   for (const database of ["feature", "item", "project", "run"]) {
@@ -37,7 +60,7 @@ test("画面を読み込むと利用記録に web_open が 1 行足される", a
 
 /** item の行 `name` の行 ID (API から読む)。 */
 async function itemRowId(page: Page, name: string): Promise<string> {
-  const response = await page.request.get("/api/databases/item/rows");
+  const response = await page.request.get("/api/databases/item/rows", { headers: apiHeaders() });
   const { rows } = (await response.json()) as { rows: { id: string; values: { name?: { value: string } } }[] };
   const row = rows.find((candidate) => candidate.values.name?.value === name);
   if (row === undefined) {
@@ -56,7 +79,7 @@ function itemRowWritten(page: Page) {
 test("詳細ページでプロパティと本文を編集し、選択肢を足して保存すると、読み込み直しても残る", async ({
   page,
 }, testInfo) => {
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   await page.getByRole("button", { name: "一覧の並び を開く" }).click();
   await page.getByTestId("peek").getByRole("link", { name: "全画面で開く" }).click();
   await expect(page).toHaveURL(/\/db\/item\/[^/?]+$/);
@@ -88,7 +111,7 @@ test("詳細ページでプロパティと本文を編集し、選択肢を足�
 });
 
 test("表ビューのツールバーで label・自動化・テキストで絞り込み、列で並べ替える", async ({ page }, testInfo) => {
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   const rows = page.getByTestId("table-row");
   // fixture の項目: ルート 2 + note_list 5 + note_editor 3 + settings 2
   await expect(rows).toHaveCount(12);
@@ -128,10 +151,12 @@ test("表ビューのツールバーで label・自動化・テキストで絞�
 test("表の列見出しに型のアイコンが出て、セルが型に合わせて描かれる", async ({ page }, testInfo) => {
   // QA 層の表には number・checkbox・url・date のプロパティが無いため、item に足して値を書く
   const schema = await page.request.post("/api/databases/item/schema", {
+    headers: apiHeaders(),
     data: { add: ["points:number", "verified:checkbox", "reference:url", "due:date"] },
   });
   expect(schema.ok()).toBe(true);
   const written = await page.request.post("/api/databases/item/rows", {
+    headers: apiHeaders(),
     data: {
       id: await itemRowId(page, "一覧の並び"),
       values: { points: 3, verified: true, reference: "https://example.com/spec/note-list", due: "2026-10-20" },
@@ -141,7 +166,7 @@ test("表の列見出しに型のアイコンが出て、セルが型に合わ�
 
   // 足した列まで 1 枚のスクリーンショットに収める幅
   await page.setViewportSize({ width: 1800, height: 900 });
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   for (const type of ["text", "number", "select", "multi_select", "checkbox", "url", "date", "relation"]) {
     await expect(page.locator(`th[data-property-type="${type}"] .property-icon`).first()).toBeVisible();
   }
@@ -161,7 +186,7 @@ test("表の列見出しに型のアイコンが出て、セルが型に合わ�
   await pointsEditor.fill("1e999");
   await pointsEditor.press("Enter");
   await expect(pointsEditor).toHaveCount(0);
-  const rowsResponse = await page.request.get("/api/databases/item/rows");
+  const rowsResponse = await page.request.get("/api/databases/item/rows", { headers: apiHeaders() });
   const { rows: itemRows } = (await rowsResponse.json()) as {
     rows: { values: { name?: { value: string }; points?: { value: number } } }[];
   };
@@ -171,7 +196,7 @@ test("表の列見出しに型のアイコンが出て、セルが型に合わ�
 test("表のセルをその場で編集し、checkbox をクリックで切り替えると、読み込み直しても残る", async ({
   page,
 }, testInfo) => {
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   const expected = "ライト・ダーク・端末に合わせるの 3 つから選べる";
   await page.getByRole("button", { name: "テーマを切り替えられる の expected を編集" }).click();
   const editor = page.getByLabel("テーマを切り替えられる の expected", { exact: true });
@@ -263,7 +288,7 @@ test("表のセルをその場で編集し、checkbox をクリックで切り�
 });
 
 test("表の最後の「+ 新規」で空の行が足され、絞り込み中でもその場で名前を付けられる", async ({ page }, testInfo) => {
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   const rows = page.getByTestId("table-row");
   await expect(rows).toHaveCount(12);
   // 足す空の行は labels に「課金」を持たず絞り込みに合わないが、名前を入れ終わるまでは表に残る
@@ -294,7 +319,7 @@ test("表の最後の「+ 新規」で空の行が足され、絞り込み中で
 test("表の行を開くと表を残したまま右にパネルが開き、切り替え・Esc・URL での復元・スマホ幅の全画面ができる", async ({
   page,
 }, testInfo) => {
-  await page.goto("/db/item");
+  await page.goto(withToken("/db/item"));
   await page.getByRole("button", { name: "一覧の並び を開く" }).click();
   await expect(page).toHaveURL(/\/db\/item\?peek=[^&]+$/);
   const peek = page.getByTestId("peek");
@@ -402,7 +427,7 @@ test("QA の入力で OK / NG / あとで を記録するとフッターの件�
   context,
 }, testInfo) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/qa");
+  await page.goto(withToken("/qa"));
   await page.getByLabel("project", { exact: true }).selectOption("sample-notes");
   await page.getByLabel("feature", { exact: true }).selectOption("note_list");
   await expect(page).toHaveURL(/\/qa\?repo=sample-notes&feature=note_list$/);
@@ -450,7 +475,7 @@ test("QA の入力で OK / NG / あとで を記録するとフッターの件�
   expect(copied).not.toContain("空の案内");
 
   // 画面から記録した run は、検証環境と HEAD の commit を持つ run として DB に入っている
-  const response = await page.request.get("/api/databases/run/rows");
+  const response = await page.request.get("/api/databases/run/rows", { headers: apiHeaders() });
   const { rows } = (await response.json()) as {
     rows: { values: Record<string, { value: unknown } | undefined> }[];
   };
