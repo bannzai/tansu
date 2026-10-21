@@ -1,4 +1,5 @@
-//! `tansu serve` の router に 1 リクエストずつ渡し、`Host` の検査・書き込みの CSRF 対策・利用記録・画面が使う API を確かめる。
+//! `tansu serve` の router に 1 リクエストずつ渡し、`Host` の検査・トークンの検査・書き込みの CSRF 対策・利用記録・画面が使う
+//! API を確かめる。
 //! `TANSU_HOME` はテストごとの一時ディレクトリにする (`.claude/rules/sqlite-database.md`)。
 
 use std::path::Path;
@@ -18,6 +19,12 @@ use tower::ServiceExt;
 /// 既定の `--host` と `--port` で待ち受けた時に、ブラウザが送る `Host`。
 const HOST: &str = "127.0.0.1:7979";
 
+/// router に渡す HTTP API のトークン。
+const TOKEN: &str = "test-token";
+
+/// 画面が送る、[`TOKEN`] の `Authorization` の値。
+const AUTHORIZATION: &str = "Bearer test-token";
+
 /// `home` を `TANSU_HOME` にし、その下の DB を開く設定。
 fn settings(home: &TempDir) -> Settings {
     Settings {
@@ -26,7 +33,7 @@ fn settings(home: &TempDir) -> Settings {
     }
 }
 
-/// 既定の `--host` / `--port` に `--allow-host <allow_hosts>` を足した router。
+/// 既定の `--host` / `--port` に `--allow-host <allow_hosts>` を足し、トークンを [`TOKEN`] にした router。
 fn app(home: &TempDir, allow_hosts: &[&str]) -> Router {
     router(
         settings(home),
@@ -36,6 +43,7 @@ fn app(home: &TempDir, allow_hosts: &[&str]) -> Router {
             allow_hosts: allow_hosts.iter().map(|host| (*host).to_owned()).collect(),
         },
         &[],
+        TOKEN.into(),
     )
 }
 
@@ -56,30 +64,34 @@ async fn send(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
     )
 }
 
-/// `Host: <host>` の GET。
+/// `Host: <host>` とトークンを付けた GET。
 fn get(path: &str, host: &str) -> Request<Body> {
     Request::get(path)
         .header(header::HOST, host)
+        .header(header::AUTHORIZATION, AUTHORIZATION)
         .body(Body::empty())
         .unwrap()
 }
 
-/// 画面と同じ形 (`Host: 127.0.0.1:7979`、同じオリジンの `Origin`、JSON の本文) の POST。
+/// 画面と同じ形 (`Host: 127.0.0.1:7979`、同じオリジンの `Origin`、トークン、JSON の本文) の POST。
 fn post_json(path: &str, body: &Value) -> Request<Body> {
     Request::post(path)
         .header(header::HOST, HOST)
         .header(header::ORIGIN, format!("http://{HOST}"))
+        .header(header::AUTHORIZATION, AUTHORIZATION)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .unwrap()
 }
 
-/// `headers` を付けた `POST /api/usage/web-open` (`Host` は既定の待ち受けのもの)。
+/// `headers` を付けた `POST /api/usage/web-open` (`Host` は既定の待ち受けのもの。トークンは付ける)。
 fn web_open(headers: &[(&str, &str)]) -> Request<Body> {
     headers
         .iter()
         .fold(
-            Request::post("/api/usage/web-open").header(header::HOST, HOST),
+            Request::post("/api/usage/web-open")
+                .header(header::HOST, HOST)
+                .header(header::AUTHORIZATION, AUTHORIZATION),
             |request, (name, value)| request.header(*name, *value),
         )
         .body(Body::from("{}"))
@@ -124,6 +136,56 @@ async fn host_outside_the_allow_list_is_rejected() {
         send(&app, get("/", "evil.example:7979")).await.0,
         StatusCode::FORBIDDEN
     );
+}
+
+#[tokio::test]
+async fn api_requires_the_bearer_token() {
+    let home = tempfile::tempdir().unwrap();
+    let app = app(&home, &[]);
+    let request = |path: &str, authorization: Option<&str>| {
+        authorization
+            .into_iter()
+            .fold(
+                Request::get(path).header(header::HOST, HOST),
+                |request, authorization| request.header(header::AUTHORIZATION, authorization),
+            )
+            .body(Body::empty())
+            .unwrap()
+    };
+    for authorization in [None, Some("Bearer wrong-token"), Some("Basic test-token")] {
+        let response = app
+            .clone()
+            .oneshot(request("/api/databases", authorization))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}"
+        );
+        assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+    }
+    assert_eq!(
+        send(&app, request("/api/databases", Some(AUTHORIZATION)))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    // トークンの無い書き込みは、CSRF の検査を通る形でも書かない
+    let (status, _) = send(
+        &app,
+        Request::post("/api/usage/web-open")
+            .header(header::HOST, HOST)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(usage_lines(&home).is_empty());
+    // 画面のファイル (データを含まない) はトークン無しで返す。画面を埋め込まないテストのビルドでは 503 の案内になる
+    let page = app.clone().oneshot(request("/", None)).await.unwrap();
+    assert_ne!(page.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -440,4 +502,53 @@ async fn rows_can_be_listed_and_edited_with_new_options() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send(&app, get("/api/databases/no_such_database/rows", HOST)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn project_path_cannot_be_written_through_the_api() {
+    let home = tempfile::tempdir().unwrap();
+    let app = app(&home, &[]);
+    let (_directory, _head) = imported_repository(&home).await;
+    let (_, projects) = send(&app, get("/api/databases/project/rows", HOST)).await;
+    let project = &projects["rows"][0];
+    let project_id = project["id"].as_str().unwrap().to_owned();
+    let imported_path = value_of(project, "path").clone();
+    assert!(imported_path.is_string(), "{project}");
+
+    // 既存の行の path を変える・消す入力と、path を持つ新しい行は書かない
+    for input in [
+        json!({"id": project_id, "values": {"path": "/tmp/other"}}),
+        json!({"id": project_id, "values": {"path": null}}),
+        json!({"values": {"repo": "other/repo", "path": "/tmp/other"}}),
+    ] {
+        let (status, body) = send(&app, post_json("/api/databases/project/rows", &input)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{input}");
+        assert!(body["error"].as_str().unwrap().contains("path"), "{body}");
+    }
+    // データベース名は大文字・小文字を区別するので、別の綴りで project の表には届かない
+    let (status, _) = send(
+        &app,
+        post_json(
+            "/api/databases/Project/rows",
+            &json!({"id": project_id, "values": {"path": "/tmp/other"}}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, projects) = send(&app, get("/api/databases/project/rows", HOST)).await;
+    assert_eq!(projects["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(value_of(&projects["rows"][0], "path"), &imported_path);
+
+    // path 以外の値と本文は書ける
+    let (status, row) = send(
+        &app,
+        post_json(
+            "/api/databases/project/rows",
+            &json!({"id": project_id, "body": "メモ"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{row}");
+    assert_eq!(row["body"], "メモ");
+    assert_eq!(value_of(&row, "path"), &imported_path);
 }
