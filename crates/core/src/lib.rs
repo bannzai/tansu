@@ -2,6 +2,7 @@
 //! CLI・MCP・HTTP API の入口はここの関数を呼ぶだけにし、SQL はこの crate の `db` モジュールにだけ書く
 //! (`.claude/rules/sqlite-database.md`)。
 
+pub mod api_token;
 pub mod config;
 pub mod db;
 pub mod error;
