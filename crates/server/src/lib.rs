@@ -136,8 +136,7 @@ const API_PATH_PREFIX: &str = "/api/";
 const BEARER_SCHEME: &str = "Bearer";
 
 /// トークンが無い・違う API のリクエストへの 401 の理由。画面はこれをそのまま表示する。
-const UNAUTHORIZED_REASON: &str =
-    "トークンがありません。tansu serve が表示した URL (#token= の付いたもの) から開き直してください";
+const UNAUTHORIZED_REASON: &str = "トークンがありません。tansu serve が表示した URL (#token= の付いたもの) から開き直してください";
 
 /// `Host` のポートが省略された時のポート (HTTP の既定。RFC 9110 4.2.1)。
 const HTTP_DEFAULT_PORT: u16 = 80;
