@@ -53,9 +53,10 @@ pub struct ServeOptions {
 }
 
 /// `options` で待ち受け、Web 画面と HTTP API を配信する。止められるまで戻らない。
-/// 起動時に DB を開いて (マイグレーションを当てて) から、HTTP API のトークンを作って `$TANSU_HOME/token` に書き
-/// ([`api_token::issue`])、待ち受ける。設定の誤りを最初のリクエストより前に返し、待ち受けを始めた時にはトークンのファイルが
-/// 書き終わっている (`make` と E2E は応答が返ってからファイルを読む)。
+/// 起動時に DB を開いて (マイグレーションを当てて) からポートを確保し、HTTP API のトークンを作って `$TANSU_HOME/token` に書き
+/// ([`api_token::issue`])、リクエストの処理を始める。設定の誤りを最初のリクエストより前に返し、最初のリクエストを処理する時には
+/// トークンのファイルが書き終わっている (`make` と E2E は応答が返ってからファイルを読む)。トークンをポートの確保の後に書くのは、
+/// 同じポートで動いている serve がある時に bind で失敗した起動が、動いている serve のトークンのファイルを上書きしないため。
 pub async fn serve(settings: Settings, options: ServeOptions) -> Result<(), Error> {
     let interface_ips: Vec<IpAddr> = if is_unspecified(&options.host) {
         if_addrs::get_if_addrs()?
@@ -66,9 +67,9 @@ pub async fn serve(settings: Settings, options: ServeOptions) -> Result<(), Erro
         Vec::new()
     };
     db::open(&settings).await?;
-    let token = api_token::issue(&settings.home)?;
     let listener = tokio::net::TcpListener::bind((host_name(&options.host), options.port)).await?;
     let local_addr = listener.local_addr()?;
+    let token = api_token::issue(&settings.home)?;
     // トークンは stderr にだけ出す。同じ LAN の iPhone から開く時は、この URL のホスト部をこの Mac の IP に変えて開く
     eprintln!(
         "tansu: http://{local_addr}/ で待ち受けています。画面は http://{local_addr}/#token={token} で開きます"
