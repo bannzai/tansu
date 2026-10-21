@@ -761,9 +761,14 @@ mod tests {
                 "feature `\u{1b}[2J` が既にある",
             )],
         });
-        assert!(!summary.chars().any(|c| c.is_control() && c != '\n'), "{summary:?}");
         assert!(
-            summary.contains("\n  a/QA.md:3: \\x1b[31m赤\\x07\\x00\\x7f\\u{9b}2J\\x0d偽\\x09タブ (理由)"),
+            !summary.chars().any(|c| c.is_control() && c != '\n'),
+            "{summary:?}"
+        );
+        assert!(
+            summary.contains(
+                "\n  a/QA.md:3: \\x1b[31m赤\\x07\\x00\\x7f\\u{9b}2J\\x0d偽\\x09タブ (理由)"
+            ),
             "{summary}"
         );
         assert!(
