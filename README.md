@@ -87,7 +87,9 @@ tansu serve --host 0.0.0.0                        # 同じ LAN の iPhone から
 tansu serve --allow-host mac.tailnet.ts.net       # Host の許可リストに名前を足す (Tailscale の MagicDNS 名など)
 ```
 
-ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけ。`Host` が許可リストに無いリクエストと、別のサイトからの書き込みは拒否する (規則は [documents/PROJECT.md](documents/PROJECT.md)「制約」)。QA の入力ビューは、project の checkout の HEAD の commit で run を記録する。
+画面は、`tansu serve` が起動時に stderr に出す `http://127.0.0.1:7979/#token=<トークン>` の URL で開く (`make` はこの URL でブラウザを開く)。トークンは起動のたびに作り直して `$TANSU_HOME/token` (所有者だけが読める) に書き、HTTP API はトークンの無い要求を 401 で拒否する。画面は受け取ったトークンをブラウザ (そのホストとポートの localStorage) に持つので、同じ起動の間は `#token=` 無しの URL でも開ける。`tansu serve` を起動し直した後と、iPhone で開く時 (URL のホスト部をこの Mac の IP に変える) は、新しく出た URL から開き直す。
+
+ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけ。`Host` が許可リストに無いリクエストと、別のサイトからの書き込みは拒否する。project の `path` (`qa import` が書く checkout のパス) は画面と HTTP API からは書けない (規則は [documents/PROJECT.md](documents/PROJECT.md)「制約」)。QA の入力ビューは、project の checkout の HEAD の commit で run を記録する。
 
 ### MCP サーバー
 

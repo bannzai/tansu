@@ -46,7 +46,7 @@
 | `tansu query <データベース> --json [--where ...] [--sort ...]` | 絞り込み。出力は JSON |
 | `tansu upsert <データベース> ...` / `tansu delete <データベース> <行 ID>` | 行の読み書き |
 | `tansu export <データベース> --format markdown\|json` | 書き出し |
-| `tansu serve [--host 127.0.0.1] [--port 7979] [--allow-host <ホスト名>]...` | Web 画面と HTTP API のサーバーを起動する。ポートの既定は 7979 (開発マシンで同時に動く他の dev サーバーの既定と重ならない番号。環境変数 `TANSU_PORT` でも指定でき、`--port` が優先)。`--allow-host` は「制約」の `Host` の許可リストに足す |
+| `tansu serve [--host 127.0.0.1] [--port 7979] [--allow-host <ホスト名>]...` | Web 画面と HTTP API のサーバーを起動する。ポートの既定は 7979 (開発マシンで同時に動く他の dev サーバーの既定と重ならない番号。環境変数 `TANSU_PORT` でも指定でき、`--port` が優先)。`--allow-host` は「制約」の `Host` の許可リストに足す。起動のたびに HTTP API のトークンを `$TANSU_HOME/token` に書き、画面を開く URL (`#token=` 付き) を stderr に出す (「制約」) |
 | `tansu mcp` | MCP サーバー (stdio) を起動する |
 
 引数の形・JSON の形・exit code は、castle 側が依存する範囲を `documents/cli-contract.md` に書いて固定する。契約を変える時は同じ変更の中で更新する。
@@ -103,8 +103,10 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 
 - **既定は localhost だけ**: サーバーは既定で `127.0.0.1` で待ち受ける。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする
 - **`Host` の検査 (DNS rebinding 対策)**: HTTP API は `Host` が許可リストに無いリクエストを拒否する。許可リストは、`127.0.0.1` と `localhost` (ポート付き)、`--host` に指定した値、`--host 0.0.0.0` の時はこのマシンのネットワークインターフェースの IP (起動時に列挙する。iPhone はこれで接続する) に加え、`--allow-host <ホスト名>` で明示したもの (Tailscale の MagicDNS 名など)
+- **HTTP API はトークンを要る (同じマシンの別のユーザー・プロセス対策)**: `tansu serve` は起動のたびにランダムなトークンを作り、`$TANSU_HOME/token` (DB と同じく所有者だけが読み書きできる権限) に書いてから待ち受ける。`/api/` のリクエストは `Authorization: Bearer <トークン>` が無い・違うと 401 にし、API に届くのをこのファイルを読める同じユーザーだけにする。画面のファイル (データを含まない) はトークン無しで返す。画面は serve が stderr に出す URL の `#token=<トークン>` でトークンを受け取ってその origin の localStorage に持ち、API に付けて送る (HTML に埋め込むと、トークン無しで返す HTML から同じマシンの誰でも読めてしまうため埋め込まない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため使わない
+- **project の `path` は `qa import` だけが書く**: `path` は `git -C` に渡す checkout のパスなので、HTTP API (画面) の upsert で `path` を書く入力は拒否する
 - **書き込みの API は CSRF も防ぐ**: 書き込み (upsert / delete / `qa record` 等) は `Host` が正当でも別のサイトからの form POST や no-cors のリクエストで届くため、`Origin` が無いか `Host` と同じオリジンの時だけ受け付け、`Sec-Fetch-Site` が `cross-site` なら拒否し、本文は `Content-Type: application/json` だけを受け付ける (別のサイトがプリフライトなしで送れる形式を受け付けない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため影響しない
-- **外部への送信は DB の接続だけ**: 外部への計測・テレメトリを持たない。実行時の外部へのリクエストは、「DB の置き場所」で Turso Cloud を選んだ時のその DB への接続だけで、ローカルのファイルを選んだ時はマシンの外へ何も送らない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む) と利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
+- **外部への送信は DB の接続だけ**: 外部への計測・テレメトリを持たない。実行時の外部へのリクエストは、「DB の置き場所」で Turso Cloud を選んだ時のその DB への接続だけで、ローカルのファイルを選んだ時はマシンの外へ何も送らない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む)、`tansu serve` の HTTP API のトークン `$TANSU_HOME/token`、利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)
 - **冪等**: `qa import` と `upsert` は自然キー (取り込み元のファイルと項目名、行 ID) で upsert し、同じ入力で 2 回実行しても行が増えない。`qa record` は QA を実行した事実の記録なので、実行のたびに run を 1 行足す (同じ項目を 2 回確認すれば run は 2 行)。再試行で同じ実行が二重に入るのを防ぐ時は、呼び出し側が `--run-id <一意な ID>` を渡し、同じ `run-id` の run は 1 行にする
 
@@ -114,7 +116,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 | --- | --- | --- |
 | DB・ストレージ | libSQL。利用者のマシンの SQLite 1 ファイル、または Turso Cloud の DB (起動時に選ぶ) | ローカルで完結する使い方と、複数の Mac で同じ DB を使う使い方の両方を、接続先の違いだけで実現できる |
 | ホスティング | 持たない。各 Mac の localhost で `tansu serve` を動かす | クラウドに置く時はログイン・CD・法務ドキュメントが要るため、判定基準を通ってから検討する |
-| 認証 | サーバーを各 Mac の localhost で動かす間は持たない。既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査で守る | 自分のマシンで 1 人が使う。LAN に開くのは明示した時だけ |
+| 認証 | ログインは持たない。HTTP API は `tansu serve` が起動のたびに作るトークン (`$TANSU_HOME/token`) で守り、既定の `127.0.0.1` での待ち受けと `Host` / `Origin` の検査も残す (「制約」) | 自分のマシンで 1 人が使う。トークンのファイルを所有者だけが読めるので、API に届く範囲が DB のファイルを読める範囲 (同じユーザー) と同じになる。LAN に開くのは明示した時だけ |
 | 計測 | 手元の利用記録と DB の行数 | 外部への計測・テレメトリを持たない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
 | アラート (GCP・Crashlytics)・課金・ストア配布・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払いが無い |

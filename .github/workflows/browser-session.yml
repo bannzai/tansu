@@ -59,7 +59,9 @@ jobs:
         export TANSU_HOME="$RUNNER_TEMP/tansu-home" &&
         ./target/release/tansu qa import fixtures/qa/sample-notes &&
         exec ./target/release/tansu serve --host 127.0.0.1 --port "$PORT"
-      ready_path: /api/databases
+      # API はトークンが無いと 401 を返すため、トークン無しで返る画面の入口で起動を待つ。画面へのトークンの受け渡しは
+      # setup_script の .webtunnel/setup.sh が行う
+      ready_path: /
       port: "7979"
     secrets:
       TS_OIDC_CLIENT_ID: ${{ secrets.TS_OIDC_CLIENT_ID }}
