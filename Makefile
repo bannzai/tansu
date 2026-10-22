@@ -8,14 +8,21 @@
 TANSU_PORT ?= 7979
 export TANSU_PORT
 
+# tansu serve が起動のたびに HTTP API のトークンを書くファイル。TANSU_HOME の既定 ~/.tansu は crates/core/src/config.rs の
+# DEFAULT_HOME_DIR_NAME、ファイル名は crates/core/src/api_token.rs の TOKEN_FILE_NAME。
+TANSU_TOKEN_FILE = $${TANSU_HOME:-$$HOME/.tansu}/token
+
 .PHONY: web build-web cli build-cli
 
 # tansu は web/dist をビルド時に埋め込む (crates/server/build.rs) ため、先に画面をビルドする。
-# サーバーが前面で動くため、ブラウザは背面で API が応答するまで待ってから開く (Rust のビルドを先に終えておき、待つのは起動だけにする)。
+# サーバーが前面で動くため、ブラウザは背面でトークン付きの API が応答するまで待ってから、サーバーが表示する URL と同じ
+# #token= 付きの URL で開く (Rust のビルドを先に終えておき、待つのは起動だけにする)。トークン付きで待つのは、前回の起動の
+# トークンのファイルを読んで開かないため。トークンはプロセスの引数 (他のユーザーも ps で見える) に載せず、標準入力で渡す
+# (curl のヘッダーは --config -、ブラウザで開く URL は osascript が標準入力から読む AppleScript の open location)。
 # 起動に失敗した時に待ち続けないよう、待つのは 0.2 秒 × 150 回 (30 秒。DB を開いてマイグレーションを当てる起動に十分な長さ) まで。
 web: build-web
 	cargo build -p tansu-cli
-	(for _ in $$(seq 150); do curl -fs -o /dev/null http://127.0.0.1:$(TANSU_PORT)/api/databases && exec open http://127.0.0.1:$(TANSU_PORT); sleep 0.2; done) &
+	(for _ in $$(seq 150); do token="$$(cat "$(TANSU_TOKEN_FILE)" 2>/dev/null)" && printf 'header = "Authorization: Bearer %s"\n' "$$token" | curl -fs -o /dev/null --config - http://127.0.0.1:$(TANSU_PORT)/api/databases && { printf 'open location "http://127.0.0.1:%s/#token=%s"\n' "$(TANSU_PORT)" "$$token" | osascript; break; }; sleep 0.2; done) &
 	./target/debug/tansu serve --port $(TANSU_PORT)
 
 # Web 画面 (web/) を Vite でビルドする。成果物 web/dist/ は tansu のビルドがバイナリに埋め込む。

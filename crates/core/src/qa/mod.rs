@@ -28,6 +28,10 @@ pub const ITEM: &str = "item";
 /// データベース `run` の名前 (実行結果の記録)。
 pub const RUN: &str = "run";
 
+/// project の checkout の絶対パスを持つプロパティ。`qa import` だけが書き、`git -C` に渡す
+/// (HTTP API からは書かせない。`documents/PROJECT.md`「制約」)。
+pub const PROJECT_PATH: &str = "path";
+
 /// `qa import` が作る run の `run_id` の接頭辞。`qa record` の `run_id` には使わせない
 /// (取り込みが QA.md の現状に合わせて消す run と取り違えないため)。
 pub(crate) const IMPORT_RUN_ID_PREFIX: &str = "import:";
@@ -126,7 +130,7 @@ pub(crate) struct RepoTables {
 impl RepoTables {
     /// project の checkout の絶対パス (`qa import` が書いた `path`)。
     pub fn project_path(&self) -> Result<&Path, Error> {
-        text_of(&self.project_database, &self.project, "path")
+        text_of(&self.project_database, &self.project, PROJECT_PATH)
             .map(Path::new)
             .ok_or_else(|| {
                 Error::InvalidInput(format!(

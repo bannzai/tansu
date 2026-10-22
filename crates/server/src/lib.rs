@@ -1,6 +1,6 @@
 //! `tansu serve` の HTTP サーバー。Web 画面 (ビルド時に埋め込んだ `web/dist`) と HTTP API を配信する。
 //! API の処理は `tansu-core` の関数を呼ぶだけにする (`documents/PROJECT.md`「構成」)。すべてのリクエストの前に `Host` の検査を、
-//! 書き込みのリクエストの前に CSRF 対策を置く (`documents/PROJECT.md`「制約」)。
+//! API のリクエストの前にトークンの検査を、書き込みのリクエストの前に CSRF 対策を置く (`documents/PROJECT.md`「制約」)。
 
 use std::collections::BTreeSet;
 use std::net::IpAddr;
@@ -19,7 +19,7 @@ use tansu_core::db::{self, rows, schema};
 use tansu_core::model::Database;
 use tansu_core::qa::input::{self, InputSession};
 use tansu_core::qa::record::{self, ItemSelector, RecordRequest};
-use tansu_core::{Error, export, named_json, usage};
+use tansu_core::{Error, api_token, export, named_json, qa, usage};
 
 /// `--host` の既定。ログインが無いため、LAN に開くのは `--host 0.0.0.0` を明示した時だけにする (`documents/PROJECT.md`「制約」)。
 pub const DEFAULT_HOST: &str = "127.0.0.1";
@@ -53,7 +53,10 @@ pub struct ServeOptions {
 }
 
 /// `options` で待ち受け、Web 画面と HTTP API を配信する。止められるまで戻らない。
-/// 起動時に DB を開いて (マイグレーションを当てて) から待ち受け、設定の誤りを最初のリクエストより前に返す。
+/// 起動時に DB を開いて (マイグレーションを当てて) からポートを確保し、HTTP API のトークンを作って `$TANSU_HOME/token` に書き
+/// ([`api_token::issue`])、リクエストの処理を始める。設定の誤りを最初のリクエストより前に返し、最初のリクエストを処理する時には
+/// トークンのファイルが書き終わっている (`make` と E2E は応答が返ってからファイルを読む)。トークンをポートの確保の後に書くのは、
+/// 同じポートで動いている serve がある時に bind で失敗した起動が、動いている serve のトークンのファイルを上書きしないため。
 pub async fn serve(settings: Settings, options: ServeOptions) -> Result<(), Error> {
     let interface_ips: Vec<IpAddr> = if is_unspecified(&options.host) {
         if_addrs::get_if_addrs()?
@@ -66,22 +69,33 @@ pub async fn serve(settings: Settings, options: ServeOptions) -> Result<(), Erro
     db::open(&settings).await?;
     let listener = tokio::net::TcpListener::bind((host_name(&options.host), options.port)).await?;
     let local_addr = listener.local_addr()?;
-    eprintln!("tansu: http://{local_addr}/ で待ち受けています");
+    let token = api_token::issue(&settings.home)?;
+    // トークンは stderr にだけ出す。同じ LAN の iPhone から開く時は、この URL のホスト部をこの Mac の IP に変えて開く
+    eprintln!(
+        "tansu: http://{local_addr}/ で待ち受けています。画面は http://{local_addr}/#token={token} で開きます"
+    );
     // `--port 0` の時は OS が選んだポートで待ち受けるため、`Host` の検査には実際のポートを使う
     let options = ServeOptions {
         port: local_addr.port(),
         ..options
     };
-    axum::serve(listener, router(settings, &options, &interface_ips)).await?;
+    axum::serve(listener, router(settings, &options, &interface_ips, token)).await?;
     Ok(())
 }
 
 /// Web 画面と HTTP API の router。`interface_ips` は `options.host` が `0.0.0.0` / `::` の時に `Host` の許可リストへ足す、
-/// このマシンのネットワークインターフェースの IP (それ以外の時は使わない)。
-pub fn router(settings: Settings, options: &ServeOptions, interface_ips: &[IpAddr]) -> Router {
+/// このマシンのネットワークインターフェースの IP (それ以外の時は使わない)。`token` は HTTP API が
+/// `Authorization: Bearer` で受け付けるトークン ([`api_token::issue`] が作ったもの)。
+pub fn router(
+    settings: Settings,
+    options: &ServeOptions,
+    interface_ips: &[IpAddr],
+    token: String,
+) -> Router {
     let guard = Arc::new(Guard {
         allowed_hosts: allowed_hosts(options, interface_ips),
         port: options.port,
+        token,
     });
     Router::new()
         .route("/api/databases", get(list_databases))
@@ -105,14 +119,24 @@ struct AppState {
     settings: Settings,
 }
 
-/// `Host` と書き込みのリクエストの検査に使う、待ち受けの情報。
-#[derive(Debug)]
+/// `Host`・トークン・書き込みのリクエストの検査に使う、待ち受けの情報。
 struct Guard {
     /// `Host` のホスト部として受け付ける値 (小文字。IPv6 は `[` `]` を除く)。
     allowed_hosts: BTreeSet<String>,
     /// 待ち受けるポート。`Host` のポート (無ければ HTTP の既定の 80) はこれと一致しなければならない。
     port: u16,
+    /// HTTP API が `Authorization: Bearer` で受け付けるトークン。
+    token: String,
 }
+
+/// HTTP API のパスの接頭辞。これで始まるリクエストはトークンを要る。画面のファイル (データを含まない) は要らない。
+const API_PATH_PREFIX: &str = "/api/";
+
+/// `Authorization` の認証方式のうち、トークンを送るもの (RFC 6750 2.1)。
+const BEARER_SCHEME: &str = "Bearer";
+
+/// トークンが無い・違う API のリクエストへの 401 の理由。画面はこれをそのまま表示する。
+const UNAUTHORIZED_REASON: &str = "トークンがありません。tansu serve が表示した URL (#token= の付いたもの) から開き直してください";
 
 /// `Host` のポートが省略された時のポート (HTTP の既定。RFC 9110 4.2.1)。
 const HTTP_DEFAULT_PORT: u16 = 80;
@@ -124,6 +148,31 @@ impl Guard {
             self.allowed_hosts.contains(&name) && port.unwrap_or(HTTP_DEFAULT_PORT) == self.port
         })
     }
+
+    /// `headers` の `Authorization` が `Bearer <トークン>` で、トークンが [`Guard::token`] と同じか。認証方式の名前は
+    /// 大文字・小文字を区別しない (RFC 9110 11.1)。
+    fn authorizes(&self, headers: &HeaderMap) -> bool {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|authorization| authorization.to_str().ok())
+            .and_then(|authorization| authorization.split_once(' '))
+            .is_some_and(|(scheme, token)| {
+                scheme.eq_ignore_ascii_case(BEARER_SCHEME)
+                    && constant_time_eq(token.trim().as_bytes(), self.token.as_bytes())
+            })
+    }
+}
+
+/// `left` と `right` が同じバイト列か。長さが同じ時は途中で違っても最後まで比べ、何文字目まで一致したかを応答の時間から
+/// 推し量らせない (トークンの比較に使う)。
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .map(|(left_byte, right_byte)| left_byte ^ right_byte)
+            .fold(0, |difference, bits| difference | bits)
+            == 0
 }
 
 /// `Host` の許可リスト (`documents/PROJECT.md`「制約」)。`127.0.0.1` と `localhost`、`--host` の値、`--allow-host` の値に加え、
@@ -187,7 +236,8 @@ fn split_host(host: &str) -> Option<(String, Option<u16>)> {
     Some((name.to_ascii_lowercase(), port))
 }
 
-/// すべてのリクエストの前に置く検査。`Host` が許可リストに無ければ 403 (DNS rebinding 対策)。GET / HEAD 以外
+/// すべてのリクエストの前に置く検査。`Host` が許可リストに無ければ 403 (DNS rebinding 対策)。HTTP API
+/// ([`API_PATH_PREFIX`]) は、トークンが無い・違うと 401 (同じマシンの別のユーザー・プロセスに読み書きさせない)。GET / HEAD 以外
 /// (書き込み) は、別のサイトからの form POST・no-cors のリクエストを通さないよう [`write_rejection`] でも検査する。
 async fn check_request(State(guard): State<Arc<Guard>>, request: Request, next: Next) -> Response {
     let host = request
@@ -200,6 +250,16 @@ async fn check_request(State(guard): State<Arc<Guard>>, request: Request, next: 
             StatusCode::FORBIDDEN,
             "Host が許可されていません (tansu serve --allow-host <ホスト名> で足せます)",
         )),
+        Some(_)
+            if request.uri().path().starts_with(API_PATH_PREFIX)
+                && !guard.authorizes(request.headers()) =>
+        {
+            return (
+                [(header::WWW_AUTHENTICATE, BEARER_SCHEME)],
+                error_response(StatusCode::UNAUTHORIZED, UNAUTHORIZED_REASON),
+            )
+                .into_response();
+        }
         Some(_) if matches!(*request.method(), Method::GET | Method::HEAD) => None,
         Some(host) => write_rejection(request.headers(), host),
     };
@@ -293,11 +353,25 @@ async fn database_rows(
 }
 
 /// `POST /api/databases/{database}/rows`: 行を書き、書いた行を返す (`tansu upsert` と同じ入出力)。
+/// project の `path` を書く入力は拒否する (`qa import` が書いた checkout のパスだけを `git -C` に渡すため)。
 async fn upsert_row(
     State(state): State<AppState>,
     Path(database_name): Path<String>,
     Json(input): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if database_name == qa::PROJECT
+        && input
+            .get("values")
+            .and_then(serde_json::Value::as_object)
+            .is_some_and(|values| values.contains_key(qa::PROJECT_PATH))
+    {
+        return Err(Error::InvalidInput(format!(
+            "{} の {} は qa import だけが書きます (画面と HTTP API からは書けません)",
+            qa::PROJECT,
+            qa::PROJECT_PATH
+        ))
+        .into());
+    }
     let (database, row) =
         rows::upsert(&db::open(&state.settings).await?, &database_name, &input).await?;
     Ok(Json(named_json::row_to_json(&database, &row)))
@@ -453,6 +527,8 @@ fn content_type(path: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use axum::http::HeaderValue;
+
     use super::*;
 
     fn options(host: &str, allow_hosts: &[&str]) -> ServeOptions {
@@ -510,12 +586,45 @@ mod tests {
         let guard = Guard {
             allowed_hosts: allowed_hosts(&options(DEFAULT_HOST, &[]), &[]),
             port: DEFAULT_PORT,
+            token: "secret".into(),
         };
         assert!(guard.allows("127.0.0.1:7979"));
         assert!(guard.allows("localhost:7979"));
         assert!(!guard.allows("127.0.0.1:8080"));
         assert!(!guard.allows("127.0.0.1"));
         assert!(!guard.allows("evil.example:7979"));
+    }
+
+    #[test]
+    fn guard_authorizes_only_the_bearer_token() {
+        let guard = Guard {
+            allowed_hosts: BTreeSet::new(),
+            port: DEFAULT_PORT,
+            token: "secret".into(),
+        };
+        let authorization = |value: &'static str| {
+            HeaderMap::from_iter([(header::AUTHORIZATION, HeaderValue::from_static(value))])
+        };
+        assert!(guard.authorizes(&authorization("Bearer secret")));
+        assert!(guard.authorizes(&authorization("bearer secret")));
+        for invalid in [
+            "Bearer secrets",
+            "Bearer secre",
+            "Bearer ",
+            "Basic secret",
+            "secret",
+        ] {
+            assert!(!guard.authorizes(&authorization(invalid)), "{invalid}");
+        }
+        assert!(!guard.authorizes(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn constant_time_eq_compares_whole_bytes() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(constant_time_eq(b"", b""));
     }
 
     #[test]
