@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import {
   addProperties,
   type Database,
   type DatabaseRows,
   fetchRows,
+  type NamedValue,
   type Property,
   type Row,
   type RowValueInput,
   upsertRow,
 } from "./api.ts";
+import { ImageThumbnail } from "./ImageThumbnail.tsx";
+import { isImageUrl } from "./images.ts";
 import { Link } from "./Link.tsx";
 import { errorText, fetchRelationTargets, relationTitles } from "./relations.ts";
 import { routePath } from "./route.ts";
@@ -237,7 +240,9 @@ export function RowDetail({
               {database.properties.map((property) => (
                 <div key={property.id} className="property-row">
                   <span className="property-name">{property.name}</span>
-                  <div className="property-value">
+                  <div
+                    className={property.kind.type === "url" ? "property-value property-value-url" : "property-value"}
+                  >
                     {property.kind.type === "relation" ? (
                       <ValueView
                         propertyName={property.name}
@@ -246,13 +251,17 @@ export function RowDetail({
                         targetDatabaseName={loaded.targets.get(property.kind.target_database_id)?.database.name}
                       />
                     ) : (
-                      <PropertyEditor
-                        property={property}
-                        value={draft[property.name] ?? null}
-                        onChange={(value) => setDraft({ ...draft, [property.name]: value })}
-                        onAddOption={(optionName) => addOption(property, optionName)}
-                        locked={locked}
-                      />
+                      <>
+                        <PropertyEditor
+                          property={property}
+                          value={draft[property.name] ?? null}
+                          onChange={(value) => setDraft({ ...draft, [property.name]: value })}
+                          onAddOption={(optionName) => addOption(property, optionName)}
+                          locked={locked}
+                        />
+                        {/* 入力の途中の URL を読み込まないよう、保存済みの値の画像を出す */}
+                        <UrlImageThumbnail propertyName={property.name} value={row.values[property.name]} />
+                      </>
                     )}
                   </div>
                 </div>
@@ -314,30 +323,37 @@ export function RowDetail({
 }
 
 /**
- * markdown の本文。画像は読み込まずにリンクにする (外部への送信を DB の接続だけにする制約。documents/PROJECT.md「制約」)。
- * 生の HTML は react-markdown が描かない。
+ * markdown の本文。画像はプロパティの画像と同じサムネイルにし、読み込めなければリンクにする (画面が行の画像の URL を
+ * 読み込む例外。documents/PROJECT.md「制約」)。生の HTML は react-markdown が描かない。
  */
 function MarkdownBody({ markdown }: { markdown: string }) {
-  return (
-    <Markdown
-      components={{
-        img: ({ src, alt }) =>
-          typeof src === "string" ? (
-            <a href={src} target="_blank" rel="noreferrer">
-              {alt || src}
-            </a>
-          ) : null,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {markdown}
-    </Markdown>
-  );
+  return <Markdown components={markdownComponents}>{markdown}</Markdown>;
 }
+
+/**
+ * 本文の画像とリンクの描き方。react-markdown は components の関数を React のコンポーネントの型として使うため、
+ * 描画のたびに作るとサムネイルが作り直されて読み込みの失敗を忘れ、同じ URL を取りに行き直す。そのためモジュールに 1 つだけ置く。
+ */
+const markdownComponents: Components = {
+  img: ({ src, alt }) =>
+    typeof src === "string" ? (
+      <ImageThumbnail
+        key={src}
+        url={src}
+        alt={alt || src}
+        fallback={
+          <a href={src} target="_blank" rel="noreferrer">
+            {alt || src}
+          </a>
+        }
+      />
+    ) : null,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+};
 
 /** この行を参照している行 `row` の札。参照しているプロパティ `property` 以外の値を並べる。 */
 function BacklinkCard({
@@ -369,8 +385,24 @@ function BacklinkCard({
             </span>
           ))}
       </div>
+      {database.properties
+        .filter((other) => other.id !== property.id)
+        .map((other) => (
+          <UrlImageThumbnail key={other.id} propertyName={other.name} value={row.values[other.name]} />
+        ))}
     </div>
   );
+}
+
+/**
+ * プロパティ `propertyName` の値 `value` が画像の URL の url 型の時だけ、そのサムネイル。読み込めなければ何も出さない
+ * (関連先のカードはリンクを別に出していて、詳細ページは入力欄に URL が残るため)。
+ */
+function UrlImageThumbnail({ propertyName, value }: { propertyName: string; value: NamedValue | undefined }) {
+  if (value?.type !== "url" || !isImageUrl(value.value)) {
+    return null;
+  }
+  return <ImageThumbnail key={value.value} url={value.value} alt={`${propertyName} の画像`} fallback={null} />;
 }
 
 /**

@@ -106,7 +106,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 - **HTTP API はトークンを要る (同じマシンの別のユーザー・プロセス対策)**: `tansu serve` は起動のたびにランダムなトークンを作り、`$TANSU_HOME/token` (DB と同じく所有者だけが読み書きできる権限) に書いてから待ち受ける。`/api/` のリクエストは `Authorization: Bearer <トークン>` が無い・違うと 401 にし、API に届くのをこのファイルを読める同じユーザーだけにする。画面のファイル (データを含まない) はトークン無しで返す。画面は serve が stderr に出す URL の `#token=<トークン>` でトークンを受け取ってその origin の localStorage に持ち、API に付けて送る (HTML に埋め込むと、トークン無しで返す HTML から同じマシンの誰でも読めてしまうため埋め込まない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため使わない
 - **project の `path` は `qa import` だけが書く**: `path` は `git -C` に渡す checkout のパスなので、HTTP API (画面) の upsert で `path` を書く入力は拒否する
 - **書き込みの API は CSRF も防ぐ**: 書き込み (upsert / delete / `qa record` 等) は `Host` が正当でも別のサイトからの form POST や no-cors のリクエストで届くため、`Origin` が無いか `Host` と同じオリジンの時だけ受け付け、`Sec-Fetch-Site` が `cross-site` なら拒否し、本文は `Content-Type: application/json` だけを受け付ける (別のサイトがプリフライトなしで送れる形式を受け付けない)。CLI と MCP は HTTP を通らずコアを直接呼ぶため影響しない
-- **外部への送信は DB の接続だけ**: 外部への計測・テレメトリを持たない。実行時の外部へのリクエストは、「DB の置き場所」で Turso Cloud を選んだ時のその DB への接続だけで、ローカルのファイルを選んだ時はマシンの外へ何も送らない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む)、`tansu serve` の HTTP API のトークン `$TANSU_HOME/token`、利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
+- **外部への送信は DB の接続だけ**: 外部への計測・テレメトリを持たない。実行時の外部へのリクエストは、「DB の置き場所」で Turso Cloud を選んだ時のその DB への接続だけで、ローカルのファイルを選んだ時はマシンの外へ何も送らない。例外として、Web 画面は行の画像の URL (url 型の値と本文の markdown の画像) をサムネイルとして読み込む。利用者が DB に入れた URL への GET (Referer を付けない) で、計測・テレメトリではない。Web フォント・アイコンの画像は読み込まない。アプリが書くファイルは DB (SQLite の付随ファイル `-wal` / `-shm` を含む)、`tansu serve` の HTTP API のトークン `$TANSU_HOME/token`、利用記録 `$TANSU_HOME/usage.jsonl` (画面を開いた日時と CLI・MCP の tool の実行の種類だけ。データの内容は書かない) だけで、利用記録は DIRECTION.md の判定基準の計測元になる
 - **本物の QA.md をリポジトリに入れない**: private リポジトリの項目・エビデンスの URL を含むため。fixture とスクリーンショットは手書きの合成 QA.md から作る (`.claude/rules/synthetic-fixtures.md`)
 - **冪等**: `qa import` と `upsert` は自然キー (取り込み元のファイルと項目名、行 ID) で upsert し、同じ入力で 2 回実行しても行が増えない。`qa record` は QA を実行した事実の記録なので、実行のたびに run を 1 行足す (同じ項目を 2 回確認すれば run は 2 行)。再試行で同じ実行が二重に入るのを防ぐ時は、呼び出し側が `--run-id <一意な ID>` を渡し、同じ `run-id` の run は 1 行にする
 
@@ -120,7 +120,7 @@ castle 側の置き換え (setup-qa / run-qa のフルスクラッチ #1357、re
 | 計測 | 手元の利用記録と DB の行数 | 外部への計測・テレメトリを持たない制約に合う外部サービスが無い |
 | 通知 | Slack の `#tansu-notification` (castle の slack-notification-setup skill で作成) | 関門の投稿先。サービスからの通知は持たない |
 | アラート (GCP・Crashlytics)・課金・ストア配布・紹介サイト | 対象外 | クラウドのプロジェクト・モバイルアプリ・支払いが無い |
-| 法務ドキュメント (利用規約・プライバシーポリシー) | サーバーを各 Mac の localhost で動かす間は対象外 (README の「データの扱い」で代える) | 利用者は bannzai 1 人で、外部への送信は利用者自身が選んだ Turso Cloud の DB への接続だけ (ローカルを選べば無い)。サーバーをクラウドに置いて他人も使うなら要る (「複数の Mac の同期」) |
+| 法務ドキュメント (利用規約・プライバシーポリシー) | サーバーを各 Mac の localhost で動かす間は対象外 (README の「データの扱い」で代える) | 利用者は bannzai 1 人で、外部への送信は利用者自身が選んだ Turso Cloud の DB への接続 (ローカルを選べば無い) と、Web 画面が読み込む行の画像の URL だけ (「制約」)。サーバーをクラウドに置いて他人も使うなら要る (「複数の Mac の同期」) |
 
 ## 検証
 
