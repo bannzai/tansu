@@ -489,8 +489,13 @@ test("行の詳細と関連先のカードで画像の URL がサムネイルで
   await bodyEditor.fill(`${await bodyEditor.inputValue()}\n\n![消えた画像](${missingImageUrl})`);
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("保存しました");
-  await expect(rowBody.getByRole("link", { name: "消えた画像" })).toHaveAttribute("href", missingImageUrl);
+  // 読み込みの失敗の前はサムネイルのリンクも同じ名前を持つため、img が消えて (壊れた画像を出さず) から、残ったリンクを確かめる
+  // (読み込みを始めさせるため、失敗の前後のどちらでも 1 つだけあるリンクを画面に入れる)
+  const missingImageLink = rowBody.getByRole("link", { name: "消えた画像" });
+  await missingImageLink.scrollIntoViewIfNeeded();
   await expect(rowBody.getByRole("img", { name: "消えた画像" })).toHaveCount(0);
+  await expect(missingImageLink).toHaveAttribute("href", missingImageUrl);
+  await expect(rowBody.locator(".thumbnail")).toHaveCount(1);
   await expectThumbnailLoaded(rowBody.getByRole("img", { name: imageUrl }));
   await page.screenshot({ path: testInfo.outputPath("row-detail-thumbnail.png"), fullPage: true });
 
