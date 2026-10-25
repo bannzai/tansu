@@ -11,8 +11,8 @@ import {
   type RowValueInput,
   upsertRow,
 } from "./api.ts";
-import { isImageUrl } from "./images.ts";
 import { ImageThumbnail } from "./ImageThumbnail.tsx";
+import { isImageUrl } from "./images.ts";
 import { Link } from "./Link.tsx";
 import { errorText, fetchRelationTargets, relationTitles } from "./relations.ts";
 import { routePath } from "./route.ts";
