@@ -1,11 +1,23 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { tansuHome, tansuToken } from "../paths.ts";
 
 // fixtures/qa/sample-notes を取り込んだ 1 つの DB を、上のテストから順に書き換えながら確かめる
 // (詳細ページで足した label を、表ビューの絞り込みが使う)。
 test.describe.configure({ mode: "serial" });
+
+/** 画面が読み込む行の画像の代わりに返す、縦長のスマホのスクリーンショットに見立てた画像。 */
+const PLACEHOLDER_SCREENSHOT =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="180" height="390"><rect width="180" height="390" fill="#dfe6ee"/><rect x="12" y="24" width="156" height="20" rx="4" fill="#9fb0c3"/><rect x="12" y="60" width="156" height="300" rx="8" fill="#ffffff"/></svg>';
+
+// 画面は行の画像の URL (fixture は https://example.com/...) をサムネイルとして読み込む。CI から外部へ取りに行かないよう、
+// すべてのテストで (新しいタブを含めて) 差し替える
+test.beforeEach(async ({ context }) => {
+  await context.route("https://example.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "image/svg+xml", body: PLACEHOLDER_SCREENSHOT }),
+  );
+});
 
 /**
  * tansu serve が表示する URL と同じく `#token=` を付けた `pagePath`。テストごとにブラウザの localStorage が空になるため、
@@ -429,6 +441,62 @@ test("表の行を開くと表を残したまま右にパネルが開き、切�
   await peek.getByRole("button", { name: "閉じる" }).click();
   await expect(peek).toHaveCount(0);
   await expect(page).toHaveURL(/\/db\/item$/);
+});
+
+/** サムネイルの `img` が読み込まれて描かれるまで待つ (`loading="lazy"` のため、呼ぶ前に画面に入れておく)。 */
+async function expectThumbnailLoaded(image: Locator) {
+  await image.scrollIntoViewIfNeeded();
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+}
+
+test("行の詳細と関連先のカードで画像の URL がサムネイルで出て、押すと元の URL を新しいタブで開き、表のセルは変わらない", async ({
+  page,
+  context,
+}, testInfo) => {
+  // fixture の note_list の「一覧の並び」のエビデンスの最初の画像を、取り込んだ run が image_url に持つ
+  const imageUrl = "https://example.com/sample-notes/note_list/order.png";
+  await page.goto(withToken("/db/item"));
+  await page.getByRole("button", { name: "一覧の並び を開く" }).click();
+  const backlink = page.getByTestId("peek").getByTestId("backlink");
+  await expect(backlink).toHaveCount(1);
+  // カードは URL のリンクを残し、その下にサムネイルを出す
+  await expect(backlink.getByRole("link", { name: imageUrl, exact: true })).toBeVisible();
+  const cardThumbnail = backlink.getByRole("img", { name: "image_url の画像" });
+  await expectThumbnailLoaded(cardThumbnail);
+  expect((await cardThumbnail.boundingBox())?.height).toBeLessThanOrEqual(160);
+  await page.screenshot({ path: testInfo.outputPath("peek-backlink-thumbnail.png") });
+
+  const popupOpened = page.waitForEvent("popup");
+  await cardThumbnail.click();
+  const popup = await popupOpened;
+  await popup.waitForLoadState();
+  expect(popup.url()).toBe(imageUrl);
+  await popup.close();
+
+  // 読み込めない本文の画像はリンクになる (後に登録した route が先に当たる)
+  const missingImageUrl = "https://example.com/e2e/missing.png";
+  await context.route(missingImageUrl, (route) => route.fulfill({ status: 404, body: "" }));
+  await backlink.getByRole("link").first().click();
+  await expect(page).toHaveURL(/\/db\/run\/[^/?]+$/);
+  await expect(page.getByLabel("image_url", { exact: true })).toHaveValue(imageUrl);
+  await expectThumbnailLoaded(page.getByRole("img", { name: "image_url の画像" }));
+  // 取り込んだ run の本文はエビデンスの画像を markdown の画像で持つ
+  const rowBody = page.getByTestId("row-body");
+  await expectThumbnailLoaded(rowBody.getByRole("img", { name: imageUrl }));
+
+  await page.getByRole("button", { name: "本文を編集" }).click();
+  const bodyEditor = page.getByLabel("本文", { exact: true });
+  await bodyEditor.fill(`${await bodyEditor.inputValue()}\n\n![消えた画像](${missingImageUrl})`);
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  await expect(rowBody.getByRole("link", { name: "消えた画像" })).toHaveAttribute("href", missingImageUrl);
+  await expect(rowBody.getByRole("img", { name: "消えた画像" })).toHaveCount(0);
+  await expectThumbnailLoaded(rowBody.getByRole("img", { name: imageUrl }));
+  await page.screenshot({ path: testInfo.outputPath("row-detail-thumbnail.png"), fullPage: true });
+
+  await page.goto("/db/run");
+  await expect(page.getByTestId("table-row").getByRole("link", { name: imageUrl, exact: true })).toBeVisible();
+  await expect(page.getByTestId("table-row").locator("img")).toHaveCount(0);
 });
 
 test("QA の入力で OK / NG / あとで を記録するとフッターの件数が変わり、全部コピーが未入力と NG を markdown にする", async ({
