@@ -655,6 +655,26 @@ tr:hover .open-button,
   align-items: center;
 }
 
+.property-value-url {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+/* スマホのスクリーンショットは縦長で、原寸で並べるとパネルが縦に伸びすぎるため、高さを 160px に収める */
+.thumbnail {
+  align-self: flex-start;
+  display: inline-block;
+  line-height: 0;
+}
+
+.thumbnail img {
+  max-height: 160px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .text-editor {
   width: 100%;
   resize: vertical;

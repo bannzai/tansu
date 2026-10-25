@@ -5,11 +5,14 @@ import {
   type Database,
   type DatabaseRows,
   fetchRows,
+  type NamedValue,
   type Property,
   type Row,
   type RowValueInput,
   upsertRow,
 } from "./api.ts";
+import { isImageUrl } from "./images.ts";
+import { ImageThumbnail } from "./ImageThumbnail.tsx";
 import { Link } from "./Link.tsx";
 import { errorText, fetchRelationTargets, relationTitles } from "./relations.ts";
 import { routePath } from "./route.ts";
@@ -237,7 +240,9 @@ export function RowDetail({
               {database.properties.map((property) => (
                 <div key={property.id} className="property-row">
                   <span className="property-name">{property.name}</span>
-                  <div className="property-value">
+                  <div
+                    className={property.kind.type === "url" ? "property-value property-value-url" : "property-value"}
+                  >
                     {property.kind.type === "relation" ? (
                       <ValueView
                         propertyName={property.name}
@@ -246,13 +251,17 @@ export function RowDetail({
                         targetDatabaseName={loaded.targets.get(property.kind.target_database_id)?.database.name}
                       />
                     ) : (
-                      <PropertyEditor
-                        property={property}
-                        value={draft[property.name] ?? null}
-                        onChange={(value) => setDraft({ ...draft, [property.name]: value })}
-                        onAddOption={(optionName) => addOption(property, optionName)}
-                        locked={locked}
-                      />
+                      <>
+                        <PropertyEditor
+                          property={property}
+                          value={draft[property.name] ?? null}
+                          onChange={(value) => setDraft({ ...draft, [property.name]: value })}
+                          onAddOption={(optionName) => addOption(property, optionName)}
+                          locked={locked}
+                        />
+                        {/* 入力の途中の URL を読み込まないよう、保存済みの値の画像を出す */}
+                        <UrlImageThumbnail propertyName={property.name} value={row.values[property.name]} />
+                      </>
                     )}
                   </div>
                 </div>
@@ -314,8 +323,8 @@ export function RowDetail({
 }
 
 /**
- * markdown の本文。画像は読み込まずにリンクにする (外部への送信を DB の接続だけにする制約。documents/PROJECT.md「制約」)。
- * 生の HTML は react-markdown が描かない。
+ * markdown の本文。画像はプロパティの画像と同じサムネイルにし、読み込めなければリンクにする (画面が行の画像の URL を
+ * 読み込む例外。documents/PROJECT.md「制約」)。生の HTML は react-markdown が描かない。
  */
 function MarkdownBody({ markdown }: { markdown: string }) {
   return (
@@ -323,9 +332,16 @@ function MarkdownBody({ markdown }: { markdown: string }) {
       components={{
         img: ({ src, alt }) =>
           typeof src === "string" ? (
-            <a href={src} target="_blank" rel="noreferrer">
-              {alt || src}
-            </a>
+            <ImageThumbnail
+              key={src}
+              url={src}
+              alt={alt || src}
+              fallback={
+                <a href={src} target="_blank" rel="noreferrer">
+                  {alt || src}
+                </a>
+              }
+            />
           ) : null,
         a: ({ href, children }) => (
           <a href={href} target="_blank" rel="noreferrer">
@@ -369,8 +385,24 @@ function BacklinkCard({
             </span>
           ))}
       </div>
+      {database.properties
+        .filter((other) => other.id !== property.id)
+        .map((other) => (
+          <UrlImageThumbnail key={other.id} propertyName={other.name} value={row.values[other.name]} />
+        ))}
     </div>
   );
+}
+
+/**
+ * プロパティ `propertyName` の値 `value` が画像の URL の url 型の時だけ、そのサムネイル。読み込めなければ何も出さない
+ * (関連先のカードはリンクを別に出していて、詳細ページは入力欄に URL が残るため)。
+ */
+function UrlImageThumbnail({ propertyName, value }: { propertyName: string; value: NamedValue | undefined }) {
+  if (value?.type !== "url" || !isImageUrl(value.value)) {
+    return null;
+  }
+  return <ImageThumbnail key={value.value} url={value.value} alt={`${propertyName} の画像`} fallback={null} />;
 }
 
 /**
