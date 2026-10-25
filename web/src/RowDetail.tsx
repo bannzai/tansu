@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import {
   addProperties,
   type Database,
@@ -327,33 +327,33 @@ export function RowDetail({
  * 読み込む例外。documents/PROJECT.md「制約」)。生の HTML は react-markdown が描かない。
  */
 function MarkdownBody({ markdown }: { markdown: string }) {
-  return (
-    <Markdown
-      components={{
-        img: ({ src, alt }) =>
-          typeof src === "string" ? (
-            <ImageThumbnail
-              key={src}
-              url={src}
-              alt={alt || src}
-              fallback={
-                <a href={src} target="_blank" rel="noreferrer">
-                  {alt || src}
-                </a>
-              }
-            />
-          ) : null,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {markdown}
-    </Markdown>
-  );
+  return <Markdown components={markdownComponents}>{markdown}</Markdown>;
 }
+
+/**
+ * 本文の画像とリンクの描き方。react-markdown は components の関数を React のコンポーネントの型として使うため、
+ * 描画のたびに作るとサムネイルが作り直されて読み込みの失敗を忘れ、同じ URL を取りに行き直す。そのためモジュールに 1 つだけ置く。
+ */
+const markdownComponents: Components = {
+  img: ({ src, alt }) =>
+    typeof src === "string" ? (
+      <ImageThumbnail
+        key={src}
+        url={src}
+        alt={alt || src}
+        fallback={
+          <a href={src} target="_blank" rel="noreferrer">
+            {alt || src}
+          </a>
+        }
+      />
+    ) : null,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+};
 
 /** この行を参照している行 `row` の札。参照しているプロパティ `property` 以外の値を並べる。 */
 function BacklinkCard({

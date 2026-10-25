@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, type Request, test } from "@playwright/test";
 import { tansuHome, tansuToken } from "../paths.ts";
 
 // fixtures/qa/sample-notes を取り込んだ 1 つの DB を、上のテストから順に書き換えながら確かめる
@@ -455,6 +455,12 @@ test("行の詳細と関連先のカードで画像の URL がサムネイルで
 }, testInfo) => {
   // fixture の note_list の「一覧の並び」のエビデンスの最初の画像を、取り込んだ run が image_url に持つ
   const imageUrl = "https://example.com/sample-notes/note_list/order.png";
+  const imageRequests: Request[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "image") {
+      imageRequests.push(request);
+    }
+  });
   await page.goto(withToken("/db/item"));
   await page.getByRole("button", { name: "一覧の並び を開く" }).click();
   const backlink = page.getByTestId("peek").getByTestId("backlink");
@@ -465,6 +471,10 @@ test("行の詳細と関連先のカードで画像の URL がサムネイルで
   await expectThumbnailLoaded(cardThumbnail);
   expect((await cardThumbnail.boundingBox())?.height).toBeLessThanOrEqual(160);
   await page.screenshot({ path: testInfo.outputPath("peek-backlink-thumbnail.png") });
+  // 画像の取得は Referer を付けない (documents/PROJECT.md「制約」の例外の条件)
+  const cardImageRequest = imageRequests.find((request) => request.url() === imageUrl);
+  expect(cardImageRequest).toBeDefined();
+  expect((await cardImageRequest?.allHeaders())?.referer).toBeUndefined();
 
   const popupOpened = page.waitForEvent("popup");
   await cardThumbnail.click();
@@ -478,8 +488,16 @@ test("行の詳細と関連先のカードで画像の URL がサムネイルで
   await context.route(missingImageUrl, (route) => route.fulfill({ status: 404, body: "" }));
   await backlink.getByRole("link").first().click();
   await expect(page).toHaveURL(/\/db\/run\/[^/?]+$/);
-  await expect(page.getByLabel("image_url", { exact: true })).toHaveValue(imageUrl);
-  await expectThumbnailLoaded(page.getByRole("img", { name: "image_url の画像" }));
+  const imageUrlInput = page.getByLabel("image_url", { exact: true });
+  await expect(imageUrlInput).toHaveValue(imageUrl);
+  const propertyThumbnail = page.getByRole("img", { name: "image_url の画像" });
+  await expectThumbnailLoaded(propertyThumbnail);
+  // 入力の途中の URL は読み込まず、保存済みの値の画像を出し続ける
+  const draftImageUrl = "https://example.com/e2e/draft.png";
+  await imageUrlInput.fill(draftImageUrl);
+  await expect(propertyThumbnail).toHaveAttribute("src", imageUrl);
+  expect(imageRequests.filter((request) => request.url() === draftImageUrl)).toHaveLength(0);
+  await imageUrlInput.fill(imageUrl);
   // 取り込んだ run の本文はエビデンスの画像を markdown の画像で持つ
   const rowBody = page.getByTestId("row-body");
   await expectThumbnailLoaded(rowBody.getByRole("img", { name: imageUrl }));
