@@ -558,6 +558,97 @@ fn delete_is_rolled_back_when_removing_references_breaks_unique() {
     );
 }
 
+/// データベース `run` の行のうち、`item` の値が無いものの数。
+fn runs_without_item(sandbox: &Sandbox) -> usize {
+    query(sandbox, "run", &[])
+        .iter()
+        .filter(|run| run["values"].get("item").is_none())
+        .count()
+}
+
+#[tokio::test]
+async fn deleting_an_item_deletes_the_runs_of_only_that_item() {
+    let sandbox = sandbox();
+    let fixtures = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/qa/sample-notes"
+    );
+    succeed(&sandbox, &["qa", "import", fixtures]);
+    for item_id in ["i1", "i2", "i3"] {
+        upsert(&sandbox, "item", json!({"id": item_id}));
+    }
+    for (run_id, item_ids) in [
+        ("r1-a", json!(["i1"])),
+        ("r1-b", json!(["i1"])),
+        ("r2", json!(["i2"])),
+        ("r12", json!(["i1", "i2"])),
+        ("r3", json!(["i3"])),
+    ] {
+        upsert(
+            &sandbox,
+            "run",
+            json!({"id": run_id, "values": {"run_id": run_id, "item": item_ids}}),
+        );
+    }
+    let before = run_count(&sandbox);
+    let without_item_before = runs_without_item(&sandbox);
+
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i1"]), "");
+    assert!(query(&sandbox, "run", &["--where", "item=i1"]).is_empty());
+    assert_eq!(run_count(&sandbox), before - 2);
+    assert_eq!(runs_without_item(&sandbox), without_item_before);
+    // 別の item の run は残り、ほかの item も持つ run は消した item だけが外れる
+    assert_eq!(
+        row_ids(&query(&sandbox, "run", &["--where", "item=i2"])),
+        ["r2", "r12"]
+    );
+    assert_eq!(
+        query(&sandbox, "run", &["--where", "run_id=r12"])[0]["values"]["item"],
+        json!({"type": "relation", "value": ["i2"]})
+    );
+    // 2 回目は何もしない
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i1"]), "");
+    assert_eq!(run_count(&sandbox), before - 2);
+
+    // MCP の delete も同じく run を消す
+    let client = mcp_client(&sandbox).await;
+    assert_eq!(
+        call_mcp(
+            &client,
+            "delete",
+            json!({"database": "item", "row_id": "i3"})
+        )
+        .await,
+        (false, String::new())
+    );
+    client.cancel().await.unwrap();
+    assert!(query(&sandbox, "run", &["--where", "item=i3"]).is_empty());
+    assert_eq!(run_count(&sandbox), before - 3);
+    assert_eq!(runs_without_item(&sandbox), without_item_before);
+}
+
+#[test]
+fn deleting_from_a_user_table_named_item_keeps_a_user_table_named_run() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "item"]);
+    upsert(&sandbox, "item", json!({"id": "i1"}));
+    // run の表が無くても消せる
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i1"]), "");
+
+    // `item` が item の表への relation でない run の表 (汎用の db create で作った表) は QA 層の run とみなさない
+    succeed(&sandbox, &["db", "create", "run"]);
+    succeed(&sandbox, &["db", "schema", "run", "--add", "item:text"]);
+    upsert(&sandbox, "item", json!({"id": "i2"}));
+    upsert(
+        &sandbox,
+        "run",
+        json!({"id": "r1", "values": {"item": "i2"}}),
+    );
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i2"]), "");
+    assert!(query(&sandbox, "item", &[]).is_empty());
+    assert_eq!(row_ids(&query(&sandbox, "run", &[])), ["r1"]);
+}
+
 #[test]
 fn sort_puts_rows_without_value_last_and_checkbox_filters() {
     let sandbox = sandbox();

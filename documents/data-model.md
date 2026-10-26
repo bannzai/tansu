@@ -46,6 +46,8 @@
 
 `qa import` が最初に作る 4 つのデータベース (project / feature / item / run)。名前・プロパティ・unique の定義は `crates/core/src/qa/mod.rs` の `DATABASES` (汎用層の `db schema --add` と同じ指定) にあり、ここには写しを置かない。QA 層の行に専用の Rust の型は持たず、汎用層の `Row` をそのまま使う (QA 層の Rust の型は、`qa` サブコマンドの入力と JSON の出力の形だけ)。union のプロパティは汎用層に無いので、item の自動化ステータスは select `automation` (auto / manual / todo) + text `automation_detail` (auto の flow のパス、manual の理由) の 2 列に平たくする。run の `result` は select (ok / ng / later / skip)、`source` は select (record = `qa record` と Web 画面、import = `qa import`)、`recorded_at` は date (時差付き ISO 8601 か日付)、`commit` は text (full SHA)、`run_id` は text (unique。呼び出し側が渡す冪等キー)。
 
+run は item の子で、`delete` で item を消すと `item` がその item だけの run も消える (`crates/core/src/qa/mod.rs` の `delete`。汎用層の delete は relation の値から ID を外すだけで、`item` の無い run が残るため)。
+
 `qa import` (`crates/core/src/qa/import.rs`) の読み替え:
 
 - project: `repo` (unique) は、取り込むルートが git リポジトリのルートそのものなら origin の URL の `owner/repo`、そうでなければディレクトリ名 (リポジトリの中の fixture のディレクトリを、囲むリポジトリの名前にしないため)。`path` はルートの絶対パス。QA.md のファイルを指定した時のルートは、それを含む git リポジトリのルート (git の外なら親ディレクトリ)
