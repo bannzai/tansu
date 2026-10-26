@@ -112,17 +112,11 @@ pub async fn delete(
             && let Some(run_database) = qa_run_database(&transaction).await?
         {
             // item より先に消す (先に item を消すと、汎用層の delete が run の `item` を空にして見つけられなくなる)
-            for run in rows::query_in(
-                &transaction,
-                RUN,
-                &[format!("item={row_id}")],
-                None,
-                None,
-            )
-            .await?
-            .1
-            .iter()
-            .filter(|run| relation_of(&run_database, run, "item").len() == 1)
+            for run in rows::query_in(&transaction, RUN, &[format!("item={row_id}")], None, None)
+                .await?
+                .1
+                .iter()
+                .filter(|run| relation_of(&run_database, run, "item").len() == 1)
             {
                 rows::delete_in(&transaction, RUN, &run.id.0).await?;
             }

@@ -639,7 +639,11 @@ fn deleting_from_a_user_table_named_item_keeps_a_user_table_named_run() {
     succeed(&sandbox, &["db", "create", "run"]);
     succeed(&sandbox, &["db", "schema", "run", "--add", "item:text"]);
     upsert(&sandbox, "item", json!({"id": "i2"}));
-    upsert(&sandbox, "run", json!({"id": "r1", "values": {"item": "i2"}}));
+    upsert(
+        &sandbox,
+        "run",
+        json!({"id": "r1", "values": {"item": "i2"}}),
+    );
     assert_eq!(succeed(&sandbox, &["delete", "item", "i2"]), "");
     assert!(query(&sandbox, "item", &[]).is_empty());
     assert_eq!(row_ids(&query(&sandbox, "run", &[])), ["r1"]);
