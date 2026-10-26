@@ -444,13 +444,13 @@ fn reconfirmations_duplicate_names_sections_and_notes_are_all_kept() {
                 line: 50,
                 date: Some("2026-09-12".into()),
                 image_url: Some("https://example.com/lossless-notes/sync/send-2a.png".into()),
-                body: "![](<https://example.com/lossless-notes/sync/send-2a.png>)\n![](<https://example.com/lossless-notes/sync/send-2b.png>)\n差分の送り方を変えた後も届いた".into(),
+                body: "再確認\n![](<https://example.com/lossless-notes/sync/send-2a.png>)\n![](<https://example.com/lossless-notes/sync/send-2b.png>)\n差分の送り方を変えた後も届いた".into(),
             },
             QaMdConfirmation {
                 line: 54,
                 date: Some("2026-09-20".into()),
                 image_url: Some("https://example.com/lossless-notes/sync/send-3.png".into()),
-                body: "（iPad は未確認）\n![](<https://example.com/lossless-notes/sync/send-3.png>)\n```text\nreceived 1 change in 2.1s\n```".into(),
+                body: "再確認\n（iPad は未確認）\n![](<https://example.com/lossless-notes/sync/send-3.png>)\n```text\nreceived 1 change in 2.1s\n```".into(),
             },
         ]
     );
