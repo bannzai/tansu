@@ -826,7 +826,32 @@ async fn removing_the_first_confirmation_keeps_the_rows_of_the_others() {
     );
     assert_eq!(runs[0]["values"]["env"]["value"], "staging");
     assert_eq!(runs[0]["values"]["result"]["value"], "ok");
-    assert_eq!(runs[0]["body"], "2 回目");
+    assert_eq!(runs[0]["body"], "再確認\n2 回目");
+}
+
+#[tokio::test]
+async fn qualifiers_of_a_skip_and_a_reconfirmation_stay_in_the_run() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("QA.md");
+    std::fs::write(
+        &file,
+        "## 1. 表示\n\n- [ ] **一覧**: 出る\n  - ⏭️ 一部スキップ: 理由\n\n#### 動作確認\n<details>\n\n### **一覧**: 出る\n\n**再確認日: 2026-09-10**\n\n</details>\n",
+    )
+    .unwrap();
+
+    import(&connection, std::slice::from_ref(&file))
+        .await
+        .unwrap();
+
+    // 「一部スキップ」の「一部」は note の先頭に、「再確認日」の「再」は run の本文の先頭に残る
+    let item = query_named(&connection, "item", &["name=一覧"]).await;
+    let runs = runs_of_item(&connection, item[0]["id"].as_str().unwrap()).await;
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["values"]["result"]["value"], "skip");
+    assert_eq!(runs[0]["values"]["note"]["value"], "一部スキップ: 理由");
+    assert_eq!(runs[0]["body"], "再確認");
 }
 
 #[tokio::test]
@@ -957,7 +982,7 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
                 },
             }),
             json!({
-                "body": "![](<https://example.com/lossless-notes/sync/send-2a.png>)\n![](<https://example.com/lossless-notes/sync/send-2b.png>)\n差分の送り方を変えた後も届いた",
+                "body": "再確認\n![](<https://example.com/lossless-notes/sync/send-2a.png>)\n![](<https://example.com/lossless-notes/sync/send-2b.png>)\n差分の送り方を変えた後も届いた",
                 "values": {
                     "run_id": format!("import:{send_id}:2"),
                     "item": [send_id],
@@ -966,9 +991,9 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
                     "image_url": "https://example.com/lossless-notes/sync/send-2a.png",
                 },
             }),
-            // 注記付きの確認日: 先頭の日付を recorded_at に、注記を本文に
+            // 注記付きの確認日: 先頭の日付を recorded_at に、注記を本文に。再確認日の「再」は本文の先頭に
             json!({
-                "body": "（iPad は未確認）\n![](<https://example.com/lossless-notes/sync/send-3.png>)\n```text\nreceived 1 change in 2.1s\n```",
+                "body": "再確認\n（iPad は未確認）\n![](<https://example.com/lossless-notes/sync/send-3.png>)\n```text\nreceived 1 change in 2.1s\n```",
                 "values": {
                     "run_id": format!("import:{send_id}:3"),
                     "item": [send_id],
