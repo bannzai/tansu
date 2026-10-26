@@ -975,8 +975,7 @@ pub fn root_guide(text: &str) -> String {
             (None, Some(marker)) => code_fence = Some(marker),
             (None, None) => {
                 if let Some(heading) = line.strip_prefix("## ").map(str::trim)
-                    && (heading == "機能別 QA.md"
-                        || section_of_heading(heading) != Section::Prose)
+                    && (heading == "機能別 QA.md" || section_of_heading(heading) != Section::Prose)
                 {
                     break;
                 }
