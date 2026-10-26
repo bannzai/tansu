@@ -628,6 +628,24 @@ async fn deleting_an_item_deletes_the_runs_of_only_that_item() {
 }
 
 #[test]
+fn deleting_from_a_user_table_named_item_keeps_a_user_table_named_run() {
+    let sandbox = sandbox();
+    succeed(&sandbox, &["db", "create", "item"]);
+    upsert(&sandbox, "item", json!({"id": "i1"}));
+    // run の表が無くても消せる
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i1"]), "");
+
+    // `item` が item の表への relation でない run の表 (汎用の db create で作った表) は QA 層の run とみなさない
+    succeed(&sandbox, &["db", "create", "run"]);
+    succeed(&sandbox, &["db", "schema", "run", "--add", "item:text"]);
+    upsert(&sandbox, "item", json!({"id": "i2"}));
+    upsert(&sandbox, "run", json!({"id": "r1", "values": {"item": "i2"}}));
+    assert_eq!(succeed(&sandbox, &["delete", "item", "i2"]), "");
+    assert!(query(&sandbox, "item", &[]).is_empty());
+    assert_eq!(row_ids(&query(&sandbox, "run", &[])), ["r1"]);
+}
+
+#[test]
 fn sort_puts_rows_without_value_last_and_checkbox_filters() {
     let sandbox = sandbox();
     succeed(&sandbox, &["db", "create", "tasks"]);

@@ -16,7 +16,7 @@ use libsql::Connection;
 
 use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
-use crate::model::{Database, Id, Row, Value};
+use crate::model::{Database, Id, PropertyKind, Row, Value};
 use crate::named_json;
 
 /// データベース `project` の名前 (リポジトリ)。
@@ -100,7 +100,7 @@ pub(crate) async fn ensure_schema(connection: &Connection) -> Result<(), Error> 
 /// CLI と MCP の `delete`: データベース `database_name` の行 `row_id` を [`rows::delete`] と同じく消す。
 /// item の行を消す時は、`item` がその行だけの run も同じトランザクションで消す (item の無い run は表・`qa verified`・
 /// `qa export` のどれからも項目に紐付かず、たまる一方になるため)。`item` にほかの item も持つ run は消さず、
-/// 汎用層の delete がこの行の ID だけを外す。run のデータベースが無ければ消す run は無い。
+/// 汎用層の delete がこの行の ID だけを外す。QA 層の run の表が無ければ ([`qa_run_database`]) 消す run は無い。
 pub async fn delete(
     connection: &Connection,
     database_name: &str,
@@ -108,25 +108,22 @@ pub async fn delete(
 ) -> Result<(), Error> {
     let transaction = begin(connection).await?;
     let result = async {
-        if database_name == ITEM {
-            let runs: Vec<Row> = match rows::query_in(
+        if database_name == ITEM
+            && let Some(run_database) = qa_run_database(&transaction).await?
+        {
+            let (_, runs) = rows::query_in(
                 &transaction,
                 RUN,
                 &[format!("item={row_id}")],
                 None,
                 None,
             )
-            .await
-            {
-                Ok((run_database, runs)) => runs
-                    .into_iter()
-                    .filter(|run| relation_of(&run_database, run, "item").len() == 1)
-                    .collect(),
-                Err(Error::DatabaseNotFound(_)) => Vec::new(),
-                Err(error) => return Err(error),
-            };
+            .await?;
             // item より先に消す (先に item を消すと、汎用層の delete が run の `item` を空にして見つけられなくなる)
-            for run in runs {
+            for run in runs
+                .iter()
+                .filter(|run| relation_of(&run_database, run, "item").len() == 1)
+            {
                 rows::delete_in(&transaction, RUN, &run.id.0).await?;
             }
         }
@@ -134,6 +131,23 @@ pub async fn delete(
     }
     .await;
     finish(transaction, result).await
+}
+
+/// QA 層の run の表の定義。run の表が無い時と、`item` が item の表への relation でない時 (利用者が汎用の
+/// `db create` で同じ名前の表を作った時) は `None`。item の表が無ければ [`Error::DatabaseNotFound`]。
+async fn qa_run_database(connection: &Connection) -> Result<Option<Database>, Error> {
+    let run_database = match schema::get_database(connection, RUN).await {
+        Ok(run_database) => run_database,
+        Err(Error::DatabaseNotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let item_relation = PropertyKind::Relation {
+        target_database_id: schema::get_database(connection, ITEM).await?.id,
+    };
+    Ok(run_database
+        .property("item")
+        .is_some_and(|property| property.kind == item_relation)
+        .then_some(run_database))
 }
 
 /// データベース `database_name` で `filters` に一致する最初の行の ID。無ければ `None`。

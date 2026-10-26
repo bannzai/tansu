@@ -55,7 +55,7 @@ run の `values` のプロパティ (`type` と `value` の型):
 行を消す。stdout は空。行が無ければ何もしない (2 回実行しても同じ結果)。
 
 - relation でこの行を参照している値から、この行の ID を外す (外して空になった値はキーごと消す)。外した結果 unique が破れる時は、削除ごと巻き戻して失敗にする
-- `item` の行を消す時は、`item` がその行だけの run も同じトランザクションで消す (`item` の無い run を残さない)。`item` にほかの item も持つ run は消さず、消した item の ID だけを外す
+- `item` の行を消す時は、`item` がその行だけの run も同じトランザクションで消す (`item` の無い run を残さない)。`item` にほかの item も持つ run は消さず、消した item の ID だけを外す。run の表が無い時と、run の `item` が item の表への relation でない時 (汎用の `db create` で作った同じ名前の表) は run を消さない
 - exit code: 成功 0、失敗 1 (データベースが無い・行 ID が別のデータベースの行・unique が破れる)
 
 ## `tansu qa import <パス>... [--json] [--dry-run]`
