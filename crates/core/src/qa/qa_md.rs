@@ -944,7 +944,8 @@ pub fn parse(file: &str, text: &str) -> QaMd {
 }
 
 /// root QA.md の内容 `text` のうち、QA 全体の案内 (対象環境・起動方法・ログイン方法・動作確認手段・実行ナレッジ等) の部分。
-/// frontmatter の後ろから、コードブロックの外にある最初の `## 横断確認項目` か `## 機能別 QA.md` の見出しの前までで、
+/// frontmatter の後ろから、コードブロックの外にある最初の `## 横断確認項目`・`## 機能別 QA.md`・`## 1. 起動` のような
+/// 番号付きの見出し ([`parse`] が項目のセクションとして読む見出し) の前までで、
 /// どちらも無ければ末尾まで。前後の空行は外す。castle の setup-qa / run-qa skill は案内を project の本文から読む
 /// (castle の `setup-qa/references/qa-db-content.md`「project」) ため、`qa import` が project の本文に書く。
 pub fn root_guide(text: &str) -> String {
@@ -975,10 +976,11 @@ pub fn root_guide(text: &str) -> String {
             (Some(_), _) => {}
             (None, Some(marker)) => code_fence = Some(marker),
             (None, None) => {
-                if matches!(
-                    line.strip_prefix("## ").map(str::trim),
-                    Some("横断確認項目" | "機能別 QA.md")
-                ) {
+                if let Some(heading) = line.strip_prefix("## ").map(str::trim)
+                    && (heading == "横断確認項目"
+                        || heading == "機能別 QA.md"
+                        || is_numbered_heading(heading))
+                {
                     break;
                 }
             }
@@ -1294,6 +1296,10 @@ mod tests {
         );
         assert_eq!(
             root_guide("## 対象環境\n\nlocal\n\n## 機能別 QA.md\n\n- [a](a/QA.md)\n"),
+            "## 対象環境\n\nlocal"
+        );
+        assert_eq!(
+            root_guide("## 対象環境\n\nlocal\n\n## 1. 起動\n\n- [ ] 起動する\n"),
             "## 対象環境\n\nlocal"
         );
         assert_eq!(
