@@ -111,18 +111,18 @@ pub async fn delete(
         if database_name == ITEM
             && let Some(run_database) = qa_run_database(&transaction).await?
         {
-            let (_, runs) = rows::query_in(
+            // item より先に消す (先に item を消すと、汎用層の delete が run の `item` を空にして見つけられなくなる)
+            for run in rows::query_in(
                 &transaction,
                 RUN,
                 &[format!("item={row_id}")],
                 None,
                 None,
             )
-            .await?;
-            // item より先に消す (先に item を消すと、汎用層の delete が run の `item` を空にして見つけられなくなる)
-            for run in runs
-                .iter()
-                .filter(|run| relation_of(&run_database, run, "item").len() == 1)
+            .await?
+            .1
+            .iter()
+            .filter(|run| relation_of(&run_database, run, "item").len() == 1)
             {
                 rows::delete_in(&transaction, RUN, &run.id.0).await?;
             }
@@ -141,6 +141,7 @@ async fn qa_run_database(connection: &Connection) -> Result<Option<Database>, Er
         Err(Error::DatabaseNotFound(_)) => return Ok(None),
         Err(error) => return Err(error),
     };
+    // 比べる値は item の表の読み込み (await) が要り、`is_some_and` のクロージャの中では await できないため先に作る
     let item_relation = PropertyKind::Relation {
         target_database_id: schema::get_database(connection, ITEM).await?.id,
     };
