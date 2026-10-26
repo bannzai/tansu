@@ -948,7 +948,10 @@ pub fn parse(file: &str, text: &str) -> QaMd {
 /// どちらも無ければ末尾まで。前後の空行は外す。castle の setup-qa / run-qa skill は案内を project の本文から読む
 /// (castle の `setup-qa/references/qa-db-content.md`「project」) ため、`qa import` が project の本文に書く。
 pub fn root_guide(text: &str) -> String {
-    let mut lines = text.lines().map(|line| line.trim_end_matches('\r')).peekable();
+    let mut lines = text
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .peekable();
     if lines.peek().is_some_and(|line| line.trim() == "---") {
         lines.next();
         for line in lines.by_ref() {
@@ -1297,7 +1300,10 @@ mod tests {
             root_guide("## 対象環境\r\n\r\nlocal\r\n"),
             "## 対象環境\n\nlocal"
         );
-        assert_eq!(root_guide("---\nfeature: _root\n---\n## 横断確認項目\n"), "");
+        assert_eq!(
+            root_guide("---\nfeature: _root\n---\n## 横断確認項目\n"),
+            ""
+        );
     }
 
     #[test]

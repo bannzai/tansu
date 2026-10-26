@@ -902,7 +902,10 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(project_body.contains("## 起動方法\n\n`bun run dev`"), "{project_body}");
+    assert!(
+        project_body.contains("## 起動方法\n\n`bun run dev`"),
+        "{project_body}"
+    );
     assert!(!project_body.contains("## 横断確認項目"), "{project_body}");
 
     // 2 回目も同じ出力で、行は増えない

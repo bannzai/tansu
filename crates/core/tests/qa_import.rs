@@ -275,10 +275,20 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
         project_body,
         root_text.lines().collect::<Vec<_>>()[6..31].join("\n")
     );
-    for section in ["# QA 全体ガイド", "## 起動方法", "## ログイン方法", "## 実行ナレッジ"] {
+    for section in [
+        "# QA 全体ガイド",
+        "## 起動方法",
+        "## ログイン方法",
+        "## 実行ナレッジ",
+    ] {
         assert!(project_body.contains(section), "{section}");
     }
-    for outside in ["feature: _root", "## 横断確認項目", "- [x]", "## 機能別 QA.md"] {
+    for outside in [
+        "feature: _root",
+        "## 横断確認項目",
+        "- [x]",
+        "## 機能別 QA.md",
+    ] {
         assert!(!project_body.contains(outside), "{outside}");
     }
 
@@ -1122,9 +1132,13 @@ async fn the_project_body_is_replaced_only_when_the_root_qa_md_is_imported() {
     );
 
     // 手で書き換えた本文は、ルートの QA.md を取り込み直すと案内に置き換わる (feature の本文と同じ規則)
-    rows::upsert(&connection, "project", &json!({"id": project_id, "body": "メモ"}))
-        .await
-        .unwrap();
+    rows::upsert(
+        &connection,
+        "project",
+        &json!({"id": project_id, "body": "メモ"}),
+    )
+    .await
+    .unwrap();
     import(&connection, std::slice::from_ref(&root))
         .await
         .unwrap();
@@ -1134,9 +1148,13 @@ async fn the_project_body_is_replaced_only_when_the_root_qa_md_is_imported() {
     );
 
     // ルートの QA.md が無い取り込みは、案内の元が無いので本文を変えない
-    rows::upsert(&connection, "project", &json!({"id": project_id, "body": "メモ"}))
-        .await
-        .unwrap();
+    rows::upsert(
+        &connection,
+        "project",
+        &json!({"id": project_id, "body": "メモ"}),
+    )
+    .await
+    .unwrap();
     std::fs::remove_file(root.join("QA.md")).unwrap();
     import(&connection, std::slice::from_ref(&root))
         .await
