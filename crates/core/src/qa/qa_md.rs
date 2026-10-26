@@ -675,18 +675,16 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             record_indent = None;
             parser.flush_empty_section_heading();
             section_name = Some(heading.to_owned());
-            if heading == "仕様チェックリスト" {
-                section = Section::Spec;
+            section = section_of_heading(heading);
+            if section == Section::Spec {
                 separate_paragraph(&mut parser.qa_md.body);
                 parser.copy(BodyTarget::Feature, line);
                 parser.structured(line_number);
-            } else if heading == "横断確認項目" || is_numbered_heading(heading) {
-                section = Section::Items;
+            } else if section == Section::Items {
                 parser.pending_heading = Some(line.to_owned());
                 parser.section_first_item = parser.qa_md.items.len();
                 parser.structured(line_number);
             } else {
-                section = Section::Prose;
                 separate_paragraph(&mut parser.qa_md.body);
                 parser.keep(
                     BodyTarget::Feature,
@@ -944,9 +942,9 @@ pub fn parse(file: &str, text: &str) -> QaMd {
 }
 
 /// root QA.md の内容 `text` のうち、QA 全体の案内 (対象環境・起動方法・ログイン方法・動作確認手段・実行ナレッジ等) の部分。
-/// frontmatter の後ろから、コードブロックの外にある最初の `## 横断確認項目`・`## 機能別 QA.md`・`## 仕様チェックリスト`・
-/// `## 1. 起動` のような番号付きの見出し ([`parse`] が項目・仕様チェックリストのセクションとして読む見出し) の前までで、
-/// どれも無ければ末尾まで。前後の空行は外す。castle の setup-qa / run-qa skill は案内を project の本文から読む
+/// frontmatter の後ろから、コードブロックの外にある最初の `## 機能別 QA.md` か、[`parse`] が項目・仕様チェックリストの
+/// セクションとして読む `## ` 見出し (`## 横断確認項目`・`## 1. 起動` のような番号付きの見出し・`## 仕様チェックリスト`。
+/// [`section_of_heading`]) の前までで、どれも無ければ末尾まで。前後の空行は外す。castle の setup-qa / run-qa skill は案内を project の本文から読む
 /// (castle の `setup-qa/references/qa-db-content.md`「project」) ため、`qa import` が project の本文に書く。
 pub fn root_guide(text: &str) -> String {
     let mut lines = text
@@ -977,10 +975,8 @@ pub fn root_guide(text: &str) -> String {
             (None, Some(marker)) => code_fence = Some(marker),
             (None, None) => {
                 if let Some(heading) = line.strip_prefix("## ").map(str::trim)
-                    && (heading == "横断確認項目"
-                        || heading == "機能別 QA.md"
-                        || heading == "仕様チェックリスト"
-                        || is_numbered_heading(heading))
+                    && (heading == "機能別 QA.md"
+                        || section_of_heading(heading) != Section::Prose)
                 {
                     break;
                 }
@@ -1041,6 +1037,17 @@ fn code_fence_marker(trimmed: &str) -> Option<(char, usize)> {
     let fence_char = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
     let length = trimmed.chars().take_while(|c| *c == fence_char).count();
     (length >= 3).then_some((fence_char, length))
+}
+
+/// `## ` の後ろ (trim 済み) の `heading` で始まるセクションの種類。[`parse`] と [`root_guide`] が同じ見出しを同じ種類に読むための 1 箇所。
+fn section_of_heading(heading: &str) -> Section {
+    if heading == "仕様チェックリスト" {
+        Section::Spec
+    } else if heading == "横断確認項目" || is_numbered_heading(heading) {
+        Section::Items
+    } else {
+        Section::Prose
+    }
 }
 
 /// `## ` の後ろが `N. 名前` (番号付きのセクション) か。
