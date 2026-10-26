@@ -675,18 +675,16 @@ pub fn parse(file: &str, text: &str) -> QaMd {
             record_indent = None;
             parser.flush_empty_section_heading();
             section_name = Some(heading.to_owned());
-            if heading == "仕様チェックリスト" {
-                section = Section::Spec;
+            section = section_of_heading(heading);
+            if section == Section::Spec {
                 separate_paragraph(&mut parser.qa_md.body);
                 parser.copy(BodyTarget::Feature, line);
                 parser.structured(line_number);
-            } else if heading == "横断確認項目" || is_numbered_heading(heading) {
-                section = Section::Items;
+            } else if section == Section::Items {
                 parser.pending_heading = Some(line.to_owned());
                 parser.section_first_item = parser.qa_md.items.len();
                 parser.structured(line_number);
             } else {
-                section = Section::Prose;
                 separate_paragraph(&mut parser.qa_md.body);
                 parser.keep(
                     BodyTarget::Feature,
@@ -943,6 +941,51 @@ pub fn parse(file: &str, text: &str) -> QaMd {
     qa_md
 }
 
+/// root QA.md の内容 `text` のうち、QA 全体の案内 (対象環境・起動方法・ログイン方法・動作確認手段・実行ナレッジ等) の部分。
+/// frontmatter の後ろから、コードブロックの外にある最初の `## 機能別 QA.md` か、[`parse`] が項目・仕様チェックリストの
+/// セクションとして読む `## ` 見出し (`## 横断確認項目`・`## 1. 起動` のような番号付きの見出し・`## 仕様チェックリスト`。
+/// [`section_of_heading`]) の前までで、どれも無ければ末尾まで。前後の空行は外す。castle の setup-qa / run-qa skill は案内を project の本文から読む
+/// (castle の `setup-qa/references/qa-db-content.md`「project」) ため、`qa import` が project の本文に書く。
+pub fn root_guide(text: &str) -> String {
+    let mut lines = text
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .peekable();
+    if lines.peek().is_some_and(|line| line.trim() == "---") {
+        lines.next();
+        for line in lines.by_ref() {
+            if line.trim() == "---" {
+                break;
+            }
+        }
+    }
+    let mut code_fence: Option<(char, usize)> = None;
+    let mut guide: Vec<&str> = Vec::new();
+    for line in lines {
+        let trimmed = line.trim();
+        match (code_fence, code_fence_marker(trimmed)) {
+            (Some((open_char, open_length)), Some((close_char, close_length)))
+                if close_char == open_char
+                    && close_length >= open_length
+                    && trimmed[close_length..].trim().is_empty() =>
+            {
+                code_fence = None;
+            }
+            (Some(_), _) => {}
+            (None, Some(marker)) => code_fence = Some(marker),
+            (None, None) => {
+                if let Some(heading) = line.strip_prefix("## ").map(str::trim)
+                    && (heading == "機能別 QA.md" || section_of_heading(heading) != Section::Prose)
+                {
+                    break;
+                }
+            }
+        }
+        guide.push(line);
+    }
+    guide.join("\n").trim_matches('\n').to_owned()
+}
+
 /// 本文の末尾の改行を外す。
 fn trim_body(body: &mut String) {
     body.truncate(body.trim_end_matches('\n').len());
@@ -993,6 +1036,17 @@ fn code_fence_marker(trimmed: &str) -> Option<(char, usize)> {
     let fence_char = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
     let length = trimmed.chars().take_while(|c| *c == fence_char).count();
     (length >= 3).then_some((fence_char, length))
+}
+
+/// `## ` の後ろ (trim 済み) の `heading` で始まるセクションの種類。[`parse`] と [`root_guide`] が同じ見出しを同じ種類に読むための 1 箇所。
+fn section_of_heading(heading: &str) -> Section {
+    if heading == "仕様チェックリスト" {
+        Section::Spec
+    } else if heading == "横断確認項目" || is_numbered_heading(heading) {
+        Section::Items
+    } else {
+        Section::Prose
+    }
 }
 
 /// `## ` の後ろが `N. 名前` (番号付きのセクション) か。
@@ -1262,6 +1316,38 @@ mod tests {
         assert_eq!(qa_md.feature.as_deref(), Some("notes"));
         assert_eq!(qa_md.last_verified_at.as_deref(), Some("2026-10-08"));
         assert_eq!(qa_md.verification.as_deref(), Some("'a\""));
+    }
+
+    #[test]
+    fn root_guide_ends_before_the_items_or_the_feature_index() {
+        assert_eq!(
+            root_guide(
+                "---\nfeature: _root\n---\n# QA 全体ガイド\n\n## 起動方法\n\n```sh\n## 横断確認項目\n```\n\n## 横断確認項目\n\n## 1. 起動\n\n## 機能別 QA.md\n"
+            ),
+            "# QA 全体ガイド\n\n## 起動方法\n\n```sh\n## 横断確認項目\n```"
+        );
+        assert_eq!(
+            root_guide("## 対象環境\n\nlocal\n\n## 機能別 QA.md\n\n- [a](a/QA.md)\n"),
+            "## 対象環境\n\nlocal"
+        );
+        assert_eq!(
+            root_guide("## 対象環境\n\nlocal\n\n## 1. 起動\n\n- [ ] 起動する\n"),
+            "## 対象環境\n\nlocal"
+        );
+        assert_eq!(
+            root_guide(
+                "## 対象環境\n\nlocal\n\n## 仕様チェックリスト\n\n| ID | 期待挙動 | 対応項目 |\n\n## 横断確認項目\n"
+            ),
+            "## 対象環境\n\nlocal"
+        );
+        assert_eq!(
+            root_guide("## 対象環境\r\n\r\nlocal\r\n"),
+            "## 対象環境\n\nlocal"
+        );
+        assert_eq!(
+            root_guide("---\nfeature: _root\n---\n## 横断確認項目\n"),
+            ""
+        );
     }
 
     #[test]

@@ -71,7 +71,8 @@ pub fn dry_run(paths: &[PathBuf]) -> Result<ImportReport, Error> {
 /// `paths` の QA.md を取り込む。パスはリポジトリのルート (配下の `QA.md` を探す。探す範囲は `documents/cli-contract.md` の
 /// `qa import`) か QA.md のファイル。
 ///
-/// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス
+/// - project: ルートの `git remote` の `owner/repo` (取れなければディレクトリ名。[`repo_name`])。`path` はルートの絶対パス。
+///   本文はルート直下の QA.md の案内 ([`qa_md::root_guide`])。ルート直下の QA.md を取り込まない時は本文を変えない
 /// - feature: frontmatter の `feature` (無ければ、ルート直下の QA.md は `_root`、それ以外は親ディレクトリの名前)。
 ///   `path` は QA.md のディレクトリ ([`feature_directory`])、本文は [`feature_body`]
 /// - item: 項目名・セクション・期待動作・自動化・仕様 ID・本文。`labels` は QA.md に無いため触らない
@@ -254,6 +255,20 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
         schema::change_schema_in(connection, ITEM, &[spec], &[], &[]).await?;
     }
 
+    // project の本文は、その repo のルート直下の QA.md の案内。project を書くのは repo の最初のファイルの時で、
+    // ルート直下の QA.md が最初のファイルとは限らないため先に決める。取り込まない 2 つ目以降のファイルからは作らない
+    let mut guides: BTreeMap<&str, String> = BTreeMap::new();
+    let mut first_features: BTreeSet<(&str, &str)> = BTreeSet::new();
+    for (root, repo, file, feature, text, _) in parsed {
+        if first_features.insert((repo.as_str(), feature.as_str()))
+            && file.parent() == Some(root.as_path())
+        {
+            guides
+                .entry(repo.as_str())
+                .or_insert_with(|| qa_md::root_guide(text));
+        }
+    }
+
     let mut project_ids: BTreeMap<&str, Id> = BTreeMap::new();
     // 同じ project の同じ feature 名の 2 つ目以降のファイルは `parse_all` がどこにも入らなかった行として報告済み。
     // 書くと空の値で 1 つ目のファイルの feature (verification) を消すため、書かない
@@ -265,12 +280,13 @@ async fn write_all(connection: &Connection, parsed: &[ParsedFile]) -> Result<(),
         let project_id = match project_ids.get(repo.as_str()) {
             Some(project_id) => project_id.clone(),
             None => {
-                let (_, row) = rows::upsert_in(
-                    connection,
-                    PROJECT,
-                    &json!({"values": {"repo": repo, "path": root.display().to_string()}}),
-                )
-                .await?;
+                let mut project =
+                    json!({"values": {"repo": repo, "path": root.display().to_string()}});
+                // ルート直下の QA.md を取り込まない時は、案内の元が無いので本文を書かない (既にある本文を保つ)
+                if let Some(guide) = guides.get(repo.as_str()) {
+                    project["body"] = json!(guide);
+                }
+                let (_, row) = rows::upsert_in(connection, PROJECT, &project).await?;
                 project_ids.insert(repo, row.id.clone());
                 row.id
             }

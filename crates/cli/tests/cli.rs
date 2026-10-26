@@ -988,6 +988,16 @@ fn qa_import_dry_run_writes_nothing_and_import_is_idempotent() {
         8
     );
     assert_eq!(row_ids(&query(&sandbox, "project", &[])).len(), 1);
+    // castle の run-qa skill が読む案内 (ルートの QA.md の `## 横断確認項目` より前) が project の本文に入る
+    let project_body = query(&sandbox, "project", &[])[0]["body"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        project_body.contains("## 起動方法\n\n`bun run dev`"),
+        "{project_body}"
+    );
+    assert!(!project_body.contains("## 横断確認項目"), "{project_body}");
 
     // 2 回目も同じ出力で、行は増えない
     assert_eq!(

@@ -268,6 +268,29 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
         json!({"repo": "sample-notes", "path": root.display().to_string()})
     );
     let project_id = projects[0]["id"].as_str().unwrap();
+    // project の本文: ルートの QA.md の frontmatter の後ろ (7 行目) から `## 横断確認項目` (33 行目) の前までの案内
+    let root_text = std::fs::read_to_string(root.join("QA.md")).unwrap();
+    let project_body = projects[0]["body"].as_str().unwrap();
+    assert_eq!(
+        project_body,
+        root_text.lines().collect::<Vec<_>>()[6..31].join("\n")
+    );
+    for section in [
+        "# QA 全体ガイド",
+        "## 起動方法",
+        "## ログイン方法",
+        "## 実行ナレッジ",
+    ] {
+        assert!(project_body.contains(section), "{section}");
+    }
+    for outside in [
+        "feature: _root",
+        "## 横断確認項目",
+        "- [x]",
+        "## 機能別 QA.md",
+    ] {
+        assert!(!project_body.contains(outside), "{outside}");
+    }
 
     // feature: project への relation と frontmatter の verification
     let features = query_named(&connection, "feature", &[]).await;
@@ -291,6 +314,11 @@ async fn import_fills_the_four_databases_from_the_fixtures() {
         })
     );
     assert_eq!(features[0]["values"]["path"]["value"], "");
+    // `_root` の本文は project の本文と別に、今までどおり QA.md の原文の写しまで持つ
+    assert_eq!(
+        features[0]["body"],
+        feature_body(&qa_md::parse("QA.md", &root_text).body, &root_text)
+    );
     let note_editor_id = features[1]["id"].as_str().unwrap();
 
     // item: 自動化の 2 列と仕様 ID
@@ -1098,6 +1126,67 @@ async fn lossless_fixture_keeps_every_line_and_each_confirmation_becomes_a_run()
         "{}",
         root_feature[0]["body"]
     );
+    // `## 横断確認項目` も `## 機能別 QA.md` も無いルートの QA.md は、frontmatter の後ろの全体 (コードブロックを含む) が project の本文
+    let root_text = std::fs::read_to_string(root.join("QA.md")).unwrap();
+    let projects = query_named(&connection, "project", &[]).await;
+    assert_eq!(
+        projects[0]["body"],
+        root_text.lines().collect::<Vec<_>>()[6..].join("\n")
+    );
+}
+
+#[tokio::test]
+async fn the_project_body_is_replaced_only_when_the_root_qa_md_is_imported() {
+    let home = tempfile::tempdir().unwrap();
+    let connection = open(&home).await;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("sample-notes");
+    copy_dir(&fixture_root(), &root);
+    let guide = qa_md::root_guide(&std::fs::read_to_string(root.join("QA.md")).unwrap());
+
+    import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
+    let project_id = query_named(&connection, "project", &[]).await[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        query_named(&connection, "project", &[]).await[0]["body"],
+        guide
+    );
+
+    // 手で書き換えた本文は、ルートの QA.md を取り込み直すと案内に置き換わる (feature の本文と同じ規則)
+    rows::upsert(
+        &connection,
+        "project",
+        &json!({"id": project_id, "body": "メモ"}),
+    )
+    .await
+    .unwrap();
+    import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
+    assert_eq!(
+        query_named(&connection, "project", &[]).await[0]["body"],
+        guide
+    );
+
+    // ルートの QA.md が無い取り込みは、案内の元が無いので本文を変えない
+    rows::upsert(
+        &connection,
+        "project",
+        &json!({"id": project_id, "body": "メモ"}),
+    )
+    .await
+    .unwrap();
+    std::fs::remove_file(root.join("QA.md")).unwrap();
+    import(&connection, std::slice::from_ref(&root))
+        .await
+        .unwrap();
+    let projects = query_named(&connection, "project", &[]).await;
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["body"], "メモ");
 }
 
 #[tokio::test]
