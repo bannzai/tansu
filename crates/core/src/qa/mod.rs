@@ -14,7 +14,7 @@ use std::process::Command;
 
 use libsql::Connection;
 
-use crate::db::{rows, schema};
+use crate::db::{begin, finish, rows, schema};
 use crate::error::Error;
 use crate::model::{Database, Id, Row, Value};
 use crate::named_json;
@@ -95,6 +95,45 @@ pub(crate) async fn ensure_schema(connection: &Connection) -> Result<(), Error> 
         schema::change_schema_in(connection, name, &add, &unique, &[]).await?;
     }
     Ok(())
+}
+
+/// CLI と MCP の `delete`: データベース `database_name` の行 `row_id` を [`rows::delete`] と同じく消す。
+/// item の行を消す時は、`item` がその行だけの run も同じトランザクションで消す (item の無い run は表・`qa verified`・
+/// `qa export` のどれからも項目に紐付かず、たまる一方になるため)。`item` にほかの item も持つ run は消さず、
+/// 汎用層の delete がこの行の ID だけを外す。run のデータベースが無ければ消す run は無い。
+pub async fn delete(
+    connection: &Connection,
+    database_name: &str,
+    row_id: &str,
+) -> Result<(), Error> {
+    let transaction = begin(connection).await?;
+    let result = async {
+        if database_name == ITEM {
+            let runs: Vec<Row> = match rows::query_in(
+                &transaction,
+                RUN,
+                &[format!("item={row_id}")],
+                None,
+                None,
+            )
+            .await
+            {
+                Ok((run_database, runs)) => runs
+                    .into_iter()
+                    .filter(|run| relation_of(&run_database, run, "item").len() == 1)
+                    .collect(),
+                Err(Error::DatabaseNotFound(_)) => Vec::new(),
+                Err(error) => return Err(error),
+            };
+            // item より先に消す (先に item を消すと、汎用層の delete が run の `item` を空にして見つけられなくなる)
+            for run in runs {
+                rows::delete_in(&transaction, RUN, &run.id.0).await?;
+            }
+        }
+        rows::delete_in(&transaction, database_name, row_id).await
+    }
+    .await;
+    finish(transaction, result).await
 }
 
 /// データベース `database_name` で `filters` に一致する最初の行の ID。無ければ `None`。
