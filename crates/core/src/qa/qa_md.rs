@@ -73,7 +73,7 @@ pub struct QaMdConfirmation {
     pub date: Option<String>,
     /// この確認の最初の画像の URL。
     pub image_url: Option<String>,
-    /// この確認の本文 (markdown)。日付の後ろの注記・説明文と、すべての画像 (`![](<URL>)`)。
+    /// この確認の本文 (markdown)。`再確認日` の確認なら先頭の `再確認` の行、日付の後ろの注記・説明文と、すべての画像 (`![](<URL>)`)。
     pub body: String,
 }
 
@@ -1102,37 +1102,41 @@ fn parse_automation(value: &str) -> Option<(QaAutomation, Option<String>)> {
 }
 
 /// `⏭️ スキップ: 理由` / `❌ 失敗: 事象` の行なら、その記録。絵文字の有無だけで見分け (`⏭` は異体字セレクタの有無を問わない)、
-/// `:` (全角でも) の後ろを本文にする。`:` が無ければ絵文字の後ろ全体を本文にする。
+/// `:` (全角でも) の後ろを本文にする。`:` が無ければ絵文字の後ろ全体を本文にする。`:` の前が `スキップ` / `失敗` 以外
+/// (`一部スキップ` 等の補足語付き) なら、その語を落とさないよう本文を `一部スキップ: 理由` の形にする。
 fn parse_record(content: &str) -> Option<QaMdRecord> {
     // 行頭の絵文字だけで見分ける (本文に別の絵文字が出ても種別を変えない)
-    let (kind, marker) = if content.starts_with('⏭') {
-        (QaMdRecordKind::Skip, '⏭')
+    let (kind, marker, label_word) = if content.starts_with('⏭') {
+        (QaMdRecordKind::Skip, '⏭', "スキップ")
     } else if content.starts_with('❌') {
-        (QaMdRecordKind::Fail, '❌')
+        (QaMdRecordKind::Fail, '❌', "失敗")
     } else {
         return None;
     };
-    let after_marker = &content[marker.len_utf8()..];
-    let note = after_marker
-        .split_once([':', '：'])
-        .map_or(after_marker, |(_, note)| note)
-        .trim()
+    let after_marker = content[marker.len_utf8()..]
         .trim_start_matches('\u{fe0f}')
         .trim();
-    Some(QaMdRecord {
-        kind,
-        note: note.to_owned(),
-    })
+    let note = match after_marker
+        .split_once([':', '：'])
+        .map(|(label, reason)| (label.trim(), reason.trim()))
+    {
+        Some((label, reason)) if label.is_empty() || label == label_word => reason.to_owned(),
+        Some((label, reason)) => format!("{label}: {reason}").trim().to_owned(),
+        None => after_marker.to_owned(),
+    };
+    Some(QaMdRecord { kind, note })
 }
 
 /// 行頭 (`-` `*` の後ろ) が `確認日:` / `再確認日:` (太字の中でも外でも、`:` は全角でも) の行なら、(日付, 日付の後ろの注記)。
 /// 日付は先頭の数字と `-` の並びを保存する形 (`named_json::normalize_date`) にしたもので、読めなければ `None`。
 /// 注記は日付の後ろの文字列から太字の `*` と前後の空白を外したもの (`（Android は未確認）` 等。無ければ空)。
+/// `再確認日` の行の注記は、補足語の「再」を落とさないよう先頭に `再確認` の行を置く (`再確認\n（Android は未確認）`)。
 fn confirmation_line(trimmed: &str) -> Option<(Option<String>, String)> {
     let label = trimmed.trim_start_matches(['-', '*', ' ']);
-    let after_label = label
-        .strip_prefix("再確認日")
-        .or_else(|| label.strip_prefix("確認日"))?;
+    let (is_reconfirmation, after_label) = match label.strip_prefix("再確認日") {
+        Some(after_label) => (true, after_label),
+        None => (false, label.strip_prefix("確認日")?),
+    };
     let value = after_label
         .trim_start_matches(['*', ' '])
         .strip_prefix([':', '：'])?
@@ -1140,13 +1144,14 @@ fn confirmation_line(trimmed: &str) -> Option<(Option<String>, String)> {
     let date_length = value
         .find(|c: char| !(c.is_ascii_digit() || c == '-'))
         .unwrap_or(value.len());
+    let annotation = value[date_length..].trim().trim_matches('*').trim();
     Some((
         normalize_date(&value[..date_length]),
-        value[date_length..]
-            .trim()
-            .trim_matches('*')
-            .trim()
-            .to_owned(),
+        match (is_reconfirmation, annotation.is_empty()) {
+            (true, true) => "再確認".to_owned(),
+            (true, false) => format!("再確認\n{annotation}"),
+            (false, _) => annotation.to_owned(),
+        },
     ))
 }
 
@@ -1217,6 +1222,19 @@ mod tests {
             parse_record("⏭ 理由だけ").map(|record| record.note),
             Some("理由だけ".into())
         );
+        // 記号の後ろの補足語 (「一部」等) は本文の先頭に残す
+        assert_eq!(
+            parse_record("⏭️ 一部スキップ: 理由").map(|record| record.note),
+            Some("一部スキップ: 理由".into())
+        );
+        assert_eq!(
+            parse_record("❌ 一部失敗：落ちる").map(|record| record.note),
+            Some("一部失敗: 落ちる".into())
+        );
+        assert_eq!(
+            parse_record("⏭️: 理由").map(|record| record.note),
+            Some("理由".into())
+        );
         assert_eq!(parse_record("自動化: todo"), None);
         assert_eq!(parse_record("メモ: ❌ になる"), None);
         assert_eq!(
@@ -1237,7 +1255,14 @@ mod tests {
         );
         assert_eq!(
             confirmation_line("**再確認日：2026-09-05（Android は未確認）**"),
-            Some((Some("2026-09-05".into()), "（Android は未確認）".into()))
+            Some((
+                Some("2026-09-05".into()),
+                "再確認\n（Android は未確認）".into()
+            ))
+        );
+        assert_eq!(
+            confirmation_line("**再確認日: 2026-09-05**"),
+            Some((Some("2026-09-05".into()), "再確認".into()))
         );
         assert_eq!(
             confirmation_line("- 確認日: 2026-09-05"),

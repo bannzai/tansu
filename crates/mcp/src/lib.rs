@@ -12,7 +12,7 @@ use tansu_core::config::Settings;
 use tansu_core::db::{self, rows, schema};
 use tansu_core::qa::import as qa_import;
 use tansu_core::qa::record::{self as qa_record, ItemSelector, RecordRequest};
-use tansu_core::qa::{pr_summary, verified as qa_verified};
+use tansu_core::qa::{self, pr_summary, verified as qa_verified};
 use tansu_core::{Error, export, named_json, usage};
 
 /// stdio で MCP サーバーを動かし、クライアントが接続を閉じるまで待つ。stdout はプロトコルが使うため、ほかの出力は stderr に出す。
@@ -259,11 +259,11 @@ impl TansuServer {
         .await
     }
 
-    /// 行を消す。relation でこの行を参照している値からも外す。行が無ければ何もしない。成功すると空の結果を返す
+    /// 行を消す。relation でこの行を参照している値からも外す。item の行は、その項目だけを持つ run も消す。行が無ければ何もしない。成功すると空の結果を返す
     #[tool]
     async fn delete(&self, Parameters(params): Parameters<DeleteParams>) -> Result<(), String> {
         respond("delete", async {
-            rows::delete(&open().await?, &params.database, &params.row_id).await
+            qa::delete(&open().await?, &params.database, &params.row_id).await
         })
         .await
     }

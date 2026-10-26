@@ -7,7 +7,7 @@ use tansu_core::config::Settings;
 use tansu_core::db::{self, rows, schema};
 use tansu_core::qa::import::{self as qa_import, ImportReport};
 use tansu_core::qa::record::{self as qa_record, ItemSelector, RecordRequest};
-use tansu_core::qa::{pr_summary, verified as qa_verified};
+use tansu_core::qa::{self, pr_summary, verified as qa_verified};
 use tansu_core::{export, named_json, usage};
 
 /// tansu のコマンドライン。DB の読み書きはすべて tansu_core の関数を呼ぶ。
@@ -54,7 +54,7 @@ enum Command {
         #[arg(long, value_name = "行の JSON")]
         json: Option<String>,
     },
-    /// 行を消す。relation でこの行を参照している値からも外す。行が無ければ何もしない
+    /// 行を消す。relation でこの行を参照している値からも外す。item の行は、その項目だけを持つ run も消す。行が無ければ何もしない
     Delete {
         /// データベースの名前
         database: String,
@@ -354,7 +354,7 @@ async fn run(command: Command) -> Result<(Option<String>, ExitCode), Box<dyn std
             to_json(&named_json::row_to_json(&database, &row))?
         }
         Command::Delete { database, row_id } => {
-            rows::delete(&connection, &database, &row_id).await?;
+            qa::delete(&connection, &database, &row_id).await?;
             return Ok((None, ExitCode::SUCCESS));
         }
         Command::Export { database, format } => {
